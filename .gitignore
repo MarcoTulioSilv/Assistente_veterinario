@@ -1,0 +1,47 @@
+# Dependências
+node_modules/
+.pnp
+.pnp.js
+
+# Build
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Testes
+coverage/
+.nyc_output/
+
+# Ambiente — NUNCA COMMITAR
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Editor
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.example.json
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Turbo
+.turbo/
+
+# Prisma
+prisma/*.db
+prisma/*.db-journal
+
+# Docker volumes locais
+docker-data/

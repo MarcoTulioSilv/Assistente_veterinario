@@ -1,0 +1,25 @@
+name: PWA Frontend
+
+on:
+  push:
+    branches: [main, staging, develop]
+    paths: ['apps/pwa/**', 'packages/**', '.github/workflows/pwa.yml']
+  pull_request:
+    paths: ['apps/pwa/**', 'packages/**']
+
+jobs:
+  build:
+    name: Lint, Test & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run lint --workspace=@vetequine/pwa
+      - run: npm run typecheck --workspace=@vetequine/pwa
+      - run: npm run build --workspace=@vetequine/pwa
+        env:
+          NEXT_PUBLIC_BFF_URL: http://localhost:3000/api/v1

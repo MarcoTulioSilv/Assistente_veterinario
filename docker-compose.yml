@@ -1,0 +1,148 @@
+# ══════════════════════════════════════════════════════════════════
+# VetEquine — Ambiente de Desenvolvimento Local
+# Uso:  docker compose up -d
+#       docker compose logs -f
+#       docker compose down -v   (apaga volumes)
+# ══════════════════════════════════════════════════════════════════
+
+services:
+  # ─── Bancos: um PostgreSQL por microsserviço ────────────────────
+  db-identity:
+    image: postgres:16-alpine
+    container_name: vq-db-identity
+    environment:
+      POSTGRES_USER: vetequine
+      POSTGRES_PASSWORD: vetequine
+      POSTGRES_DB: identity
+    ports: ['5432:5432']
+    volumes:
+      - db-identity-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U vetequine -d identity']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [vetequine-net]
+
+  db-inventory:
+    image: postgres:16-alpine
+    container_name: vq-db-inventory
+    environment:
+      POSTGRES_USER: vetequine
+      POSTGRES_PASSWORD: vetequine
+      POSTGRES_DB: inventory
+    ports: ['5433:5432']
+    volumes:
+      - db-inventory-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U vetequine -d inventory']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [vetequine-net]
+
+  db-clinical:
+    image: postgres:16-alpine
+    container_name: vq-db-clinical
+    environment:
+      POSTGRES_USER: vetequine
+      POSTGRES_PASSWORD: vetequine
+      POSTGRES_DB: clinical
+    ports: ['5434:5432']
+    volumes:
+      - db-clinical-data:/var/lib/postgresql/data
+    networks: [vetequine-net]
+    profiles: [m2]
+
+  db-scheduling:
+    image: postgres:16-alpine
+    container_name: vq-db-scheduling
+    environment:
+      POSTGRES_USER: vetequine
+      POSTGRES_PASSWORD: vetequine
+      POSTGRES_DB: scheduling
+    ports: ['5435:5432']
+    volumes:
+      - db-scheduling-data:/var/lib/postgresql/data
+    networks: [vetequine-net]
+    profiles: [m3]
+
+  db-notification:
+    image: postgres:16-alpine
+    container_name: vq-db-notification
+    environment:
+      POSTGRES_USER: vetequine
+      POSTGRES_PASSWORD: vetequine
+      POSTGRES_DB: notification
+    ports: ['5436:5432']
+    volumes:
+      - db-notification-data:/var/lib/postgresql/data
+    networks: [vetequine-net]
+    profiles: [m3]
+
+  db-reporting:
+    image: postgres:16-alpine
+    container_name: vq-db-reporting
+    environment:
+      POSTGRES_USER: vetequine
+      POSTGRES_PASSWORD: vetequine
+      POSTGRES_DB: reporting
+    ports: ['5437:5432']
+    volumes:
+      - db-reporting-data:/var/lib/postgresql/data
+    networks: [vetequine-net]
+    profiles: [m3]
+
+  db-aivoice:
+    image: postgres:16-alpine
+    container_name: vq-db-aivoice
+    environment:
+      POSTGRES_USER: vetequine
+      POSTGRES_PASSWORD: vetequine
+      POSTGRES_DB: aivoice
+    ports: ['5438:5432']
+    volumes:
+      - db-aivoice-data:/var/lib/postgresql/data
+    networks: [vetequine-net]
+    profiles: [m4]
+
+  # ─── Redis: cache + fila (Bull) + pub/sub ───────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: vq-redis
+    ports: ['6379:6379']
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [vetequine-net]
+
+  # ─── Adminer: UI web para inspecionar os bancos ─────────────────
+  adminer:
+    image: adminer:latest
+    container_name: vq-adminer
+    ports: ['8080:8080']
+    environment:
+      ADMINER_DEFAULT_SERVER: db-identity
+      ADMINER_DESIGN: dracula
+    depends_on:
+      - db-identity
+    networks: [vetequine-net]
+
+volumes:
+  db-identity-data:
+  db-inventory-data:
+  db-clinical-data:
+  db-scheduling-data:
+  db-notification-data:
+  db-reporting-data:
+  db-aivoice-data:
+  redis-data:
+
+networks:
+  vetequine-net:
+    driver: bridge

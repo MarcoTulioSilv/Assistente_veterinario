@@ -1,0 +1,277 @@
+// ══════════════════════════════════════════════════════════════════
+// MS1 — Identity & Registry Service
+// Marco M1 · Jul/2026 · Dev 1 (Marco Túlio)
+// Base: ERD VetEquine · ADR-001 §5.1 (database-per-service)
+// ══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL_IDENTITY")
+}
+
+// ─── ENUMS ────────────────────────────────────────────────────────
+enum TenantPlan {
+  basic
+  plus
+}
+
+enum TenantStatus {
+  active
+  suspended
+  cancelled
+}
+
+enum UserRole {
+  admin
+  assistant
+}
+
+enum UserStatus {
+  active
+  inactive
+}
+
+enum RecordStatus {
+  pending
+  active
+}
+
+enum AnimalSex {
+  male
+  female
+}
+
+// ─── TENANTS ──────────────────────────────────────────────────────
+model Tenant {
+  id                  String       @id @default(uuid()) @db.Uuid
+  name                String       @db.VarChar(200)
+  slug                String       @unique @db.VarChar(100)
+  plan                TenantPlan   @default(basic)
+  status              TenantStatus @default(active)
+  maxOwners           Int          @default(30) @map("max_owners")
+  transcriptionsUsed  Int          @default(0) @map("transcriptions_used")
+  transcriptionsLimit Int?         @map("transcriptions_limit")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  users      User[]
+  owners     Owner[]
+  properties Property[]
+  animals    Animal[]
+
+  @@index([plan])
+  @@index([status])
+  @@map("tenants")
+}
+
+// ─── USERS ────────────────────────────────────────────────────────
+model User {
+  id               String     @id @default(uuid()) @db.Uuid
+  tenantId         String     @map("tenant_id") @db.Uuid
+  email            String     @unique @db.VarChar(255)
+  passwordHash     String     @map("password_hash") @db.VarChar(255)
+  role             UserRole   @default(admin)
+  fullName         String     @map("full_name") @db.VarChar(255)
+  phone            String?    @db.VarChar(20)
+  totpSecret       String?    @map("totp_secret") @db.VarChar(100)
+  totpEnabled      Boolean    @default(false) @map("totp_enabled")
+  refreshTokenHash String?    @map("refresh_token_hash") @db.VarChar(255)
+  lastLoginAt      DateTime?  @map("last_login_at") @db.Timestamptz
+  status           UserStatus @default(active)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  veterinarian Veterinarian?
+  auditLogs    AuditLog[]
+
+  @@index([tenantId])
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+// ─── VETERINARIANS ────────────────────────────────────────────────
+model Veterinarian {
+  id        String  @id @default(uuid()) @db.Uuid
+  tenantId  String  @map("tenant_id") @db.Uuid
+  userId    String  @unique @map("user_id") @db.Uuid
+  fullName  String  @map("full_name") @db.VarChar(255)
+  crmv      String  @db.VarChar(30)
+  crmvState String  @map("crmv_state") @db.Char(2)
+  cpfCnpj   String  @map("cpf_cnpj") @db.VarChar(20)
+  phone     String  @db.VarChar(20)
+  email     String  @db.VarChar(255)
+  logoUrl   String? @map("logo_url") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, crmv])
+  @@unique([tenantId, cpfCnpj])
+  @@index([tenantId])
+  @@map("veterinarians")
+}
+
+// ─── OWNERS ───────────────────────────────────────────────────────
+model Owner {
+  id            String       @id @default(uuid()) @db.Uuid
+  tenantId      String       @map("tenant_id") @db.Uuid
+  fullName      String       @map("full_name") @db.VarChar(255)
+  cpf           String?      @db.VarChar(14)
+  email         String?      @db.VarChar(255)
+  phone         String?      @db.VarChar(20)
+  phone2        String?      @db.VarChar(20)
+  address       String?      @db.Text
+  city          String?      @db.VarChar(100)
+  state         String?      @db.Char(2)
+  status        RecordStatus @default(pending)
+  notifyBlocked Boolean      @default(false) @map("notify_blocked")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  properties PropertyOwner[]
+  animals    Animal[]
+
+  @@unique([tenantId, cpf])
+  @@index([tenantId])
+  @@index([status])
+  @@index([fullName])
+  @@map("owners")
+}
+
+// ─── PROPERTIES ───────────────────────────────────────────────────
+model Property {
+  id        String       @id @default(uuid()) @db.Uuid
+  tenantId  String       @map("tenant_id") @db.Uuid
+  name      String       @db.VarChar(255)
+  address   String?      @db.Text
+  city      String?      @db.VarChar(100)
+  state     String?      @db.Char(2)
+  zipCode   String?      @map("zip_code") @db.VarChar(10)
+  latitude  Decimal?     @db.Decimal(10, 7)
+  longitude Decimal?     @db.Decimal(10, 7)
+  status    RecordStatus @default(pending)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  owners        PropertyOwner[]
+  animals       Animal[]
+  transfersFrom AnimalTransfer[]  @relation("TransferFrom")
+  transfersTo   AnimalTransfer[]  @relation("TransferTo")
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([name])
+  @@map("properties")
+}
+
+// ─── PROPERTY_OWNERS (N:N) ────────────────────────────────────────
+model PropertyOwner {
+  id         String  @id @default(uuid()) @db.Uuid
+  tenantId   String  @map("tenant_id") @db.Uuid
+  propertyId String  @map("property_id") @db.Uuid
+  ownerId    String  @map("owner_id") @db.Uuid
+  isPrimary  Boolean @default(false) @map("is_primary")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  owner    Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, ownerId])
+  @@index([tenantId])
+  @@map("property_owners")
+}
+
+// ─── ANIMALS ──────────────────────────────────────────────────────
+model Animal {
+  id         String       @id @default(uuid()) @db.Uuid
+  tenantId   String       @map("tenant_id") @db.Uuid
+  propertyId String?      @map("property_id") @db.Uuid
+  ownerId    String?      @map("owner_id") @db.Uuid
+  name       String       @db.VarChar(255)
+  species    String       @default("equine") @db.VarChar(50)
+  sex        AnimalSex?
+  breed      String?      @db.VarChar(100)
+  coat       String?      @db.VarChar(200)
+  birthDate  DateTime?    @map("birth_date") @db.Date
+  castrated  Boolean      @default(false)
+  photoUrl   String?      @map("photo_url") @db.Text
+  sketchUrl  String?      @map("sketch_url") @db.Text
+  status     RecordStatus @default(pending)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  property  Property?        @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  owner     Owner?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  transfers AnimalTransfer[]
+
+  @@index([tenantId])
+  @@index([propertyId])
+  @@index([ownerId])
+  @@index([status])
+  @@index([name])
+  @@map("animals")
+}
+
+// ─── ANIMAL_TRANSFERS (RN-010: preserva histórico) ────────────────
+model AnimalTransfer {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  animalId       String   @map("animal_id") @db.Uuid
+  fromPropertyId String?  @map("from_property_id") @db.Uuid
+  toPropertyId   String   @map("to_property_id") @db.Uuid
+  transferredAt  DateTime @default(now()) @map("transferred_at") @db.Timestamptz
+  notes          String?  @db.Text
+
+  animal       Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
+  fromProperty Property? @relation("TransferFrom", fields: [fromPropertyId], references: [id])
+  toProperty   Property  @relation("TransferTo", fields: [toPropertyId], references: [id])
+
+  @@index([tenantId])
+  @@index([animalId])
+  @@index([transferredAt])
+  @@map("animal_transfers")
+}
+
+// ─── AUDIT_LOG (LGPD — Cláusula 10ª do contrato) ──────────────────
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String   @db.VarChar(100)
+  tableName String   @map("table_name") @db.VarChar(100)
+  recordId  String   @map("record_id") @db.Uuid
+  oldValues Json?    @map("old_values")
+  newValues Json?    @map("new_values")
+  ipAddress String?  @map("ip_address") @db.Inet
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([action])
+  @@index([tableName])
+  @@index([createdAt])
+  @@map("audit_log")
+}

@@ -1,0 +1,134 @@
+// ══════════════════════════════════════════════════════════════════
+// MS2 — Inventory Service
+// Marco M1 · Jul/2026 · Dev 1 (Marco Túlio)
+// ══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client-inventory"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL_INVENTORY")
+}
+
+enum ProductUnit {
+  ampola
+  bolsa
+  caixa
+  frasco
+  galao
+  grama
+  kg
+  litros
+  ml
+  pacote
+  peca
+  unidade
+}
+
+enum ProductCategory {
+  medication
+  vaccine
+  supply
+}
+
+enum MovementType {
+  in
+  out
+}
+
+enum MovementReason {
+  purchase
+  appointment
+  exam
+  vaccination
+  manual
+  expired
+}
+
+enum AlertType {
+  expiry
+  low_stock
+}
+
+model Product {
+  id              String          @id @default(uuid()) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+  name            String          @db.VarChar(255)
+  manufacturer    String?         @db.VarChar(255)
+  batch           String?         @db.VarChar(100)
+  unit            ProductUnit
+  quantityInStock Decimal         @default(0) @map("quantity_in_stock") @db.Decimal(10, 3)
+  dosesPerUnit    Decimal?        @map("doses_per_unit") @db.Decimal(10, 3)
+
+  // RN-004: valores SEMPRE em centavos (INTEGER) — ADR-001 §5.6
+  costPriceCents  Int             @map("cost_price_cents")
+  markupPercent   Decimal         @default(0) @map("markup_percent") @db.Decimal(5, 2)
+  // salePriceCents é GENERATED — ver migration SQL
+
+  expiryDate      DateTime?       @map("expiry_date") @db.Date
+  alertDaysBefore Int             @default(30) @map("alert_days_before")
+  minStockQty     Decimal         @default(0) @map("min_stock_qty") @db.Decimal(10, 3)
+  category        ProductCategory
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  movements StockMovement[]
+  alerts    AlertConfig[]
+
+  @@index([tenantId])
+  @@index([name])
+  @@index([expiryDate])
+  @@index([category])
+  @@map("products")
+}
+
+model StockMovement {
+  id            String         @id @default(uuid()) @db.Uuid
+  tenantId      String         @map("tenant_id") @db.Uuid
+  productId     String         @map("product_id") @db.Uuid
+  type          MovementType
+  quantity      Decimal        @db.Decimal(10, 3)
+  reason        MovementReason
+  referenceId   String?        @map("reference_id") @db.Uuid
+  referenceType String?        @map("reference_type") @db.VarChar(50)
+
+  // RN-003 + ADR-001 §5.4: evita dupla baixa em redelivery do broker
+  idempotencyKey String        @unique @map("idempotency_key") @db.Uuid
+
+  notes     String?  @db.Text
+  createdBy String?  @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([productId])
+  @@index([type])
+  @@index([reason])
+  @@index([createdAt])
+  @@map("stock_movements")
+}
+
+model AlertConfig {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  productId       String?   @map("product_id") @db.Uuid
+  alertType       AlertType @map("alert_type")
+  thresholdDays   Int?      @map("threshold_days")
+  thresholdQty    Decimal?  @map("threshold_qty") @db.Decimal(10, 3)
+  isGlobal        Boolean   @default(false) @map("is_global")
+  lastTriggeredAt DateTime? @map("last_triggered_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([alertType])
+  @@map("alert_configs")
+}
