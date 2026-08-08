@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import { ServiceWorkerRegistration } from '@/components/ServiceWorkerRegistration';
+import { ToastProvider } from '@/components/ui';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -24,8 +25,10 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body>
-        {children}
-        <ServiceWorkerRegistration />
+        <ToastProvider>
+          {children}
+          <ServiceWorkerRegistration />
+        </ToastProvider>
       </body>
     </html>
   );
