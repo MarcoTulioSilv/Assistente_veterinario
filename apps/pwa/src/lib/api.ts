@@ -1,10 +1,21 @@
-import type { ApiError, Paginated, Owner, Property, Animal } from '@vetequine/shared-types';
+import type { ApiError, Paginated, Owner, Property, Animal, AuthTokens } from '@vetequine/shared-types';
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
 
 function getToken(): string | null {
   if (typeof window === 'undefined') return null;
   return sessionStorage.getItem('accessToken');
+}
+
+/** Persiste os tokens da sessão após login — chamado pela tela de login */
+export function setSession(tokens: Pick<AuthTokens, 'accessToken' | 'refreshToken'>): void {
+  sessionStorage.setItem('accessToken', tokens.accessToken);
+  sessionStorage.setItem('refreshToken', tokens.refreshToken);
+}
+
+export function clearSession(): void {
+  sessionStorage.removeItem('accessToken');
+  sessionStorage.removeItem('refreshToken');
 }
 
 export class ApiClientError extends Error {
@@ -42,6 +53,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** Cliente tipado do BFF — Dev 2 é o dono */
 export const api = {
+  auth: {
+    login: (email: string, password: string, totpCode?: string) =>
+      request<AuthTokens>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password, totpCode }),
+      }),
+  },
   owners: {
     list: (params?: { page?: number; search?: string }) =>
       request<Paginated<Owner>>(`/owners?${new URLSearchParams(params as never)}`),
