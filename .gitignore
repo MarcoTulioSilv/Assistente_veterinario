@@ -9,10 +9,12 @@ build/
 .next/
 out/
 *.tsbuildinfo
+next-env.d.ts
 
 # Testes
 coverage/
 .nyc_output/
+screenshots/
 
 # Ambiente — NUNCA COMMITAR
 .env
