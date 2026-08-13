@@ -47,6 +47,7 @@ jobs:
           --health-timeout 5s --health-retries 5
     env:
       DATABASE_URL_IDENTITY: postgresql://vetequine:vetequine@localhost:5432/identity_test
+      DATABASE_URL_IDENTITY_APP: postgresql://vetequine_app:app_dev_password@localhost:5432/identity_test
       JWT_SECRET: test-secret-com-mais-de-32-caracteres-para-ci
     steps:
       - uses: actions/checkout@v4
@@ -57,6 +58,11 @@ jobs:
       - run: npm ci
       - run: npx prisma generate --schema apps/ms-identity/prisma/schema.prisma
       - run: npx prisma migrate deploy --schema apps/ms-identity/prisma/schema.prisma
+      # Cria a role restrita (vetequine_app) e concede as permissoes pos-migration --
+      # sem isso, os testes que usam DATABASE_URL_IDENTITY_APP (RLS, auth lookup)
+      # nao tem role pra conectar (ADR-003 Decisao 1).
+      - name: Criar role vetequine_app
+        run: psql "$DATABASE_URL_IDENTITY" -f infra/postgres-init/01-create-app-role.sql
       - run: npm run test:cov --workspace=@vetequine/ms-identity
 
   security:

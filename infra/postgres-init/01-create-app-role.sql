@@ -59,7 +59,21 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO vetequine_app;
 
--- ─── 4. Confirmacao ───────────────────────────────────────────────
+-- ─── 4. Funcoes de auth pre-tenant (SECURITY DEFINER) ─────────────
+-- So EXECUTE, nunca SELECT direto -- ver ADR-004 e a migration
+-- 20260813192902_auth_refresh_and_lookup. So existem no banco do
+-- identity; nos demais bancos este GRANT falharia -- rode este
+-- arquivo so apos as migrations do servico correspondente.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'auth_lookup_by_email') THEN
+    GRANT EXECUTE ON FUNCTION auth_lookup_by_email(TEXT)    TO vetequine_app;
+    GRANT EXECUTE ON FUNCTION auth_tenant_id_for_user(UUID) TO vetequine_app;
+  END IF;
+END
+$$;
+
+-- ─── 5. Confirmacao ───────────────────────────────────────────────
 -- As duas colunas devem ser 'f' na linha do vetequine_app.
 -- Se 'ignora_rls' for 't', as policies seriam decorativas.
 SELECT
