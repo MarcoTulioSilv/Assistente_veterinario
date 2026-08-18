@@ -24,6 +24,7 @@ export interface RequestContext {
 
 export type UserRole = 'admin' | 'assistant';
 export type TenantPlan = 'basic' | 'plus';
+export type TenantStatus = 'active' | 'suspended' | 'cancelled';
 export type RecordStatus = 'pending' | 'active';
 
 // ═══ Paginação ════════════════════════════════════════════════════
@@ -81,6 +82,24 @@ export interface UserSummary {
   tenantId: UUID;
 }
 
+export interface TenantProfile {
+  tenantId: UUID;
+  tenantName: string;
+  plan: TenantPlan;
+  status: TenantStatus;
+  veterinarian: {
+    id: UUID;
+    userId: UUID;
+    fullName: string;
+    crmv: string;
+    crmvState: string;
+    cpfCnpj: string;
+    phone: string;
+    email: string;
+    logoUrl: string | null;
+  };
+}
+
 export interface Owner {
   id: UUID;
   fullName: string;
@@ -131,6 +150,33 @@ export interface IAuthService {
   refresh(refreshToken: string): Promise<AuthTokens>;
   logout(userId: UUID): Promise<void>;
 }
+
+/**
+ * RF-CAD-030 (ERS) / UC-CAD-04 — "Gerenciar Dados do Veterinário".
+ * Neste domínio o tenant É o veterinário assinante; register() cria
+ * Tenant+User(admin)+Veterinarian juntos. logoUrl aceita só uma URL já
+ * hospedada — não há upload de arquivo (S3/R2) implementado ainda.
+ */
+export interface ITenantService {
+  register(data: RegisterTenantDto): Promise<TenantProfile>;
+  getMyProfile(ctx: RequestContext): Promise<TenantProfile>;
+  updateVeterinarianProfile(ctx: RequestContext, data: UpdateVeterinarianDto): Promise<TenantProfile>;
+}
+
+export interface RegisterTenantDto {
+  fullName: string;
+  crmv: string;
+  crmvState: string;
+  cpfCnpj: string;
+  phone: string;
+  email: string;
+  password: string;
+  /** URL já hospedada — sem upload real ainda, ver ITenantService. */
+  logoUrl?: string;
+  /** Nome do tenant/clínica; default = fullName se omitido (RF-CAD-030 não define campo próprio). */
+  tenantName?: string;
+}
+export type UpdateVeterinarianDto = Partial<Pick<RegisterTenantDto, 'fullName' | 'phone' | 'email' | 'logoUrl'>>;
 
 export interface IOwnerService {
   list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<Owner>>;

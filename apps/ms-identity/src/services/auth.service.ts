@@ -1,24 +1,12 @@
 import { randomBytes } from 'node:crypto';
-import bcrypt from 'bcryptjs';
 import { SignJWT } from 'jose';
 import { TOTP, Secret } from 'otpauth';
 import type { IAuthService, AuthTokens, UUID, UserRole, TenantPlan } from '@vetequine/shared-types';
 import { AppError, getJwtSecret } from '@vetequine/shared-middlewares';
 import type { AuthRepository, AuthLookupRow } from '../repositories/auth.repository';
+import { hashPassword, comparePassword, DUMMY_BCRYPT_HASH } from '../lib/password';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Hash bcrypt de uma senha fixa e inexistente, gerado uma única vez.
- * Usado como alvo de comparação quando o e-mail não existe, para que
- * login() gaste tempo parecido tanto em "senha errada" quanto em
- * "e-mail não existe" — evita enumerar contas por timing.
- */
-const DUMMY_BCRYPT_HASH = bcrypt.hashSync('dummy-password-timing-safety', bcryptRounds());
-
-function bcryptRounds(): number {
-  return parseInt(process.env['BCRYPT_ROUNDS'] ?? '12', 10);
-}
 
 /** Converte strings tipo "15m"/"7d"/"30s" em milissegundos. */
 function parseDurationMs(input: string): number {
@@ -63,7 +51,7 @@ export class AuthService implements IAuthService {
   async login(email: string, password: string, totpCode?: string): Promise<AuthTokens> {
     const row = await this.repo.findAuthByEmail(email);
 
-    const passwordOk = await bcrypt.compare(password, row?.passwordHash ?? DUMMY_BCRYPT_HASH);
+    const passwordOk = await comparePassword(password, row?.passwordHash ?? DUMMY_BCRYPT_HASH);
     if (!row || !passwordOk) {
       throw AppError.unauthorized('Credenciais inválidas');
     }
@@ -177,7 +165,7 @@ export class AuthService implements IAuthService {
     if (!user.refreshTokenHash || !user.refreshTokenExpiresAt || user.refreshTokenExpiresAt < new Date()) {
       throw AppError.unauthorized('Sessão expirada');
     }
-    const secretOk = await bcrypt.compare(secret, user.refreshTokenHash);
+    const secretOk = await comparePassword(secret, user.refreshTokenHash);
     if (!secretOk) {
       throw AppError.unauthorized('Sessão inválida');
     }
@@ -207,7 +195,7 @@ export class AuthService implements IAuthService {
 
   private async hashRefreshSecret(refreshToken: string): Promise<string> {
     const secret = refreshToken.slice(refreshToken.indexOf('.') + 1);
-    return bcrypt.hash(secret, bcryptRounds());
+    return hashPassword(secret);
   }
 
   private refreshExpiresAt(): Date {
