@@ -9,7 +9,10 @@ COPY apps/ms-identity ./apps/ms-identity
 
 RUN npm ci
 RUN npx prisma generate --schema apps/ms-identity/prisma/schema.prisma
-RUN npm run build --workspace=@vetequine/ms-identity
+# turbo (nao "npm run build --workspace") -- ms-identity depende de
+# shared-types/shared-middlewares estarem buildados primeiro (dist/ e
+# gitignorado); turbo.json ja declara isso via dependsOn: ["^build"].
+RUN npx turbo run build --filter=@vetequine/ms-identity
 
 # ─── Stage 2: runtime ────────────────────────────────────────────
 FROM node:20-alpine AS runner

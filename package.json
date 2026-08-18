@@ -9,6 +9,7 @@
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "turbo run build --filter=@vetequine/shared-types --filter=@vetequine/shared-middlewares",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "vitest run",

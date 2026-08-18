@@ -3,7 +3,10 @@ WORKDIR /app
 COPY package*.json turbo.json tsconfig.base.json ./
 COPY packages ./packages
 COPY apps/bff ./apps/bff
-RUN npm ci && npm run build --workspace=@vetequine/bff
+# turbo (nao "npm run build --workspace") -- bff depende de shared-types/
+# shared-middlewares buildados primeiro (dist/ e gitignorado); turbo.json
+# ja resolve isso via dependsOn: ["^build"].
+RUN npm ci && npx turbo run build --filter=@vetequine/bff
 
 FROM node:20-alpine AS runner
 WORKDIR /app

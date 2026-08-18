@@ -88,6 +88,15 @@ npm install
 Demora de 2 a 4 minutos na primeira vez. O npm lê os `workspaces` do
 `package.json` raiz e instala tudo numa única pasta `node_modules`.
 
+Um hook `postinstall` builda `shared-types` e `shared-middlewares`
+automaticamente logo em seguida (você vai ver `turbo run build...` rodar
+sozinho) — os dois publicam `dist/` via `main`/`types` no `package.json`,
+e essa pasta é gitignorada, então precisa existir antes de qualquer outro
+comando (`dev`, `test`, `typecheck`) funcionar. Se um dia isso não rodar
+sozinho (ex.: `npm ci --ignore-scripts`), rode
+`npx turbo run build --filter=@vetequine/shared-types --filter=@vetequine/shared-middlewares`
+manualmente.
+
 ### Confirmar que os workspaces foram vinculados
 
 ```powershell
