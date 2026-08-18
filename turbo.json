@@ -1,6 +1,11 @@
 {
   "$schema": "https://turbo.build/schema.json",
   "globalDependencies": [".env"],
+  // Turbo 2.x filtra env vars dos processos filhos por padrao ("strict").
+  // Projeto tem muitas variaveis (DATABASE_URL_* por servico, JWT_SECRET,
+  // chaves de API externas em M2+) -- "loose" restaura o passthrough
+  // completo em vez de precisar listar cada uma em "env" por task.
+  "envMode": "loose",
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
