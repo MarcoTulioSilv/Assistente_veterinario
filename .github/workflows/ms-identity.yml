@@ -27,8 +27,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma generate --schema apps/ms-identity/prisma/schema.prisma
-      - run: npm run lint --workspace=@vetequine/ms-identity
-      - run: npm run typecheck --workspace=@vetequine/ms-identity
+      # turbo (nao "npm run --workspace") -- typecheck/lint dependem de shared-types
+      # e shared-middlewares estarem buildados primeiro (turbo.json dependsOn: ["^build"]);
+      # chamar o script do workspace direto pula essa ordem e falha com "Cannot find
+      # module '@vetequine/shared-types'" (dist/ e gitignorado, nunca existe num checkout limpo).
+      - run: npx turbo run lint --filter=@vetequine/ms-identity
+      - run: npx turbo run typecheck --filter=@vetequine/ms-identity
 
   test:
     name: Testes Unitários
@@ -63,7 +67,10 @@ jobs:
       # nao tem role pra conectar (ADR-003 Decisao 1).
       - name: Criar role vetequine_app
         run: psql "$DATABASE_URL_IDENTITY" -f infra/postgres-init/01-create-app-role.sql
-      - run: npm run test:cov --workspace=@vetequine/ms-identity
+      # turbo, mesmo motivo do job lint: test:cov precisa de shared-types/
+      # shared-middlewares buildados (dist/), senao falha em runtime (MODULE_NOT_FOUND),
+      # nao so em typecheck.
+      - run: npx turbo run test:cov --filter=@vetequine/ms-identity
 
   security:
     name: SAST & Audit

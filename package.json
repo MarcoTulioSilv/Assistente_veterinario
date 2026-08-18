@@ -2,6 +2,7 @@
   "name": "vetequine",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "npm@10.9.2",
   "description": "VetEquine SaaS — Sistema de Gestão Veterinária Equina",
   "workspaces": [
     "apps/*",
