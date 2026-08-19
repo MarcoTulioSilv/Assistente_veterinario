@@ -9,7 +9,10 @@ COPY apps/ms-inventory ./apps/ms-inventory
 
 RUN npm ci
 RUN npx prisma generate --schema apps/ms-inventory/prisma/schema.prisma
-RUN npm run build --workspace=@vetequine/ms-inventory
+# turbo (nao "npm run build --workspace") -- mesmo motivo do Dockerfile
+# do ms-identity: dist/ de shared-types/shared-middlewares precisa
+# existir antes, turbo.json ja resolve isso via dependsOn: ["^build"].
+RUN npx turbo run build --filter=@vetequine/ms-inventory
 
 # ─── Stage 2: runtime ────────────────────────────────────────────
 FROM node:20-alpine AS runner

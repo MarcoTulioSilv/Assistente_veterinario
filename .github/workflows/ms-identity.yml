@@ -27,8 +27,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx prisma generate --schema apps/ms-identity/prisma/schema.prisma
-      - run: npm run lint --workspace=@vetequine/ms-identity
-      - run: npm run typecheck --workspace=@vetequine/ms-identity
+      # turbo (nao "npm run --workspace") -- typecheck/lint dependem de shared-types
+      # e shared-middlewares estarem buildados primeiro (turbo.json dependsOn: ["^build"]);
+      # chamar o script do workspace direto pula essa ordem e falha com "Cannot find
+      # module '@vetequine/shared-types'" (dist/ e gitignorado, nunca existe num checkout limpo).
+      - run: npx turbo run lint --filter=@vetequine/ms-identity
+      - run: npx turbo run typecheck --filter=@vetequine/ms-identity
 
   test:
     name: Testes Unitários
@@ -47,6 +51,7 @@ jobs:
           --health-timeout 5s --health-retries 5
     env:
       DATABASE_URL_IDENTITY: postgresql://vetequine:vetequine@localhost:5432/identity_test
+      DATABASE_URL_IDENTITY_APP: postgresql://vetequine_app:app_dev_password@localhost:5432/identity_test
       JWT_SECRET: test-secret-com-mais-de-32-caracteres-para-ci
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +62,15 @@ jobs:
       - run: npm ci
       - run: npx prisma generate --schema apps/ms-identity/prisma/schema.prisma
       - run: npx prisma migrate deploy --schema apps/ms-identity/prisma/schema.prisma
-      - run: npm run test:cov --workspace=@vetequine/ms-identity
+      # Cria a role restrita (vetequine_app) e concede as permissoes pos-migration --
+      # sem isso, os testes que usam DATABASE_URL_IDENTITY_APP (RLS, auth lookup)
+      # nao tem role pra conectar (ADR-003 Decisao 1).
+      - name: Criar role vetequine_app
+        run: psql "$DATABASE_URL_IDENTITY" -f infra/postgres-init/01-create-app-role.sql
+      # turbo, mesmo motivo do job lint: test:cov precisa de shared-types/
+      # shared-middlewares buildados (dist/), senao falha em runtime (MODULE_NOT_FOUND),
+      # nao so em typecheck.
+      - run: npx turbo run test:cov --filter=@vetequine/ms-identity
 
   security:
     name: SAST & Audit

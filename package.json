@@ -2,12 +2,14 @@
   "name": "vetequine",
   "version": "1.0.0",
   "private": true,
+  "packageManager": "npm@10.9.2",
   "description": "VetEquine SaaS — Sistema de Gestão Veterinária Equina",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
+    "postinstall": "turbo run build --filter=@vetequine/shared-types --filter=@vetequine/shared-middlewares",
     "dev": "turbo run dev",
     "build": "turbo run build",
     "test": "vitest run",
@@ -43,7 +45,8 @@
   },
   "overrides": {
     "postcss": "^8.5.23",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "deepmerge-ts": "^8.0.1"
   },
   "engines": {
     "node": ">=20.0.0",

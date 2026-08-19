@@ -16,7 +16,12 @@ interface JwtClaims {
   plan: TenantPlan;
 }
 
-function getSecret(): Uint8Array {
+/**
+ * Deriva a chave HMAC a partir de JWT_SECRET. Exportada porque quem assina
+ * tokens (AuthService) precisa gerar a mesma chave, byte a byte, que quem
+ * verifica aqui — duplicar essa lógica arriscaria os dois lados divergirem.
+ */
+export function getJwtSecret(): Uint8Array {
   const secret = process.env['JWT_SECRET'];
   if (!secret || secret.length < 32) {
     throw new Error('JWT_SECRET ausente ou com menos de 32 caracteres');
@@ -37,7 +42,7 @@ export function authMiddleware(req: Request, _res: Response, next: NextFunction)
 
   const token = header.slice(7);
 
-  jwtVerify(token, getSecret())
+  jwtVerify(token, getJwtSecret(), { algorithms: ['HS256'] })
     .then(({ payload }) => {
       const claims = payload as unknown as JwtClaims;
       if (!claims.sub || !claims.tid) {
