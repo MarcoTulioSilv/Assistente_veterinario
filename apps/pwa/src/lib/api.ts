@@ -1,4 +1,13 @@
-import type { ApiError, Paginated, Owner, Property, Animal, AuthTokens } from '@vetequine/shared-types';
+import type {
+  ApiError,
+  Paginated,
+  Owner,
+  Property,
+  Animal,
+  AuthTokens,
+  TenantProfile,
+  UpdateVeterinarianDto,
+} from '@vetequine/shared-types';
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
 
@@ -16,6 +25,11 @@ export function setSession(tokens: Pick<AuthTokens, 'accessToken' | 'refreshToke
 export function clearSession(): void {
   sessionStorage.removeItem('accessToken');
   sessionStorage.removeItem('refreshToken');
+}
+
+/** Usado por telas protegidas para redirecionar a /login sem sessão. */
+export function hasSession(): boolean {
+  return getToken() !== null;
 }
 
 export class ApiClientError extends Error {
@@ -79,5 +93,10 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ toPropertyId }),
       }),
+  },
+  tenants: {
+    getMe: () => request<TenantProfile>('/tenants/me'),
+    updateMe: (data: UpdateVeterinarianDto) =>
+      request<TenantProfile>('/tenants/me', { method: 'PATCH', body: JSON.stringify(data) }),
   },
 };
