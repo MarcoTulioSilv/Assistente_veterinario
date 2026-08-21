@@ -191,6 +191,7 @@ export interface IPropertyService {
   findById(ctx: RequestContext, id: UUID): Promise<Property | null>;
   create(ctx: RequestContext, data: CreatePropertyDto): Promise<Property>;
   update(ctx: RequestContext, id: UUID, data: UpdatePropertyDto): Promise<Property>;
+  softDelete(ctx: RequestContext, id: UUID): Promise<void>;
 }
 
 export interface IAnimalService {
@@ -210,7 +211,6 @@ export interface CreateOwnerDto {
   address?: string;
   city?: string;
   state?: string;
-  propertyIds?: UUID[];
 }
 export type UpdateOwnerDto = Partial<CreateOwnerDto>;
 
