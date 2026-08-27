@@ -40,6 +40,10 @@ export class PropertyRepository {
     });
   }
 
+  async countActive(ctx: RequestContext): Promise<number> {
+    return withTenant(ctx.tenantId, (tx) => tx.property.count({ where: { deletedAt: null } }));
+  }
+
   async create(
     ctx: RequestContext,
     data: CreatePropertyInput,
