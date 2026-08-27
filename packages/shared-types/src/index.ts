@@ -138,6 +138,7 @@ export interface Animal {
   birthDate: ISODateString | null;
   castrated: boolean;
   photoUrl: string | null;
+  sketchUrl: string | null;
   status: RecordStatus;
   propertyId: UUID | null;
   ownerId: UUID | null;
@@ -198,6 +199,8 @@ export interface IAnimalService {
   list(ctx: RequestContext, params: PaginationParams & { propertyId?: UUID }): Promise<Paginated<Animal>>;
   findById(ctx: RequestContext, id: UUID): Promise<Animal | null>;
   create(ctx: RequestContext, data: CreateAnimalDto): Promise<Animal>;
+  update(ctx: RequestContext, id: UUID, data: UpdateAnimalDto): Promise<Animal>;
+  softDelete(ctx: RequestContext, id: UUID): Promise<void>;
   /** RN-010: preserva histórico integralmente */
   transfer(ctx: RequestContext, id: UUID, toPropertyId: UUID, notes?: string): Promise<Animal>;
 }
@@ -234,9 +237,14 @@ export interface CreateAnimalDto {
   coat?: string;
   birthDate?: ISODateString;
   castrated?: boolean;
+  /** URL já hospedada — sem upload real ainda (mesmo padrão de Veterinarian.logoUrl). */
+  photoUrl?: string;
+  /** RF-CAD-023 — resenha/desenho, opcional, só pra equinos. Mesma ressalva de upload. */
+  sketchUrl?: string;
   propertyId?: UUID;
   ownerId?: UUID;
 }
+export type UpdateAnimalDto = Partial<CreateAnimalDto>;
 
 // ═══ MS2 — Inventory ══════════════════════════════════════════════
 export type ProductUnit =
