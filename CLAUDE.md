@@ -105,3 +105,5 @@ BullMQ (not `node-cron`, which pulled in a vulnerable `uuid` transitively) backs
 - Vitest replaced Jest project-wide (Jest's toolchain pulled a vulnerable `minimatch`/`brace-expansion` via `glob`); ESLint 9 flat config replaced `.eslintrc` for the same reason (old `@eslint/eslintrc` chain). Don't reintroduce either.
 - Commit convention: `type(scope): description`, e.g. `feat(ms1): add AuthService login com 2FA`, `fix(ms2): corrige dupla baixa em redelivery do broker`. Scopes are service names (`ms1`, `ms2`, `bff`, `adr`, `ci`, ...). Branches: `feature/MS1-001-descricao`, `fix/MS2-015-descricao`, `test/MS1-008-descricao`.
 - CI (`.github/workflows/*.yml`) per-service, path-filtered: lint+typecheck → test (against a real ephemeral Postgres via `prisma migrate deploy`) → `npm audit --omit=dev --audit-level=high` (blocking) + full audit (informative) → Docker build. New services need their own workflow file following the `ms-identity.yml` pattern.
+
+-Mantenha toda interação com o usuário em PT-BR

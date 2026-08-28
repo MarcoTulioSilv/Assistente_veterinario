@@ -66,7 +66,12 @@ model Product {
   // RN-004: valores SEMPRE em centavos (INTEGER) — ADR-001 §5.6
   costPriceCents  Int             @map("cost_price_cents")
   markupPercent   Decimal         @default(0) @map("markup_percent") @db.Decimal(5, 2)
-  // salePriceCents é GENERATED — ver migration SQL
+  // Coluna GENERATED ALWAYS AS ... STORED — só a migration SQL a cria
+  // (Prisma não tem sintaxe declarativa pra generated columns). Somente
+  // leitura: nunca escrever nela via Prisma Client. Por isso este schema
+  // nunca deve rodar `migrate dev` sem `--create-only` — o diff engine
+  // não sabe que a coluna é gerada e tentaria "corrigi-la".
+  salePriceCents  Int?            @map("sale_price_cents")
 
   expiryDate      DateTime?       @map("expiry_date") @db.Date
   alertDaysBefore Int             @default(30) @map("alert_days_before")

@@ -1,30 +1,22 @@
-import express from 'express';
-import {
-  traceMiddleware,
-  authMiddleware,
-  errorHandler,
-  notFoundHandler,
-  createServiceLogger,
-} from '@vetequine/shared-middlewares';
+import { createServiceLogger } from '@vetequine/shared-middlewares';
+import { createApp } from './app';
+import { disconnectPrisma } from './prisma';
 
 const log = createServiceLogger('ms-inventory');
 const PORT = Number(process.env['PORT_MS_INVENTORY'] ?? 3002);
-const app = express();
 
-app.use(express.json({ limit: '1mb' }));
-app.use(traceMiddleware);
-
-app.get('/health', (_req, res) => {
-  res.json({ status: 'ok', service: 'ms-inventory', timestamp: new Date().toISOString() });
+const server = createApp().listen(PORT, () => {
+  log.info({ port: PORT }, 'MS2 Inventory iniciado');
 });
 
-app.use(authMiddleware);
+async function shutdown(signal: string): Promise<void> {
+  log.info({ signal }, 'Encerrando graciosamente...');
+  server.close(async () => {
+    await disconnectPrisma();
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10_000);
+}
 
-// TODO Sprint 3 — Dev 2 implementa os controllers
-// app.use('/products', productRouter);
-// app.use('/alerts', alertRouter);
-
-app.use(notFoundHandler);
-app.use(errorHandler);
-
-app.listen(PORT, () => log.info({ port: PORT }, 'MS2 Inventory iniciado'));
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
