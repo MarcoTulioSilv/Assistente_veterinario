@@ -7,6 +7,8 @@ import type {
   AuthTokens,
   TenantProfile,
   UpdateVeterinarianDto,
+  CreateOwnerDto,
+  UpdateOwnerDto,
 } from '@vetequine/shared-types';
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
@@ -42,6 +44,14 @@ export class ApiClientError extends Error {
   }
 }
 
+function buildQuery(params?: Record<string, string | number | undefined>): string {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value !== undefined && value !== '') query.set(key, String(value));
+  }
+  return query.toString();
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const res = await fetch(`${BASE_URL}${path}`, {
@@ -75,11 +85,14 @@ export const api = {
       }),
   },
   owners: {
-    list: (params?: { page?: number; search?: string }) =>
-      request<Paginated<Owner>>(`/owners?${new URLSearchParams(params as never)}`),
+    list: (params?: { page?: number; search?: string; status?: 'pending' | 'active' | 'all' }) =>
+      request<Paginated<Owner>>(`/owners?${buildQuery(params)}`),
     get: (id: string) => request<Owner>(`/owners/${id}`),
-    create: (data: unknown) =>
+    create: (data: CreateOwnerDto) =>
       request<Owner>('/owners', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: UpdateOwnerDto) =>
+      request<Owner>(`/owners/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: string) => request<void>(`/owners/${id}`, { method: 'DELETE' }),
   },
   properties: {
     list: (params?: { page?: number; ownerId?: string }) =>
