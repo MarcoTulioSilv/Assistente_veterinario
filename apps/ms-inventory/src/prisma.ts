@@ -52,4 +52,16 @@ export async function withTenant<T>(
 
 export async function disconnectPrisma(): Promise<void> {
   await prisma.$disconnect();
+  await adminPrisma.$disconnect();
 }
+
+/**
+ * Conexão SEM RLS (mesma role superusuário do seed.ts/testes de integração,
+ * não uma role nova) — uso EXCLUSIVO de jobs cross-tenant em background
+ * (ex.: AlertService varrendo todos os tenants pra achar quem tem produto
+ * em alerta). ADR-001 §5.2: nunca usar isto em código que atende requisição
+ * HTTP — lá o isolamento por tenant é obrigatório via withTenant().
+ */
+export const adminPrisma = new PrismaClient({
+  datasourceUrl: process.env['DATABASE_URL_INVENTORY'],
+});

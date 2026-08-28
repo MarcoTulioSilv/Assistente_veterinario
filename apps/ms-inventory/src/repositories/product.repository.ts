@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Product as PrismaProduct } from '../../node_modules/.prisma/client-inventory';
 import type { RequestContext, UUID, Paginated, Product } from '@vetequine/shared-types';
-import { withTenant } from '../prisma';
+import { withTenant, adminPrisma } from '../prisma';
 import type { CreateProductInput, UpdateProductInput, ListProductsInput } from '../schemas/product.schema';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -104,6 +104,29 @@ export class ProductRepository {
     await withTenant(ctx.tenantId, (tx) =>
       tx.product.update({ where: { id }, data: { deletedAt: new Date() } }),
     );
+  }
+
+  /** Uso interno do AlertService — sem paginação, roda uma vez por tenant por dia. */
+  async listAllActive(ctx: RequestContext): Promise<Product[]> {
+    return withTenant(ctx.tenantId, async (tx) => {
+      const rows = await tx.product.findMany({ where: { deletedAt: null } });
+      return rows.map(toDomain);
+    });
+  }
+
+  /**
+   * Uso interno do AlertService — não existe tabela Tenant neste banco
+   * (ADR-001 §5.1), então a lista de tenants a varrer vem daqui, via
+   * adminPrisma (bypassa RLS de propósito: isto não atende requisição
+   * de nenhum tenant específico, precisa ver todos).
+   */
+  async listActiveTenantIds(): Promise<UUID[]> {
+    const rows = await adminPrisma.product.findMany({
+      where: { deletedAt: null },
+      select: { tenantId: true },
+      distinct: ['tenantId'],
+    });
+    return rows.map((r) => r.tenantId);
   }
 }
 

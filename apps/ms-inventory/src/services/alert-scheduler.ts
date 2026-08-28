@@ -16,9 +16,15 @@ const connection = {
   url: process.env['REDIS_URL'] ?? 'redis://localhost:6379',
 };
 
-const QUEUE_NAME = 'inventory:alerts';
+// BullMQ proíbe ':' no nome da fila — o namespace entre serviços vem da
+// opção `prefix`, não de concatenar string (bug que existia aqui antes:
+// 'inventory:alerts' derrubava o processo assim que este módulo era
+// importado, só ninguém tinha chamado scheduleAlertChecks()/
+// startAlertWorker() ainda pra pegar isso).
+const prefix = process.env['REDIS_QUEUE_PREFIX'] ?? 'vetequine';
+const QUEUE_NAME = 'inventory-alerts';
 
-export const alertQueue = new Queue(QUEUE_NAME, { connection });
+export const alertQueue = new Queue(QUEUE_NAME, { connection, prefix });
 
 /** Registra o job diario. Idempotente — pode rodar a cada boot. */
 export async function scheduleAlertChecks(): Promise<void> {
@@ -37,7 +43,7 @@ export async function scheduleAlertChecks(): Promise<void> {
 export function startAlertWorker(
   handler: (job: Job) => Promise<void>,
 ): Worker {
-  const worker = new Worker(QUEUE_NAME, handler, { connection, concurrency: 1 });
+  const worker = new Worker(QUEUE_NAME, handler, { connection, prefix, concurrency: 1 });
 
   worker.on('failed', (job, err) => {
     log.error({ jobId: job?.id, err }, 'Job de alerta falhou');

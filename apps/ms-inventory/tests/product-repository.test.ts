@@ -14,7 +14,7 @@ import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { PrismaClient } from '../node_modules/.prisma/client-inventory';
 import { ProductRepository } from '../src/repositories/product.repository';
 import { MovementRepository } from '../src/repositories/movement.repository';
-import { prisma as appPrisma } from '../src/prisma';
+import { prisma as appPrisma, adminPrisma } from '../src/prisma';
 import type { RequestContext } from '@vetequine/shared-types';
 
 // UUID dedicado a este teste — diferente do usado em prisma/seed.ts
@@ -42,6 +42,29 @@ describe('ProductRepository + MovementRepository', () => {
   afterAll(async () => {
     await admin.$disconnect();
     await appPrisma.$disconnect();
+    await adminPrisma.$disconnect();
+  });
+
+  it('listAllActive() lista todos os ativos sem paginação, ignora deletados', async () => {
+    const a = await products.create(ctx, { name: 'Ativo A', unit: 'unidade', costPriceCents: 100, category: 'supply' });
+    await products.create(ctx, { name: 'Ativo B', unit: 'unidade', costPriceCents: 100, category: 'supply' });
+    const deletado = await products.create(ctx, { name: 'Deletado', unit: 'unidade', costPriceCents: 100, category: 'supply' });
+    await products.softDelete(ctx, deletado.id);
+
+    const all = await products.listAllActive(ctx);
+
+    expect(all).toHaveLength(2);
+    expect(all.some((p) => p.id === a.id)).toBe(true);
+    expect(all.some((p) => p.id === deletado.id)).toBe(false);
+  });
+
+  it('listActiveTenantIds() inclui o tenant deste teste e não inclui tenants sem produto ativo', async () => {
+    await products.create(ctx, { name: 'Qualquer', unit: 'unidade', costPriceCents: 100, category: 'supply' });
+
+    const tenantIds = await products.listActiveTenantIds();
+
+    expect(tenantIds).toContain(TENANT_ID);
+    expect(tenantIds).not.toContain('00000000-0000-0000-0000-000000000000');
   });
 
   it('sale_price_cents é calculado pelo Postgres conforme RN-004', async () => {

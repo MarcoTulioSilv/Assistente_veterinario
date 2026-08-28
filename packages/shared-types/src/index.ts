@@ -317,3 +317,12 @@ export interface AppointmentDonePayload {
   totalCostCents: Cents;
   consumedItems: Array<{ productId: UUID; quantity: number }>;
 }
+
+/** RF-EST-004/005 — detectado pelo ms-inventory, entregue por um futuro ms-notification */
+export interface AlertTriggeredPayload {
+  productId: UUID;
+  alertType: 'expiry' | 'low_stock';
+  productName: string;
+  expiryDate?: ISODateString;
+  quantityInStock?: number;
+}
