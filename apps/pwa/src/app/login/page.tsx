@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button, Input, useToast } from '@/components/ui';
 import { ApiClientError } from '@/lib/api';
 import { login } from '@/lib/auth';
@@ -10,12 +11,12 @@ import { loginSchema } from './schema';
 type FieldErrors = Partial<Record<'email' | 'password', string>>;
 
 export default function LoginPage(): React.ReactElement {
+  const router = useRouter();
   const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
-  const [loggedInName, setLoggedInName] = useState<string | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -35,8 +36,8 @@ export default function LoginPage(): React.ReactElement {
     setSubmitting(true);
     try {
       const tokens = await login(result.data.email, result.data.password);
-      setLoggedInName(tokens.user.fullName);
       toast({ title: `Bem-vindo(a), ${tokens.user.fullName}`, variant: 'success' });
+      router.replace('/profile');
     } catch (err) {
       const message =
         err instanceof ApiClientError ? err.body.message : 'Não foi possível conectar ao servidor';
@@ -44,19 +45,6 @@ export default function LoginPage(): React.ReactElement {
     } finally {
       setSubmitting(false);
     }
-  }
-
-  if (loggedInName) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
-        <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 text-center shadow-sm">
-          <h1 className="text-lg font-semibold text-primary-800">Login realizado</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            Sessão iniciada como <strong>{loggedInName}</strong>.
-          </p>
-        </div>
-      </main>
-    );
   }
 
   return (
