@@ -111,9 +111,14 @@ export default function ProfilePage(): React.ReactElement | null {
         <div className="mb-6 text-center">
           <h1 className="text-xl font-bold text-primary-800">Meu perfil</h1>
           <p className="mt-1 text-sm text-slate-500">Dados do veterinário responsável</p>
-          <Link href="/owners" className="mt-2 inline-block text-sm text-primary-700 hover:underline">
-            Ver proprietários &rarr;
-          </Link>
+          <div className="mt-2 flex justify-center gap-3">
+            <Link href="/owners" className="text-sm text-primary-700 hover:underline">
+              Ver proprietários &rarr;
+            </Link>
+            <Link href="/properties" className="text-sm text-primary-700 hover:underline">
+              Ver propriedades &rarr;
+            </Link>
+          </div>
         </div>
 
         <dl className="mb-6 grid grid-cols-2 gap-x-3 gap-y-1 rounded-md bg-slate-50 p-3 text-sm">

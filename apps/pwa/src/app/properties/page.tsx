@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { Owner, Pagination } from '@vetequine/shared-types';
+import type { Property, Pagination } from '@vetequine/shared-types';
 import { Button, Input, Spinner, useToast } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { api, ApiClientError, hasSession } from '@/lib/api';
@@ -11,29 +11,27 @@ import { api, ApiClientError, hasSession } from '@/lib/api';
 type StatusFilter = 'active' | 'pending' | 'all';
 
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
-  { value: 'active', label: 'Ativos' },
+  { value: 'active', label: 'Ativas' },
   { value: 'pending', label: 'Pendentes' },
-  { value: 'all', label: 'Todos' },
+  { value: 'all', label: 'Todas' },
 ];
 
-export default function OwnersPage(): React.ReactElement | null {
+export default function PropertiesPage(): React.ReactElement | null {
   const router = useRouter();
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
-  const [owners, setOwners] = useState<Owner[]>([]);
+  const [properties, setProperties] = useState<Property[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<StatusFilter>('active');
   const [page, setPage] = useState(1);
 
-  // Redireciona sem sessão.
   useEffect(() => {
     if (!hasSession()) router.replace('/login');
   }, [router]);
 
-  // Debounce da busca — evita uma requisição por tecla digitada.
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(searchInput);
@@ -47,11 +45,11 @@ export default function OwnersPage(): React.ReactElement | null {
 
     let cancelled = false;
     setLoading(true);
-    api.owners
+    api.properties
       .list({ page, search: search || undefined, status })
       .then((result) => {
         if (cancelled) return;
-        setOwners(result.data);
+        setProperties(result.data);
         setPagination(result.pagination);
       })
       .catch((err: unknown) => {
@@ -60,7 +58,7 @@ export default function OwnersPage(): React.ReactElement | null {
           router.replace('/login');
           return;
         }
-        toast({ title: 'Falha ao carregar proprietários', variant: 'error' });
+        toast({ title: 'Falha ao carregar propriedades', variant: 'error' });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -78,23 +76,18 @@ export default function OwnersPage(): React.ReactElement | null {
       <div className="mx-auto w-full max-w-2xl">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <div className="flex gap-3">
-              <Link href="/profile" className="text-sm text-primary-700 hover:underline">
-                &larr; Meu perfil
-              </Link>
-              <Link href="/properties" className="text-sm text-primary-700 hover:underline">
-                Propriedades &rarr;
-              </Link>
-            </div>
-            <h1 className="mt-2 text-xl font-bold text-primary-800">Proprietários</h1>
+            <Link href="/owners" className="text-sm text-primary-700 hover:underline">
+              &larr; Proprietários
+            </Link>
+            <h1 className="mt-2 text-xl font-bold text-primary-800">Propriedades</h1>
           </div>
-          <Button onClick={() => router.push('/owners/new')}>Novo proprietário</Button>
+          <Button onClick={() => router.push('/properties/new')}>Nova propriedade</Button>
         </div>
 
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Input
             label="Buscar"
-            placeholder="Nome do proprietário"
+            placeholder="Nome da propriedade"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="sm:max-w-xs"
@@ -122,33 +115,35 @@ export default function OwnersPage(): React.ReactElement | null {
             <div className="flex justify-center p-10">
               <Spinner size="lg" />
             </div>
-          ) : owners.length === 0 ? (
+          ) : properties.length === 0 ? (
             <p className="p-8 text-center text-sm text-slate-500">
-              Nenhum proprietário encontrado{search ? ` para "${search}"` : ''}.
+              Nenhuma propriedade encontrada{search ? ` para "${search}"` : ''}.
             </p>
           ) : (
             <ul>
-              {owners.map((owner, index) => (
-                <li key={owner.id} className={cn(index > 0 && 'border-t border-slate-200')}>
+              {properties.map((property, index) => (
+                <li key={property.id} className={cn(index > 0 && 'border-t border-slate-200')}>
                   <Link
-                    href={`/owners/${owner.id}`}
+                    href={`/properties/${property.id}`}
                     className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500"
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-slate-900">{owner.fullName}</p>
+                      <p className="truncate font-medium text-slate-900">{property.name}</p>
                       <p className="truncate text-sm text-slate-500">
-                        {owner.city && owner.state ? `${owner.city} - ${owner.state}` : owner.phone || 'Sem dados de contato'}
+                        {property.city && property.state
+                          ? `${property.city} - ${property.state}`
+                          : 'Sem endereço cadastrado'}
                       </p>
                     </div>
                     <span
                       className={cn(
                         'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium',
-                        owner.status === 'active'
+                        property.status === 'active'
                           ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-amber-100 text-amber-800',
                       )}
                     >
-                      {owner.status === 'active' ? 'Ativo' : 'Pendente'}
+                      {property.status === 'active' ? 'Ativa' : 'Pendente'}
                     </span>
                   </Link>
                 </li>

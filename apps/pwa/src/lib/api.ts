@@ -9,6 +9,8 @@ import type {
   UpdateVeterinarianDto,
   CreateOwnerDto,
   UpdateOwnerDto,
+  CreatePropertyDto,
+  UpdatePropertyDto,
 } from '@vetequine/shared-types';
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
@@ -85,7 +87,7 @@ export const api = {
       }),
   },
   owners: {
-    list: (params?: { page?: number; search?: string; status?: 'pending' | 'active' | 'all' }) =>
+    list: (params?: { page?: number; limit?: number; search?: string; status?: 'pending' | 'active' | 'all' }) =>
       request<Paginated<Owner>>(`/owners?${buildQuery(params)}`),
     get: (id: string) => request<Owner>(`/owners/${id}`),
     create: (data: CreateOwnerDto) =>
@@ -95,8 +97,14 @@ export const api = {
     remove: (id: string) => request<void>(`/owners/${id}`, { method: 'DELETE' }),
   },
   properties: {
-    list: (params?: { page?: number; ownerId?: string }) =>
-      request<Paginated<Property>>(`/properties?${new URLSearchParams(params as never)}`),
+    list: (params?: { page?: number; search?: string; status?: 'pending' | 'active' | 'all'; ownerId?: string }) =>
+      request<Paginated<Property>>(`/properties?${buildQuery(params)}`),
+    get: (id: string) => request<Property>(`/properties/${id}`),
+    create: (data: CreatePropertyDto) =>
+      request<Property>('/properties', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: UpdatePropertyDto) =>
+      request<Property>(`/properties/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: string) => request<void>(`/properties/${id}`, { method: 'DELETE' }),
   },
   animals: {
     list: (params?: { page?: number; propertyId?: string }) =>
