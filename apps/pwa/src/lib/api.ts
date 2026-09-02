@@ -11,6 +11,8 @@ import type {
   UpdateOwnerDto,
   CreatePropertyDto,
   UpdatePropertyDto,
+  CreateAnimalDto,
+  UpdateAnimalDto,
 } from '@vetequine/shared-types';
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
@@ -97,7 +99,7 @@ export const api = {
     remove: (id: string) => request<void>(`/owners/${id}`, { method: 'DELETE' }),
   },
   properties: {
-    list: (params?: { page?: number; search?: string; status?: 'pending' | 'active' | 'all'; ownerId?: string }) =>
+    list: (params?: { page?: number; limit?: number; search?: string; status?: 'pending' | 'active' | 'all'; ownerId?: string }) =>
       request<Paginated<Property>>(`/properties?${buildQuery(params)}`),
     get: (id: string) => request<Property>(`/properties/${id}`),
     create: (data: CreatePropertyDto) =>
@@ -107,12 +109,20 @@ export const api = {
     remove: (id: string) => request<void>(`/properties/${id}`, { method: 'DELETE' }),
   },
   animals: {
-    list: (params?: { page?: number; propertyId?: string }) =>
-      request<Paginated<Animal>>(`/animals?${new URLSearchParams(params as never)}`),
-    transfer: (id: string, toPropertyId: string) =>
+    list: (params?: { page?: number; search?: string; status?: 'pending' | 'active' | 'all'; propertyId?: string }) =>
+      request<Paginated<Animal>>(`/animals?${buildQuery(params)}`),
+    get: (id: string) => request<Animal>(`/animals/${id}`),
+    create: (data: CreateAnimalDto) =>
+      request<Animal>('/animals', { method: 'POST', body: JSON.stringify(data) }),
+    // propertyId de propósito fora daqui: mudar de propriedade só via transfer(),
+    // que gera o log de animal_transfers (RN-010) -- update() não loga nada.
+    update: (id: string, data: Omit<UpdateAnimalDto, 'propertyId'>) =>
+      request<Animal>(`/animals/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: string) => request<void>(`/animals/${id}`, { method: 'DELETE' }),
+    transfer: (id: string, toPropertyId: string, notes?: string) =>
       request<Animal>(`/animals/${id}/transfer`, {
         method: 'POST',
-        body: JSON.stringify({ toPropertyId }),
+        body: JSON.stringify({ toPropertyId, notes }),
       }),
   },
   tenants: {
