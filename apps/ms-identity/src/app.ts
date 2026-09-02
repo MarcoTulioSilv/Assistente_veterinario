@@ -10,6 +10,7 @@ import { authRouter } from './controllers/auth.controller';
 import { ownerRouter } from './controllers/owner.controller';
 import { tenantRegisterRouter, tenantRouter } from './controllers/tenant.controller';
 import { propertyRouter } from './controllers/property.controller';
+import { animalRouter } from './controllers/animal.controller';
 
 export function createApp(): Express {
   const app = express();
@@ -27,6 +28,7 @@ export function createApp(): Express {
   app.use('/owners', ownerRouter);
   app.use('/tenants', tenantRouter); // GET/PATCH /me
   app.use('/properties', propertyRouter);
+  app.use('/animals', animalRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
