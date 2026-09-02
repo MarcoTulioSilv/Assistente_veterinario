@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import type { Owner } from '@vetequine/shared-types';
 import { Spinner, useToast } from '@/components/ui';
@@ -9,14 +10,22 @@ import { api, ApiClientError, hasSession } from '@/lib/api';
 import { PropertyForm } from '../PropertyForm';
 import type { PropertyFormValues } from '../schema';
 
+// Leaflet mexe em `window` direto -- só pode existir no client.
+const LocationPicker = dynamic(
+  () => import('../LocationPicker').then((m) => m.LocationPicker),
+  { ssr: false, loading: () => <div className="h-56 animate-pulse rounded-md bg-slate-100" /> },
+);
+
 /** Converte '' (placeholder de "não preenchido" no formulário) para undefined. */
-function toCreateDto(values: PropertyFormValues, ownerIds: string[]) {
+function toCreateDto(values: PropertyFormValues, ownerIds: string[], coords: { latitude: number; longitude: number } | null) {
   return {
     name: values.name,
     address: values.address || undefined,
     city: values.city || undefined,
     state: values.state || undefined,
     zipCode: values.zipCode || undefined,
+    latitude: coords?.latitude,
+    longitude: coords?.longitude,
     ownerIds: ownerIds.length > 0 ? ownerIds : undefined,
   };
 }
@@ -27,6 +36,8 @@ export default function NewPropertyPage(): React.ReactElement {
   const [ready, setReady] = useState(false);
   const [owners, setOwners] = useState<Owner[]>([]);
   const [ownerIds, setOwnerIds] = useState<string[]>([]);
+  const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [zipCodeForMap, setZipCodeForMap] = useState('');
 
   useEffect(() => {
     if (!hasSession()) {
@@ -46,7 +57,7 @@ export default function NewPropertyPage(): React.ReactElement {
 
   async function handleSubmit(values: PropertyFormValues): Promise<void> {
     try {
-      const property = await api.properties.create(toCreateDto(values, ownerIds));
+      const property = await api.properties.create(toCreateDto(values, ownerIds, coords));
       toast({ title: 'Propriedade cadastrada', variant: 'success' });
       router.push(`/properties/${property.id}`);
     } catch (err) {
@@ -73,7 +84,13 @@ export default function NewPropertyPage(): React.ReactElement {
           </Link>
           <h1 className="mt-2 text-xl font-bold text-primary-800">Nova propriedade</h1>
         </div>
-        <PropertyForm onSubmit={handleSubmit} submitLabel="Cadastrar" submittingLabel="Cadastrando">
+        <PropertyForm
+          onSubmit={handleSubmit}
+          submitLabel="Cadastrar"
+          submittingLabel="Cadastrando"
+          onZipCodeChange={setZipCodeForMap}
+        >
+          <LocationPicker value={coords} onChange={setCoords} zipCode={zipCodeForMap} />
           {owners.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-slate-700">Proprietários vinculados</span>
