@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { Owner } from '@vetequine/shared-types';
-import { useToast } from '@/components/ui';
+import { Spinner, useToast } from '@/components/ui';
 import { api, ApiClientError, hasSession } from '@/lib/api';
 import { PropertyForm } from '../PropertyForm';
 import type { PropertyFormValues } from '../schema';
@@ -21,9 +21,10 @@ function toCreateDto(values: PropertyFormValues, ownerIds: string[]) {
   };
 }
 
-export default function NewPropertyPage(): React.ReactElement | null {
+export default function NewPropertyPage(): React.ReactElement {
   const router = useRouter();
   const { toast } = useToast();
+  const [ready, setReady] = useState(false);
   const [owners, setOwners] = useState<Owner[]>([]);
   const [ownerIds, setOwnerIds] = useState<string[]>([]);
 
@@ -32,13 +33,12 @@ export default function NewPropertyPage(): React.ReactElement | null {
       router.replace('/login');
       return;
     }
+    setReady(true);
     api.owners
       .list({ status: 'all', limit: 100 })
       .then((result) => setOwners(result.data))
       .catch(() => undefined); // lista de vínculo é auxiliar — falha aqui não impede o cadastro
   }, [router]);
-
-  if (!hasSession()) return null;
 
   function toggleOwner(id: string): void {
     setOwnerIds((current) => (current.includes(id) ? current.filter((o) => o !== id) : [...current, id]));
@@ -54,6 +54,14 @@ export default function NewPropertyPage(): React.ReactElement | null {
         err instanceof ApiClientError ? err.body.message : 'Não foi possível conectar ao servidor';
       toast({ title: 'Falha ao cadastrar', description: message, variant: 'error' });
     }
+  }
+
+  if (!ready) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50">
+        <Spinner size="lg" />
+      </main>
+    );
   }
 
   return (

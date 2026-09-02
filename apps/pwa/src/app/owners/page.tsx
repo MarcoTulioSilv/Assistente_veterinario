@@ -16,7 +16,7 @@ const STATUS_TABS: { value: StatusFilter; label: string }[] = [
   { value: 'all', label: 'Todos' },
 ];
 
-export default function OwnersPage(): React.ReactElement | null {
+export default function OwnersPage(): React.ReactElement {
   const router = useRouter();
   const { toast } = useToast();
 
@@ -70,8 +70,6 @@ export default function OwnersPage(): React.ReactElement | null {
       cancelled = true;
     };
   }, [page, search, status]);
-
-  if (!hasSession()) return null;
 
   return (
     <main className="min-h-screen bg-slate-50 p-4 py-10">
