@@ -16,6 +16,8 @@ interface PropertyFormProps {
   /** Conteúdo extra renderizado entre os campos e o botão — ex: vínculo com proprietários (só na criação). */
   children?: ReactNode;
   footer?: ReactNode;
+  /** Avisa o CEP atual pra quem estiver renderizando o mapa via `children`. */
+  onZipCodeChange?: (zipCode: string) => void;
 }
 
 export function PropertyForm({
@@ -25,6 +27,7 @@ export function PropertyForm({
   submittingLabel,
   children,
   footer,
+  onZipCodeChange,
 }: PropertyFormProps): React.ReactElement {
   const [name, setName] = useState(defaultValues?.name ?? '');
   const [address, setAddress] = useState(defaultValues?.address ?? '');
@@ -93,7 +96,11 @@ export function PropertyForm({
         label="CEP"
         placeholder="00000-000"
         value={zipCode}
-        onChange={(e) => setZipCode(formatCep(e.target.value))}
+        onChange={(e) => {
+          const formatted = formatCep(e.target.value);
+          setZipCode(formatted);
+          onZipCodeChange?.(formatted);
+        }}
         error={fieldErrors.zipCode}
       />
       {children}

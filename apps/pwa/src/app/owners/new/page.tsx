@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useToast } from '@/components/ui';
+import { Spinner, useToast } from '@/components/ui';
 import { api, ApiClientError, hasSession } from '@/lib/api';
 import { OwnerForm } from '../OwnerForm';
 import type { OwnerFormValues } from '../schema';
@@ -22,15 +22,18 @@ function toCreateDto(values: OwnerFormValues) {
   };
 }
 
-export default function NewOwnerPage(): React.ReactElement | null {
+export default function NewOwnerPage(): React.ReactElement {
   const router = useRouter();
   const { toast } = useToast();
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    if (!hasSession()) router.replace('/login');
+    if (!hasSession()) {
+      router.replace('/login');
+      return;
+    }
+    setReady(true);
   }, [router]);
-
-  if (!hasSession()) return null;
 
   async function handleSubmit(values: OwnerFormValues): Promise<void> {
     try {
@@ -42,6 +45,14 @@ export default function NewOwnerPage(): React.ReactElement | null {
         err instanceof ApiClientError ? err.body.message : 'Não foi possível conectar ao servidor';
       toast({ title: 'Falha ao cadastrar', description: message, variant: 'error' });
     }
+  }
+
+  if (!ready) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-slate-50">
+        <Spinner size="lg" />
+      </main>
+    );
   }
 
   return (
