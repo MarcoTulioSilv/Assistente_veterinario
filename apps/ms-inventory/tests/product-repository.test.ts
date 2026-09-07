@@ -14,7 +14,7 @@ import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { PrismaClient } from '../node_modules/.prisma/client-inventory';
 import { ProductRepository } from '../src/repositories/product.repository';
 import { MovementRepository } from '../src/repositories/movement.repository';
-import { prisma as appPrisma, adminPrisma } from '../src/prisma';
+import { prisma as appPrisma } from '../src/prisma';
 import type { RequestContext } from '@vetequine/shared-types';
 
 // UUID dedicado a este teste — diferente do usado em prisma/seed.ts
@@ -42,7 +42,6 @@ describe('ProductRepository + MovementRepository', () => {
   afterAll(async () => {
     await admin.$disconnect();
     await appPrisma.$disconnect();
-    await adminPrisma.$disconnect();
   });
 
   it('listAllActive() lista todos os ativos sem paginação, ignora deletados', async () => {

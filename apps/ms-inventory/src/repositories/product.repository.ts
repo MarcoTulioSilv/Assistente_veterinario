@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Product as PrismaProduct } from '../../node_modules/.prisma/client-inventory';
 import type { RequestContext, UUID, Paginated, Product } from '@vetequine/shared-types';
-import { withTenant, adminPrisma } from '../prisma';
+import { prisma, withTenant } from '../prisma';
 import type { CreateProductInput, UpdateProductInput, ListProductsInput } from '../schemas/product.schema';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -116,17 +116,18 @@ export class ProductRepository {
 
   /**
    * Uso interno do AlertService — não existe tabela Tenant neste banco
-   * (ADR-001 §5.1), então a lista de tenants a varrer vem daqui, via
-   * adminPrisma (bypassa RLS de propósito: isto não atende requisição
-   * de nenhum tenant específico, precisa ver todos).
+   * (ADR-001 §5.1), então a lista de tenants a varrer vem de uma função
+   * SECURITY DEFINER (ADR-006, mesmo padrão do ADR-004 no ms-identity):
+   * roda com os privilégios do dono da função, não da conexão que chama,
+   * então isto passa pelo `prisma` normal (RLS ativo), não um client
+   * paralelo sem RLS — só esta query específica bypassa, e só porque a
+   * função é dona da tabela, não porque a conexão ignora tudo.
    */
   async listActiveTenantIds(): Promise<UUID[]> {
-    const rows = await adminPrisma.product.findMany({
-      where: { deletedAt: null },
-      select: { tenantId: true },
-      distinct: ['tenantId'],
-    });
-    return rows.map((r) => r.tenantId);
+    const rows = await prisma.$queryRaw<Array<{ inventory_list_active_tenant_ids: UUID }>>`
+      SELECT inventory_list_active_tenant_ids()
+    `;
+    return rows.map((r) => r.inventory_list_active_tenant_ids);
   }
 }
 

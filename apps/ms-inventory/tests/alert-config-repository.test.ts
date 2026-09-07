@@ -12,7 +12,7 @@ import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { PrismaClient } from '../node_modules/.prisma/client-inventory';
 import { ProductRepository } from '../src/repositories/product.repository';
 import { AlertConfigRepository } from '../src/repositories/alert-config.repository';
-import { prisma as appPrisma, adminPrisma } from '../src/prisma';
+import { prisma as appPrisma } from '../src/prisma';
 import type { RequestContext } from '@vetequine/shared-types';
 
 const TENANT_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
@@ -38,7 +38,6 @@ describe('AlertConfigRepository', () => {
   afterAll(async () => {
     await admin.$disconnect();
     await appPrisma.$disconnect();
-    await adminPrisma.$disconnect();
   });
 
   it('findByProductAndType() retorna null quando nunca disparou', async () => {
