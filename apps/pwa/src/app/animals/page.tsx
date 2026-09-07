@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { Property, Pagination } from '@vetequine/shared-types';
+import type { Animal, Pagination } from '@vetequine/shared-types';
 import { Button, Input, Spinner, useToast } from '@/components/ui';
 import { cn } from '@/lib/cn';
 import { api, ApiClientError, hasSession } from '@/lib/api';
@@ -11,17 +11,17 @@ import { api, ApiClientError, hasSession } from '@/lib/api';
 type StatusFilter = 'active' | 'pending' | 'all';
 
 const STATUS_TABS: { value: StatusFilter; label: string }[] = [
-  { value: 'active', label: 'Ativas' },
+  { value: 'active', label: 'Ativos' },
   { value: 'pending', label: 'Pendentes' },
-  { value: 'all', label: 'Todas' },
+  { value: 'all', label: 'Todos' },
 ];
 
-export default function PropertiesPage(): React.ReactElement | null {
+export default function AnimalsPage(): React.ReactElement {
   const router = useRouter();
   const { toast } = useToast();
 
   const [loading, setLoading] = useState(true);
-  const [properties, setProperties] = useState<Property[]>([]);
+  const [animals, setAnimals] = useState<Animal[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
   const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
@@ -45,11 +45,11 @@ export default function PropertiesPage(): React.ReactElement | null {
 
     let cancelled = false;
     setLoading(true);
-    api.properties
+    api.animals
       .list({ page, search: search || undefined, status })
       .then((result) => {
         if (cancelled) return;
-        setProperties(result.data);
+        setAnimals(result.data);
         setPagination(result.pagination);
       })
       .catch((err: unknown) => {
@@ -58,7 +58,7 @@ export default function PropertiesPage(): React.ReactElement | null {
           router.replace('/login');
           return;
         }
-        toast({ title: 'Falha ao carregar propriedades', variant: 'error' });
+        toast({ title: 'Falha ao carregar animais', variant: 'error' });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -69,30 +69,23 @@ export default function PropertiesPage(): React.ReactElement | null {
     };
   }, [page, search, status]);
 
-  if (!hasSession()) return null;
-
   return (
     <main className="min-h-screen bg-slate-50 p-4 py-10">
       <div className="mx-auto w-full max-w-2xl">
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <div className="flex gap-3">
-              <Link href="/owners" className="text-sm text-primary-700 hover:underline">
-                &larr; Proprietários
-              </Link>
-              <Link href="/animals" className="text-sm text-primary-700 hover:underline">
-                Animais &rarr;
-              </Link>
-            </div>
-            <h1 className="mt-2 text-xl font-bold text-primary-800">Propriedades</h1>
+            <Link href="/properties" className="text-sm text-primary-700 hover:underline">
+              &larr; Propriedades
+            </Link>
+            <h1 className="mt-2 text-xl font-bold text-primary-800">Animais</h1>
           </div>
-          <Button onClick={() => router.push('/properties/new')}>Nova propriedade</Button>
+          <Button onClick={() => router.push('/animals/new')}>Novo animal</Button>
         </div>
 
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Input
             label="Buscar"
-            placeholder="Nome da propriedade"
+            placeholder="Nome do animal"
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             className="sm:max-w-xs"
@@ -120,35 +113,34 @@ export default function PropertiesPage(): React.ReactElement | null {
             <div className="flex justify-center p-10">
               <Spinner size="lg" />
             </div>
-          ) : properties.length === 0 ? (
+          ) : animals.length === 0 ? (
             <p className="p-8 text-center text-sm text-slate-500">
-              Nenhuma propriedade encontrada{search ? ` para "${search}"` : ''}.
+              Nenhum animal encontrado{search ? ` para "${search}"` : ''}.
             </p>
           ) : (
             <ul>
-              {properties.map((property, index) => (
-                <li key={property.id} className={cn(index > 0 && 'border-t border-slate-200')}>
+              {animals.map((animal, index) => (
+                <li key={animal.id} className={cn(index > 0 && 'border-t border-slate-200')}>
                   <Link
-                    href={`/properties/${property.id}`}
+                    href={`/animals/${animal.id}`}
                     className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500"
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-medium text-slate-900">{property.name}</p>
+                      <p className="truncate font-medium text-slate-900">{animal.name}</p>
                       <p className="truncate text-sm text-slate-500">
-                        {property.city && property.state
-                          ? `${property.city} - ${property.state}`
-                          : 'Sem endereço cadastrado'}
+                        {animal.breed || animal.species}
+                        {animal.sex ? ` · ${animal.sex === 'male' ? 'Macho' : 'Fêmea'}` : ''}
                       </p>
                     </div>
                     <span
                       className={cn(
                         'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium',
-                        property.status === 'active'
+                        animal.status === 'active'
                           ? 'bg-emerald-100 text-emerald-800'
                           : 'bg-amber-100 text-amber-800',
                       )}
                     >
-                      {property.status === 'active' ? 'Ativa' : 'Pendente'}
+                      {animal.status === 'active' ? 'Ativo' : 'Pendente'}
                     </span>
                   </Link>
                 </li>

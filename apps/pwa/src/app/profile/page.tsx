@@ -118,6 +118,9 @@ export default function ProfilePage(): React.ReactElement | null {
             <Link href="/properties" className="text-sm text-primary-700 hover:underline">
               Ver propriedades &rarr;
             </Link>
+            <Link href="/animals" className="text-sm text-primary-700 hover:underline">
+              Ver animais &rarr;
+            </Link>
           </div>
         </div>
 
