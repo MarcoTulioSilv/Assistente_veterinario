@@ -260,10 +260,12 @@ export interface Product {
   batch: string | null;
   unit: ProductUnit;
   quantityInStock: number;
+  dosesPerUnit: number | null;
   costPriceCents: Cents;
   markupPercent: number;
   salePriceCents: Cents;
   expiryDate: ISODateString | null;
+  alertDaysBefore: number | null;
   minStockQty: number;
   category: ProductCategory;
   isNearExpiry: boolean;
@@ -272,7 +274,10 @@ export interface Product {
 
 export interface IStockService {
   list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<Product>>;
+  findById(ctx: RequestContext, id: UUID): Promise<Product | null>;
   create(ctx: RequestContext, data: CreateProductDto): Promise<Product>;
+  update(ctx: RequestContext, id: UUID, data: UpdateProductDto): Promise<Product>;
+  softDelete(ctx: RequestContext, id: UUID): Promise<void>;
   /** RN-003: baixa idempotente disparada por evento do broker */
   deduct(ctx: RequestContext, productId: UUID, qty: number, idempotencyKey: UUID): Promise<void>;
 }
@@ -283,12 +288,15 @@ export interface CreateProductDto {
   batch?: string;
   unit: ProductUnit;
   quantityInStock?: number;
+  dosesPerUnit?: number;
   costPriceCents: Cents;
   markupPercent?: number;
   expiryDate?: ISODateString;
+  alertDaysBefore?: number;
   minStockQty?: number;
   category: ProductCategory;
 }
+export type UpdateProductDto = Partial<CreateProductDto>;
 
 // ═══ Eventos do Message Broker (ADR-001 §5.3) ═════════════════════
 export const EVENTS = {
@@ -316,6 +324,15 @@ export interface AppointmentDonePayload {
   ownerId: UUID;
   totalCostCents: Cents;
   consumedItems: Array<{ productId: UUID; quantity: number }>;
+}
+
+/** RF-EST-004/005 — detectado pelo ms-inventory, entregue por um futuro ms-notification */
+export interface AlertTriggeredPayload {
+  productId: UUID;
+  alertType: 'expiry' | 'low_stock';
+  productName: string;
+  expiryDate?: ISODateString;
+  quantityInStock?: number;
 }
 
 // ═══ Upload de arquivos ═══════════════════════════════════════════
