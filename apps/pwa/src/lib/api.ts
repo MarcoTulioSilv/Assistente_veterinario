@@ -92,8 +92,12 @@ export const api = {
       }),
   },
   owners: {
-    list: (params?: { page?: number; limit?: number; search?: string; status?: 'pending' | 'active' | 'all' }) =>
-      request<Paginated<Owner>>(`/owners?${buildQuery(params)}`),
+    list: (params?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      status?: 'pending' | 'active' | 'all';
+    }) => request<Paginated<Owner>>(`/owners?${buildQuery(params)}`),
     get: (id: string) => request<Owner>(`/owners/${id}`),
     create: (data: CreateOwnerDto) =>
       request<Owner>('/owners', { method: 'POST', body: JSON.stringify(data) }),
@@ -102,8 +106,13 @@ export const api = {
     remove: (id: string) => request<void>(`/owners/${id}`, { method: 'DELETE' }),
   },
   properties: {
-    list: (params?: { page?: number; limit?: number; search?: string; status?: 'pending' | 'active' | 'all'; ownerId?: string }) =>
-      request<Paginated<Property>>(`/properties?${buildQuery(params)}`),
+    list: (params?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      status?: 'pending' | 'active' | 'all';
+      ownerId?: string;
+    }) => request<Paginated<Property>>(`/properties?${buildQuery(params)}`),
     get: (id: string) => request<Property>(`/properties/${id}`),
     create: (data: CreatePropertyDto) =>
       request<Property>('/properties', { method: 'POST', body: JSON.stringify(data) }),
@@ -112,8 +121,13 @@ export const api = {
     remove: (id: string) => request<void>(`/properties/${id}`, { method: 'DELETE' }),
   },
   animals: {
-    list: (params?: { page?: number; search?: string; status?: 'pending' | 'active' | 'all'; propertyId?: string }) =>
-      request<Paginated<Animal>>(`/animals?${buildQuery(params)}`),
+    list: (params?: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      status?: 'pending' | 'active' | 'all';
+      propertyId?: string;
+    }) => request<Paginated<Animal>>(`/animals?${buildQuery(params)}`),
     get: (id: string) => request<Animal>(`/animals/${id}`),
     create: (data: CreateAnimalDto) =>
       request<Animal>('/animals', { method: 'POST', body: JSON.stringify(data) }),

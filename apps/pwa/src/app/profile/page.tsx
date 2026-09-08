@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { TenantProfile } from '@vetequine/shared-types';
-import { Button, Input, Spinner, useToast } from '@/components/ui';
+import { Button, ImageUploadField, Input, Spinner, useToast } from '@/components/ui';
+import { AppHeader } from '@/components/AppHeader';
 import { api, ApiClientError, hasSession } from '@/lib/api';
 import { profileSchema } from './schema';
 
@@ -47,7 +47,9 @@ export default function ProfilePage(): React.ReactElement | null {
           return;
         }
         const message =
-          err instanceof ApiClientError ? err.body.message : 'Não foi possível conectar ao servidor';
+          err instanceof ApiClientError
+            ? err.body.message
+            : 'Não foi possível conectar ao servidor';
         toast({ title: 'Falha ao carregar perfil', description: message, variant: 'error' });
       })
       .finally(() => {
@@ -97,78 +99,71 @@ export default function ProfilePage(): React.ReactElement | null {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-slate-50">
-        <Spinner size="lg" />
-      </main>
+      <>
+        <AppHeader />
+        <main className="flex min-h-screen items-center justify-center bg-slate-50">
+          <Spinner size="lg" />
+        </main>
+      </>
     );
   }
 
   if (!profile) return null;
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
-        <div className="mb-6 text-center">
-          <h1 className="text-xl font-bold text-primary-800">Meu perfil</h1>
-          <p className="mt-1 text-sm text-slate-500">Dados do veterinário responsável</p>
-          <div className="mt-2 flex justify-center gap-3">
-            <Link href="/owners" className="text-sm text-primary-700 hover:underline">
-              Ver proprietários &rarr;
-            </Link>
-            <Link href="/properties" className="text-sm text-primary-700 hover:underline">
-              Ver propriedades &rarr;
-            </Link>
-            <Link href="/animals" className="text-sm text-primary-700 hover:underline">
-              Ver animais &rarr;
-            </Link>
+    <>
+      <AppHeader />
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
+        <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
+          <div className="mb-6 text-center">
+            <h1 className="text-xl font-bold text-primary-800">Meu perfil</h1>
+            <p className="mt-1 text-sm text-slate-500">Dados do veterinário responsável</p>
           </div>
+
+          <dl className="mb-6 grid grid-cols-2 gap-x-3 gap-y-1 rounded-md bg-slate-50 p-3 text-sm">
+            <dt className="text-slate-500">CRMV</dt>
+            <dd className="text-slate-900">
+              {profile.veterinarian.crmv}/{profile.veterinarian.crmvState}
+            </dd>
+            <dt className="text-slate-500">CPF/CNPJ</dt>
+            <dd className="text-slate-900">{profile.veterinarian.cpfCnpj}</dd>
+          </dl>
+
+          <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
+            <Input
+              label="Nome completo"
+              autoComplete="name"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              error={fieldErrors.fullName}
+            />
+            <Input
+              label="Telefone"
+              autoComplete="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              error={fieldErrors.phone}
+            />
+            <Input
+              label="E-mail"
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              error={fieldErrors.email}
+            />
+            <ImageUploadField
+              label="Logo"
+              value={logoUrl}
+              onChange={setLogoUrl}
+              error={fieldErrors.logoUrl}
+            />
+            <Button type="submit" loading={submitting} className="mt-2 w-full">
+              {submitting ? 'Salvando' : 'Salvar alterações'}
+            </Button>
+          </form>
         </div>
-
-        <dl className="mb-6 grid grid-cols-2 gap-x-3 gap-y-1 rounded-md bg-slate-50 p-3 text-sm">
-          <dt className="text-slate-500">CRMV</dt>
-          <dd className="text-slate-900">
-            {profile.veterinarian.crmv}/{profile.veterinarian.crmvState}
-          </dd>
-          <dt className="text-slate-500">CPF/CNPJ</dt>
-          <dd className="text-slate-900">{profile.veterinarian.cpfCnpj}</dd>
-        </dl>
-
-        <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-4">
-          <Input
-            label="Nome completo"
-            autoComplete="name"
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            error={fieldErrors.fullName}
-          />
-          <Input
-            label="Telefone"
-            autoComplete="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            error={fieldErrors.phone}
-          />
-          <Input
-            label="E-mail"
-            type="email"
-            autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            error={fieldErrors.email}
-          />
-          <Input
-            label="URL do logo"
-            type="url"
-            hint="Link de uma imagem já hospedada — upload direto ainda não é suportado"
-            value={logoUrl}
-            onChange={(e) => setLogoUrl(e.target.value)}
-            error={fieldErrors.logoUrl}
-          />
-          <Button type="submit" loading={submitting} className="mt-2 w-full">
-            {submitting ? 'Salvando' : 'Salvar alterações'}
-          </Button>
-        </form>
-      </div>
-    </main>
+      </main>
+    </>
   );
 }
