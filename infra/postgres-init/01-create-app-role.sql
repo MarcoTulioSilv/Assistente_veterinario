@@ -73,6 +73,17 @@ BEGIN
 END
 $$;
 
+-- ─── 4b. Funcao de descoberta de tenants pro AlertService (SECURITY DEFINER) ──
+-- ADR-006 (reaplica o padrao do ADR-004). So existe no banco do
+-- inventory -- rode este arquivo so apos as migrations correspondentes.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'inventory_list_active_tenant_ids') THEN
+    GRANT EXECUTE ON FUNCTION inventory_list_active_tenant_ids() TO vetequine_app;
+  END IF;
+END
+$$;
+
 -- ─── 5. Confirmacao ───────────────────────────────────────────────
 -- As duas colunas devem ser 'f' na linha do vetequine_app.
 -- Se 'ignora_rls' for 't', as policies seriam decorativas.
