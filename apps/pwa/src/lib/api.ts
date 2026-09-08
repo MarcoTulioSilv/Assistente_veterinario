@@ -58,10 +58,13 @@ function buildQuery(params?: Record<string, string | number | undefined>): strin
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
+  // FormData (upload de arquivo) precisa que o browser defina Content-Type
+  // sozinho (com o boundary do multipart) — setar manualmente quebra o parse.
+  const isFormData = init?.body instanceof FormData;
   const res = await fetch(`${BASE_URL}${path}`, {
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
@@ -129,5 +132,12 @@ export const api = {
     getMe: () => request<TenantProfile>('/tenants/me'),
     updateMe: (data: UpdateVeterinarianDto) =>
       request<TenantProfile>('/tenants/me', { method: 'PATCH', body: JSON.stringify(data) }),
+  },
+  uploads: {
+    upload: (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      return request<{ url: string }>('/uploads', { method: 'POST', body: formData });
+    },
   },
 };

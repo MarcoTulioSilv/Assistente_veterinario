@@ -26,12 +26,14 @@
     "bcryptjs": "^2.4.3",
     "express": "^4.21.2",
     "jose": "^5.9.0",
+    "multer": "^2.3.0",
     "otpauth": "^9.3.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^4.17.21",
+    "@types/multer": "^2.2.0",
     "dotenv-cli": "^11.0.0",
     "prisma": "^6.2.0",
     "tsx": "^4.19.0",

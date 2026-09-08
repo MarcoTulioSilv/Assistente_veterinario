@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent, type ReactNode } from 'react';
 import type { Owner, Property } from '@vetequine/shared-types';
-import { Button, Input, Select } from '@/components/ui';
+import { Button, ImageUploadField, Input, Select } from '@/components/ui';
 import { animalFormSchema, type AnimalFormValues } from './schema';
 
 type FieldErrors = Partial<Record<keyof AnimalFormValues, string>>;
@@ -130,20 +130,17 @@ export function AnimalForm({
         />
         Castrado
       </label>
-      <Input
-        label="URL da foto"
-        type="url"
-        hint="Link de uma imagem já hospedada — upload direto ainda não é suportado"
+      <ImageUploadField
+        label="Foto"
         value={photoUrl}
-        onChange={(e) => setPhotoUrl(e.target.value)}
+        onChange={setPhotoUrl}
         error={fieldErrors.photoUrl}
       />
-      <Input
-        label="URL da resenha/desenho"
-        type="url"
-        hint="Identificação gráfica do equino (RF-CAD-023) — mesma ressalva de upload"
+      <ImageUploadField
+        label="Resenha/desenho"
+        hint="Identificação gráfica do equino (RF-CAD-023)"
         value={sketchUrl}
-        onChange={(e) => setSketchUrl(e.target.value)}
+        onChange={setSketchUrl}
         error={fieldErrors.sketchUrl}
       />
       <Select

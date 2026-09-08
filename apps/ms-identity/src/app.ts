@@ -1,3 +1,4 @@
+import path from 'node:path';
 import express, { type Express } from 'express';
 import {
   traceMiddleware,
@@ -11,6 +12,7 @@ import { ownerRouter } from './controllers/owner.controller';
 import { tenantRegisterRouter, tenantRouter } from './controllers/tenant.controller';
 import { propertyRouter } from './controllers/property.controller';
 import { animalRouter } from './controllers/animal.controller';
+import { uploadRouter } from './controllers/upload.controller';
 
 export function createApp(): Express {
   const app = express();
@@ -22,6 +24,9 @@ export function createApp(): Express {
   app.use('/health', healthRouter);
   app.use('/auth', authRouter);
   app.use('/tenants', tenantRegisterRouter); // só POST / (cadastro) — GET/PATCH /me ficam protegidos abaixo
+  // Leitura de arquivo (GET) é pública — uma <img src> não manda Authorization.
+  // Escrita (POST, uploadRouter abaixo) continua protegida.
+  app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
   // Rotas protegidas — exigem JWT válido
   app.use(authMiddleware);
@@ -29,6 +34,7 @@ export function createApp(): Express {
   app.use('/tenants', tenantRouter); // GET/PATCH /me
   app.use('/properties', propertyRouter);
   app.use('/animals', animalRouter);
+  app.use('/uploads', uploadRouter); // POST /
 
   app.use(notFoundHandler);
   app.use(errorHandler);
