@@ -63,6 +63,18 @@ app.get('/health/ready', async (_req, res) => {
   res.status(allOk ? 200 : 503).json({ status: allOk ? 'ok' : 'degraded', services: map });
 });
 
+// helmet() acima seta Cross-Origin-Resource-Policy: same-origin em toda
+// resposta — correto por padrão, mas bloqueia a PWA (origem diferente,
+// porta 3100) de renderizar <img src> apontando pras URLs de /uploads
+// (porta 3000). Sem isto a imagem nunca aparece na tela, mesmo com o
+// upload em si funcionando (apontado em review pelo Marco no PR #14).
+// Relaxa só esta rota — o resto da API (JSON via fetch) não é afetado
+// por CORP e mantém same-origin.
+app.use('/api/v1/uploads', (_req, res, next) => {
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  next();
+});
+
 // ─── Proxy para microsserviços (ADR-001 §3) ──────────────────────
 const routes: Array<[string, string]> = [
   ['/api/v1/auth', process.env['MS_IDENTITY_URL'] ?? 'http://localhost:3001'],

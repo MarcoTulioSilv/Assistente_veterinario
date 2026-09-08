@@ -317,3 +317,21 @@ export interface AppointmentDonePayload {
   totalCostCents: Cents;
   consumedItems: Array<{ productId: UUID; quantity: number }>;
 }
+
+// ═══ Upload de arquivos ═══════════════════════════════════════════
+/**
+ * Fonte única dos tipos de imagem aceitos por upload — a extensão de cada
+ * um é o dado que faltava pra derivar tudo o resto (o conjunto de mime
+ * types permitidos é Object.keys() disto). Usado por três lugares que
+ * antes tinham cópias divergentes: upload.controller.ts (validação
+ * server-side), local-storage-adapter.ts (nome do arquivo salvo) e
+ * ImageUploadField.tsx (pre-check no client, puramente cosmético — quem
+ * decide de verdade é sempre o server, ver image-sniff.ts).
+ */
+export const UPLOAD_IMAGE_EXTENSIONS: Record<string, string> = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/webp': '.webp',
+};
+
+export const UPLOAD_MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;

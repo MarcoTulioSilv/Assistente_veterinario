@@ -1,12 +1,17 @@
 'use client';
 
 import { useId, useRef, useState } from 'react';
+import { UPLOAD_IMAGE_EXTENSIONS, UPLOAD_MAX_FILE_SIZE_BYTES } from '@vetequine/shared-types';
 import { cn } from '@/lib/cn';
 import { api, ApiClientError } from '@/lib/api';
 import { Spinner } from './Spinner';
 
-const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024;
-const ACCEPTED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+// Só um pre-check de UX (feedback rápido sem round-trip ao servidor) --
+// quem decide de verdade se o arquivo é uma imagem válida é o backend,
+// pelos bytes reais (sniffImageMimeType em image-sniff.ts), não por essa
+// checagem de Content-Type do <input type="file">, que o browser também
+// só infere e não é uma garantia de conteúdo.
+const ACCEPTED_TYPES = Object.keys(UPLOAD_IMAGE_EXTENSIONS);
 
 export interface ImageUploadFieldProps {
   label: string;
@@ -45,7 +50,7 @@ export function ImageUploadField({
       setUploadError('Envie um arquivo JPEG, PNG ou WebP');
       return;
     }
-    if (file.size > MAX_FILE_SIZE_BYTES) {
+    if (file.size > UPLOAD_MAX_FILE_SIZE_BYTES) {
       setUploadError('Arquivo maior que 5MB');
       return;
     }
@@ -77,7 +82,15 @@ export function ImageUploadField({
           {uploading ? (
             <Spinner size="sm" />
           ) : value ? (
-            <img src={value} alt="" className="h-full w-full object-cover" />
+            <a
+              href={value}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Ver em tamanho real"
+              className="block h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            >
+              <img src={value} alt="" className="h-full w-full object-cover" />
+            </a>
           ) : (
             <span className="text-xs text-slate-400">sem foto</span>
           )}

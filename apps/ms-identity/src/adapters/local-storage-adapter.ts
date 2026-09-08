@@ -1,15 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { UPLOAD_IMAGE_EXTENSIONS } from '@vetequine/shared-types';
 import type { StorageAdapter, UploadedFile } from './storage-adapter';
 
 const UPLOADS_DIR = path.join(__dirname, '../../uploads');
-
-const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
-  'image/jpeg': '.jpg',
-  'image/png': '.png',
-  'image/webp': '.webp',
-};
 
 /**
  * Implementação real de StorageAdapter — salva em disco local, servido
@@ -24,7 +19,7 @@ const EXTENSION_BY_MIME_TYPE: Record<string, string> = {
  */
 export class LocalStorageAdapter implements StorageAdapter {
   async upload(tenantId: string, folder: string, file: UploadedFile): Promise<string> {
-    const extension = EXTENSION_BY_MIME_TYPE[file.mimeType];
+    const extension = UPLOAD_IMAGE_EXTENSIONS[file.mimeType];
     if (!extension) {
       throw new Error(`Tipo de arquivo não suportado: ${file.mimeType}`);
     }
