@@ -37,7 +37,7 @@ export default function LoginPage(): React.ReactElement {
     try {
       const tokens = await login(result.data.email, result.data.password);
       toast({ title: `Bem-vindo(a), ${tokens.user.fullName}`, variant: 'success' });
-      router.replace('/profile');
+      router.replace('/dashboard');
     } catch (err) {
       const message =
         err instanceof ApiClientError ? err.body.message : 'Não foi possível conectar ao servidor';
