@@ -1,7 +1,38 @@
-# VetEquine — Sistema de Gestão Veterinária Equina (SaaS)
+<p align="center">
+  <img src="https://readme-typing-svg.demolab.com/?lines=Gest%C3%A3o+Veterin%C3%A1ria+Equina;7+Microsservi%C3%A7os+%2B+BFF+Gateway;IA+por+Voz%3A+Whisper+%2B+LLM&font=Fira%20Code&center=true&width=520&height=45&color=0d9488&vCenter=true&pause=1200&size=20" alt="VetEquine" />
+</p>
 
-Monorepo com 7 microsserviços, BFF Gateway e PWA.
-Base: **ERS v1.1** · **ADR-001** · **SWEBOK v4.0** · **DevSecOps**
+<h1 align="center">🐴 VetEquine — Sistema de Gestão Veterinária Equina (SaaS)</h1>
+<p align="center">Monorepo com 7 microsserviços, BFF Gateway e PWA</p>
+<p align="center">Base: <b>ERS v1.1</b> · <b>ADR-001</b> · <b>SWEBOK v4.0</b> · <b>DevSecOps</b></p>
+
+<p align="center">
+  <img alt="TypeScript" height="36" title="TypeScript" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/typescript/typescript-original.svg" />
+  <img alt="Next.js" height="36" title="Next.js (PWA)" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/nextjs/nextjs-original.svg" />
+  <img alt="Express" height="36" title="Express (BFF + microsserviços)" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/express/express-original.svg" />
+  <img alt="PostgreSQL" height="36" title="PostgreSQL" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/postgresql/postgresql-original.svg" />
+  <img alt="Prisma" height="36" title="Prisma" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/prisma/prisma-original.svg" />
+  <img alt="Redis" height="36" title="Redis" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/redis/redis-original.svg" />
+  <img alt="Docker" height="36" title="Docker" src="https://raw.githubusercontent.com/devicons/devicon/master/icons/docker/docker-original.svg" />
+</p>
+
+## Proposta do Projeto
+
+SaaS de gestão veterinária para clínicas e profissionais especializados em equinos: centraliza prontuários, estoque, agenda e atendimento clínico numa PWA única, com um diferencial de IA — o **MS7 (IA por Voz)** transcreve a consulta automaticamente (Whisper STT) e um LLM gera o resumo clínico estruturado, reduzindo o tempo que o veterinário gasta documentando em vez de atendendo.
+
+A arquitetura é deliberadamente distribuída (7 microsserviços + BFF Gateway) para que cada domínio evolue e escale de forma independente — ver a decisão registrada em `docs/ADR-001_Arquitetura.docx` e o detalhamento técnico público em [vetequine-architecture-showcase](https://github.com/joaolmpv/vetequine-architecture-showcase).
+
+## 📸 Telas do sistema
+
+> Ainda não há screenshots aqui — para gerar, suba a stack local (`npm run docker:up` + migrations, ver [Início rápido](#início-rápido)) e adicione as imagens em `docs/screenshots/`. Vale para PWA, Adminer e qualquer dashboard interno que valha mostrar no README.
+
+## 📅 Diário de Desenvolvimento
+
+> Uma linha por dia/sessão de trabalho. Serve tanto para acompanhar o progresso quanto para o próximo dev entender rápido "onde paramos".
+
+| Data | O que mudou |
+|---|---|
+| 2026-09-14 | README reorganizado: proposta do projeto, stack e espaço para screenshots/diário adicionados no topo — conteúdo técnico original (comandos, regras, marcos) preservado abaixo. |
 
 ---
 
