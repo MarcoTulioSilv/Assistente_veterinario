@@ -9,7 +9,7 @@ import { api, ApiClientError, hasSession } from '@/lib/api';
 import { cn } from '@/lib/cn';
 import { formatCentsToBRL, parseBRLToCents, parseOptionalNumber } from '@/lib/money';
 import { ProductForm } from '../ProductForm';
-import type { ProductFormValues } from '../schema';
+import { movementFormSchema, type MovementFormValues, type ProductFormValues } from '../schema';
 
 function toUpdateDto(values: ProductFormValues): UpdateProductDto {
   return {
@@ -36,7 +36,16 @@ const MOVEMENT_REASON_LABEL: Record<string, string> = {
   expired: 'Vencido',
 };
 
-function MovementLedger({ productId, unit }: { productId: string; unit: string }): React.ReactElement {
+interface MovementLedgerProps {
+  productId: string;
+  unit: string;
+  /** Avisa o pai pra recarregar o produto -- o estoque/badges no topo da página ficariam desatualizados sem isto. */
+  onMovementRecorded: () => void;
+}
+
+type MovementFieldErrors = Partial<Record<keyof MovementFormValues, string>>;
+
+function MovementLedger({ productId, unit, onMovementRecorded }: MovementLedgerProps): React.ReactElement {
   const { toast } = useToast();
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [loadingMovements, setLoadingMovements] = useState(true);
@@ -45,7 +54,7 @@ function MovementLedger({ productId, unit }: { productId: string; unit: string }
   const [reason, setReason] = useState<'purchase' | 'manual' | ''>('');
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | undefined>();
+  const [fieldErrors, setFieldErrors] = useState<MovementFieldErrors>({});
 
   function loadMovements(): void {
     setLoadingMovements(true);
@@ -62,18 +71,24 @@ function MovementLedger({ productId, unit }: { productId: string; unit: string }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    setError(undefined);
 
-    if (!type || !reason || !/^\d+([.,]\d+)?$/.test(quantity)) {
-      setError('Preencha tipo, quantidade e motivo corretamente');
+    const result = movementFormSchema.safeParse({ type, quantity, reason, notes });
+    if (!result.success) {
+      const errors: MovementFieldErrors = {};
+      for (const issue of result.error.issues) {
+        const field = issue.path[0] as keyof MovementFormValues;
+        errors[field] = issue.message;
+      }
+      setFieldErrors(errors);
       return;
     }
 
+    setFieldErrors({});
     const data: CreateMovementDto = {
-      type,
-      reason,
-      quantity: Number(quantity.replace(',', '.')),
-      notes: notes || undefined,
+      type: result.data.type,
+      reason: result.data.reason,
+      quantity: Number(result.data.quantity.replace(',', '.')),
+      notes: result.data.notes || undefined,
     };
 
     setSubmitting(true);
@@ -83,6 +98,7 @@ function MovementLedger({ productId, unit }: { productId: string; unit: string }
       setQuantity('');
       setNotes('');
       loadMovements();
+      onMovementRecorded();
     } catch (err) {
       const message =
         err instanceof ApiClientError ? err.body.message : 'Não foi possível conectar ao servidor';
@@ -107,12 +123,14 @@ function MovementLedger({ productId, unit }: { productId: string; unit: string }
             ]}
             defaultValue={type}
             onChange={(e) => setType(e.target.value as 'in' | 'out')}
+            error={fieldErrors.type}
           />
           <Input
             label={`Quantidade (${unit})`}
             placeholder="0"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
+            error={fieldErrors.quantity}
           />
         </div>
         <Select
@@ -124,13 +142,15 @@ function MovementLedger({ productId, unit }: { productId: string; unit: string }
           ]}
           defaultValue={reason}
           onChange={(e) => setReason(e.target.value as 'purchase' | 'manual')}
+          error={fieldErrors.reason}
         />
-        <Input label="Observações" placeholder="Opcional" value={notes} onChange={(e) => setNotes(e.target.value)} />
-        {error && (
-          <span role="alert" className="text-sm text-red-600">
-            {error}
-          </span>
-        )}
+        <Input
+          label="Observações"
+          placeholder="Opcional"
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          error={fieldErrors.notes}
+        />
         <Button type="submit" variant="secondary" loading={submitting} size="sm" className="self-start">
           {submitting ? 'Registrando' : 'Registrar movimentação'}
         </Button>
@@ -220,6 +240,14 @@ export default function EditProductPage(): React.ReactElement | null {
     }
   }
 
+  /** Recarrega o produto pra refletir estoque/badges depois de um lançamento de movimentação. */
+  function handleMovementRecorded(): void {
+    api.products
+      .get(id)
+      .then(setProduct)
+      .catch(() => undefined);
+  }
+
   async function handleDelete(): Promise<void> {
     if (!product) return;
     if (!window.confirm(`Remover ${product.name}? Esta ação pode ser desfeita apenas pelo suporte.`)) return;
@@ -305,7 +333,7 @@ export default function EditProductPage(): React.ReactElement | null {
             </Button>
           }
         />
-        <MovementLedger productId={id} unit={product.unit} />
+        <MovementLedger productId={id} unit={product.unit} onMovementRecorded={handleMovementRecorded} />
       </div>
     </main>
   );

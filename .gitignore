@@ -56,3 +56,8 @@ docker-data/
 # repo, o CLAUDE.md real do projeto é o da raiz do monorepo.
 apps/pwa/AGENTS.md
 apps/pwa/CLAUDE.md
+
+# Playwright (apps/pwa/e2e)
+apps/pwa/test-results/
+apps/pwa/playwright-report/
+apps/pwa/blob-report/
