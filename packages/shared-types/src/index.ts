@@ -296,7 +296,34 @@ export interface CreateProductDto {
   minStockQty?: number;
   category: ProductCategory;
 }
-export type UpdateProductDto = Partial<CreateProductDto>;
+// `quantityInStock` de propósito fora daqui: mudar o estoque só via
+// StockMovement (RF-EST-007) — permitir no PATCH direto do produto
+// contornaria o ledger, mesmo problema que RN-010 evita pra animais.
+export type UpdateProductDto = Partial<Omit<CreateProductDto, 'quantityInStock'>>;
+
+export type MovementType = 'in' | 'out';
+export type MovementReason = 'purchase' | 'appointment' | 'exam' | 'vaccination' | 'manual' | 'expired';
+
+export interface StockMovement {
+  id: UUID;
+  productId: UUID;
+  type: MovementType;
+  quantity: number;
+  reason: MovementReason;
+  referenceId: UUID | null;
+  referenceType: string | null;
+  notes: string | null;
+  createdBy: UUID | null;
+  createdAt: ISODateString;
+}
+
+/** RF-EST-007: lançamento manual — 'appointment'/'exam'/'vaccination'/'expired' só via broker/AlertService. */
+export interface CreateMovementDto {
+  type: MovementType;
+  quantity: number;
+  reason: Extract<MovementReason, 'purchase' | 'manual'>;
+  notes?: string;
+}
 
 // ═══ Eventos do Message Broker (ADR-001 §5.3) ═════════════════════
 export const EVENTS = {

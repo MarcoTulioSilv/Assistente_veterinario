@@ -11,6 +11,7 @@ const NAV_ITEMS = [
   { href: '/owners', label: 'Proprietários' },
   { href: '/properties', label: 'Propriedades' },
   { href: '/animals', label: 'Animais' },
+  { href: '/inventory', label: 'Estoque' },
   { href: '/profile', label: 'Meu perfil' },
 ];
 

@@ -14,14 +14,20 @@ interface SectionCounts {
   pending: number;
 }
 
+interface InventoryCounts {
+  total: number;
+  alerts: number;
+}
+
 interface DashboardCounts {
   owners: SectionCounts;
   properties: SectionCounts;
   animals: SectionCounts;
+  inventory: InventoryCounts;
 }
 
 const SECTIONS: {
-  key: keyof DashboardCounts;
+  key: Exclude<keyof DashboardCounts, 'inventory'>;
   title: string;
   href: string;
   newHref: string;
@@ -86,6 +92,7 @@ export default function DashboardPage(): React.ReactElement {
           propertiesPending,
           animalsActive,
           animalsPending,
+          products,
         ] = await Promise.all([
           api.tenants.getMe(),
           api.owners.list({ page: 1, limit: 1, status: 'active' }),
@@ -94,6 +101,9 @@ export default function DashboardPage(): React.ReactElement {
           api.properties.list({ page: 1, limit: 1, status: 'pending' }),
           api.animals.list({ page: 1, limit: 1, status: 'active' }),
           api.animals.list({ page: 1, limit: 1, status: 'pending' }),
+          // Sem endpoint de contagem de alertas -- lê a 1ª página (limite do plano
+          // Básico é pequeno) e conta localmente; produtos em alerta além dela não entram.
+          api.products.list({ page: 1, limit: 100 }),
         ]);
 
         if (cancelled) return;
@@ -110,6 +120,10 @@ export default function DashboardPage(): React.ReactElement {
           animals: {
             active: animalsActive.pagination.total,
             pending: animalsPending.pagination.total,
+          },
+          inventory: {
+            total: products.pagination.total,
+            alerts: products.data.filter((p) => p.isLowStock || p.isNearExpiry).length,
           },
         });
       } catch (err) {
@@ -157,7 +171,7 @@ export default function DashboardPage(): React.ReactElement {
               <Spinner size="lg" />
             </div>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {SECTIONS.map((section) => {
                 const count = counts?.[section.key];
                 return (
@@ -194,6 +208,27 @@ export default function DashboardPage(): React.ReactElement {
                   </div>
                 );
               })}
+              <div className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                <Link href="/inventory" className="group">
+                  <p className="text-sm font-medium text-slate-500 group-hover:text-primary-700">Estoque</p>
+                  <p className="mt-1 text-3xl font-bold text-primary-800">{counts?.inventory.total ?? 0}</p>
+                  <p className="text-sm text-slate-500">produtos</p>
+                </Link>
+                {!!counts?.inventory.alerts && (
+                  <Link
+                    href="/inventory"
+                    className={cn(
+                      'inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-xs font-medium',
+                      'bg-red-100 text-red-800 hover:bg-red-200',
+                    )}
+                  >
+                    {counts.inventory.alerts} em alerta
+                  </Link>
+                )}
+                <Link href="/inventory/new" className="mt-auto text-sm text-primary-700 hover:underline">
+                  + Novo produto
+                </Link>
+              </div>
             </div>
           )}
         </div>
