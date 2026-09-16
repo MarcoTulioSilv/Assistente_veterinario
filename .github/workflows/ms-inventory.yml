@@ -49,9 +49,19 @@ jobs:
         options: >-
           --health-cmd pg_isready --health-interval 10s
           --health-timeout 5s --health-retries 5
+      # DeductionService (RN-003) usa BullMQ/Redis de verdade no teste
+      # de integração — sem isto, esse teste nunca roda em CI (os
+      # testes unitários escapam disso via vi.mock em events/publisher).
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
     env:
       DATABASE_URL_INVENTORY: postgresql://vetequine:vetequine@localhost:5432/inventory_test
       DATABASE_URL_INVENTORY_APP: postgresql://vetequine_app:app_dev_password@localhost:5432/inventory_test
+      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
