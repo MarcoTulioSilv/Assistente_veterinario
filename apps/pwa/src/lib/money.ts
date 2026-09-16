@@ -3,9 +3,14 @@ export function formatCentsToBRL(cents: number): string {
   return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 }
 
-/** Converte o texto digitado num campo de dinheiro (aceita "123,45" ou "123.45") pra centavos. */
+/**
+ * Converte o texto digitado num campo de dinheiro (aceita "123,45" ou "123.45") pra centavos.
+ * NÃO trata '.' como separador de milhar: o regex do form (decimalRegex em
+ * inventory/schema.ts) só deixa passar um único separador, então "." aqui
+ * é sempre decimal -- tratar como milhar faria "12.34" virar R$1.234,00.
+ */
 export function parseBRLToCents(value: string): number | undefined {
-  const normalized = value.replace(/\./g, '').replace(',', '.').trim();
+  const normalized = value.replace(',', '.').trim();
   if (!normalized) return undefined;
   const amount = Number(normalized);
   if (Number.isNaN(amount)) return undefined;

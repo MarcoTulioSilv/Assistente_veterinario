@@ -32,9 +32,9 @@ export type ProductFormValues = z.infer<typeof productFormSchema>;
 
 /** Lançamento manual de movimentação (RF-EST-007) — espelha createMovementSchema. */
 export const movementFormSchema = z.object({
-  type: z.enum(['in', 'out']),
+  type: z.enum(['in', 'out'], { errorMap: () => ({ message: 'Selecione entrada ou saída' }) }),
   quantity: z.string().regex(decimalRegex, 'Informe uma quantidade válida'),
-  reason: z.enum(['purchase', 'manual']),
+  reason: z.enum(['purchase', 'manual'], { errorMap: () => ({ message: 'Selecione o motivo' }) }),
   notes: z.string().max(1000).optional().or(z.literal('')),
 });
 
