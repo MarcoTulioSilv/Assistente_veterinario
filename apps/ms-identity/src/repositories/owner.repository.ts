@@ -1,5 +1,5 @@
 import type { Owner as PrismaOwner } from '@prisma/client';
-import type { RequestContext, UUID, Paginated, Owner } from '@vetequine/shared-types';
+import type { RequestContext, UUID, Paginated, Owner } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
 import type { CreateOwnerInput, UpdateOwnerInput, ListOwnersInput } from '../schemas/owner.schema';
 

@@ -1,4 +1,4 @@
-import type { UserRole, TenantPlan } from '@vetequine/shared-types';
+import type { UserRole, TenantPlan } from '@quironequine/shared-types';
 import { prisma, withTenant } from '../prisma';
 
 export interface AuthLookupRow {

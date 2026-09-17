@@ -6,7 +6,7 @@ Repository text (comments, commit conventions, docs) is in Portuguese (pt-BR); t
 
 ## What this is
 
-VetEquine is a multi-tenant SaaS for equine veterinary practice management, built as an npm workspaces monorepo (Turborepo) with 7 planned microservices, a BFF gateway, and a Next.js PWA. Only MS1 (`ms-identity`) is substantially implemented; MS2 (`ms-inventory`) has scaffolding only; MS3–MS7 do not exist yet. Treat unimplemented services as future work, not bugs.
+Quíron Equine is a multi-tenant SaaS for equine veterinary practice management, built as an npm workspaces monorepo (Turborepo) with 7 planned microservices, a BFF gateway, and a Next.js PWA. Only MS1 (`ms-identity`) is substantially implemented; MS2 (`ms-inventory`) has scaffolding only; MS3–MS7 do not exist yet. Treat unimplemented services as future work, not bugs.
 
 Architecture is governed by **ADR-001** and requirements by **ERS v1.1** (referenced throughout the code as e.g. `ADR-001 §5.2`, `ERS §2.6`, `RN-006`, `RNF-MAN-003` — these are stable identifiers into docs not present in this checkout, but the section numbers in comments are meaningful and should be preserved/followed).
 
@@ -25,10 +25,10 @@ npm run typecheck                              # turbo run typecheck (tsc --noEm
 npm run format                                 # prettier --write
 
 npm run docker:up / docker:down / docker:reset # postgres-per-service + redis + adminer
-npm run db:migrate -w @vetequine/ms-identity    # prisma migrate dev for one workspace
-npm run db:generate -w @vetequine/ms-identity   # prisma generate
-npm run db:seed -w @vetequine/ms-identity       # tsx prisma/seed.ts
-npm run db:studio -w @vetequine/ms-identity     # Prisma Studio
+npm run db:migrate -w @quironequine/ms-identity    # prisma migrate dev for one workspace
+npm run db:generate -w @quironequine/ms-identity   # prisma generate
+npm run db:seed -w @quironequine/ms-identity       # tsx prisma/seed.ts
+npm run db:studio -w @quironequine/ms-identity     # Prisma Studio
 ```
 
 Single test file / single test, inside a workspace (e.g. `apps/ms-identity`):
@@ -41,7 +41,7 @@ npx vitest run -t "bloqueia criação ao atingir 30 proprietários"
 Row-Level Security policies are plain SQL, not a Prisma migration, and must be applied manually once per fresh DB, after the first `prisma migrate dev`:
 
 ```bash
-docker exec -i vq-db-identity psql -U vetequine -d identity \
+docker exec -i vq-db-identity psql -U quironequine -d identity \
   < apps/ms-identity/prisma/migrations/00000000000000_enable_rls/migration.sql
 ```
 

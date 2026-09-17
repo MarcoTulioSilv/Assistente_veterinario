@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { Owner, Property } from '@vetequine/shared-types';
+import type { Owner, Property } from '@quironequine/shared-types';
 import { Spinner, useToast } from '@/components/ui';
 import { api, ApiClientError, hasSession } from '@/lib/api';
 import { AnimalForm } from '../AnimalForm';

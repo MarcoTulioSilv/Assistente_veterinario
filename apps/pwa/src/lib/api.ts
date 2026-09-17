@@ -19,7 +19,7 @@ import type {
   CreateProductDto,
   UpdateProductDto,
   CreateMovementDto,
-} from '@vetequine/shared-types';
+} from '@quironequine/shared-types';
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
 

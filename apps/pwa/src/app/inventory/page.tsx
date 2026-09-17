@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { Pagination, Product, ProductCategory } from '@vetequine/shared-types';
+import type { Pagination, Product, ProductCategory } from '@quironequine/shared-types';
 import { Button, Input, Spinner, useToast } from '@/components/ui';
 import { AppHeader } from '@/components/AppHeader';
 import { cn } from '@/lib/cn';

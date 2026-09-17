@@ -1,6 +1,6 @@
 import type { Request, Response, NextFunction } from 'express';
 import { jwtVerify } from 'jose';
-import type { RequestContext, UserRole, TenantPlan } from '@vetequine/shared-types';
+import type { RequestContext, UserRole, TenantPlan } from '@quironequine/shared-types';
 import { AppError } from './errors';
 
 declare module 'express-serve-static-core' {

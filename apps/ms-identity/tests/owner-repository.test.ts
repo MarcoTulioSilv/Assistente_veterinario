@@ -6,7 +6,7 @@
  * owner.repository.ts nunca teve teste (só coberto indiretamente pelo
  * rls-isolation.test.ts, que exercita o isolamento entre tenants mas não
  * a lógica de negócio própria do repositório — paginação, RN-006 (cadastro
- * parcial fica pending), soft delete). Roda como vetequine_app (RLS ativo),
+ * parcial fica pending), soft delete). Roda como quironequine_app (RLS ativo),
  * igual ao runtime real.
  * ══════════════════════════════════════════════════════════════════
  */
@@ -14,7 +14,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { OwnerRepository } from '../src/repositories/owner.repository';
 import { prisma as appPrisma } from '../src/prisma';
-import type { RequestContext } from '@vetequine/shared-types';
+import type { RequestContext } from '@quironequine/shared-types';
 
 const TENANT_ID = '99999999-9999-9999-9999-999999999999';
 

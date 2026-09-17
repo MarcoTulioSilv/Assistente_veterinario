@@ -8,7 +8,7 @@ import {
   errorHandler,
   notFoundHandler,
   createServiceLogger,
-} from '@vetequine/shared-middlewares';
+} from '@quironequine/shared-middlewares';
 
 const log = createServiceLogger('bff');
 const PORT = Number(process.env['PORT_BFF'] ?? 3000);

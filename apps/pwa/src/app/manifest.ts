@@ -6,8 +6,8 @@ import type { MetadataRoute } from 'next';
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'VetEquine — Gestão Veterinária Equina',
-    short_name: 'VetEquine',
+    name: 'Quíron Equine — Gestão Veterinária Equina',
+    short_name: 'Quíron Equine',
     description: 'Sistema de gestão clínica e administrativa para veterinários equinos',
     start_url: '/',
     scope: '/',

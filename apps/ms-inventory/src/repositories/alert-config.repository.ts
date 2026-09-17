@@ -1,5 +1,5 @@
 import type { AlertType } from '../../node_modules/.prisma/client-inventory';
-import type { RequestContext, UUID } from '@vetequine/shared-types';
+import type { RequestContext, UUID } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
 
 /**

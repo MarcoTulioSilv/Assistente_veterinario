@@ -1,6 +1,6 @@
 /**
  * ══════════════════════════════════════════════════════════════════
- * VetEquine — Service Worker
+ * Quíron Equine — Service Worker
  *
  * Escrito a mao para eliminar a dependencia do Workbox, que arrastava
  * vulnerabilidades via @rollup/plugin-terser -> serialize-javascript (RCE).
@@ -15,8 +15,8 @@
  */
 
 const VERSION = 'v1';
-const SHELL_CACHE = `vetequine-shell-${VERSION}`;
-const API_CACHE = `vetequine-api-${VERSION}`;
+const SHELL_CACHE = `quironequine-shell-${VERSION}`;
+const API_CACHE = `quironequine-api-${VERSION}`;
 const OFFLINE_URL = '/offline';
 
 const SHELL_ASSETS = [
@@ -48,7 +48,7 @@ self.addEventListener('activate', (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((k) => k.startsWith('vetequine-') && !k.endsWith(VERSION))
+            .filter((k) => k.startsWith('quironequine-') && !k.endsWith(VERSION))
             .map((k) => caches.delete(k)),
         ),
       )
@@ -98,7 +98,7 @@ async function networkFirst(request, cacheName) {
     const cached = await cache.match(request);
     if (cached) {
       const headers = new Headers(cached.headers);
-      headers.set('X-VetEquine-From-Cache', 'true');
+      headers.set('X-QuironEquine-From-Cache', 'true');
       return new Response(cached.body, {
         status: cached.status,
         statusText: cached.statusText,
@@ -156,11 +156,11 @@ self.addEventListener('push', (event) => {
   try {
     payload = event.data.json();
   } catch {
-    payload = { title: 'VetEquine', body: event.data.text() };
+    payload = { title: 'Quíron Equine', body: event.data.text() };
   }
 
   event.waitUntil(
-    self.registration.showNotification(payload.title ?? 'VetEquine', {
+    self.registration.showNotification(payload.title ?? 'Quíron Equine', {
       body: payload.body ?? '',
       icon: '/icons/icon-192.png',
       badge: '/icons/badge-72.png',

@@ -5,7 +5,7 @@
  * POR QUE ESTE TESTE EXISTE: cobre o ciclo dispara → não duplica →
  * normaliza → reseta (RF-EST-004/005), a constraint
  * @@unique([productId, alertType]) evitando duas linhas pro mesmo par,
- * e roda como vetequine_app (RLS ativo), igual ao runtime real.
+ * e roda como quironequine_app (RLS ativo), igual ao runtime real.
  * ══════════════════════════════════════════════════════════════════
  */
 import { describe, it, expect, afterEach, afterAll } from 'vitest';
@@ -13,7 +13,7 @@ import { PrismaClient } from '../node_modules/.prisma/client-inventory';
 import { ProductRepository } from '../src/repositories/product.repository';
 import { AlertConfigRepository } from '../src/repositories/alert-config.repository';
 import { prisma as appPrisma } from '../src/prisma';
-import type { RequestContext } from '@vetequine/shared-types';
+import type { RequestContext } from '@quironequine/shared-types';
 
 const TENANT_ID = 'ffffffff-ffff-ffff-ffff-ffffffffffff';
 

@@ -44,8 +44,8 @@ Duas conexões distintas por microsserviço:
 
 | Conexão | Role | Uso | Variável |
 |---|---|---|---|
-| Migrations | `vetequine` (superusuário) | `prisma migrate`, DDL, criação de policies | `DATABASE_URL_<MS>` |
-| Runtime | `vetequine_app` (role comum) | Prisma Client em produção | `DATABASE_URL_<MS>_APP` |
+| Migrations | `quironequine` (superusuário) | `prisma migrate`, DDL, criação de policies | `DATABASE_URL_<MS>` |
+| Runtime | `quironequine_app` (role comum) | Prisma Client em produção | `DATABASE_URL_<MS>_APP` |
 
 A role de aplicação é criada por `infra/postgres-init/01-create-app-role.sql`,
 que roda **depois** das migrations (o `GRANT ON ALL TABLES` só alcança tabelas
@@ -273,7 +273,7 @@ de 70% (RNF-MAN-003) é aplicado via `coverage.thresholds`.
 ### Contexto
 
 O Prisma procura o `.env` no diretório de invocação. Com
-`npm run db:migrate --workspace=@vetequine/ms-identity`, o `cwd` passa a ser
+`npm run db:migrate --workspace=@quironequine/ms-identity`, o `cwd` passa a ser
 `apps/ms-identity`, onde não existe `.env` — resultando em `P1012:
 Environment variable not found`.
 

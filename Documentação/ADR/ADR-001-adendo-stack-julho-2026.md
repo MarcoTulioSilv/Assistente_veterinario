@@ -58,8 +58,8 @@ Trecho a ser lido em conjunto com o §5.2 original:
 
 ```sql
 -- Runtime NUNCA conecta como superusuário.
--- vetequine_app tem rolsuper = false e rolbypassrls = false.
-CREATE ROLE vetequine_app WITH LOGIN PASSWORD '...';
+-- quironequine_app tem rolsuper = false e rolbypassrls = false.
+CREATE ROLE quironequine_app WITH LOGIN PASSWORD '...';
 ```
 
 ---

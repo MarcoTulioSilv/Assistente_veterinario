@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
-import type { Owner } from '@vetequine/shared-types';
+import type { Owner } from '@quironequine/shared-types';
 import { Spinner, useToast } from '@/components/ui';
 import { api, ApiClientError, hasSession } from '@/lib/api';
 import { PropertyForm } from '../PropertyForm';

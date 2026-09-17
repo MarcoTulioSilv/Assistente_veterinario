@@ -1,5 +1,5 @@
 import { Queue, Worker, type Job } from 'bullmq';
-import { createServiceLogger } from '@vetequine/shared-middlewares';
+import { createServiceLogger } from '@quironequine/shared-middlewares';
 
 const log = createServiceLogger('alert-scheduler');
 
@@ -21,7 +21,7 @@ const connection = {
 // 'inventory:alerts' derrubava o processo assim que este módulo era
 // importado, só ninguém tinha chamado scheduleAlertChecks()/
 // startAlertWorker() ainda pra pegar isso).
-const prefix = process.env['REDIS_QUEUE_PREFIX'] ?? 'vetequine';
+const prefix = process.env['REDIS_QUEUE_PREFIX'] ?? 'quironequine';
 const QUEUE_NAME = 'inventory-alerts';
 
 export const alertQueue = new Queue(QUEUE_NAME, { connection, prefix });

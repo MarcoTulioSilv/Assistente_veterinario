@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '../../node_modules/.prisma/client-inventory';
 import type { StockMovement as PrismaStockMovement, MovementType, MovementReason } from '../../node_modules/.prisma/client-inventory';
-import type { RequestContext, UUID } from '@vetequine/shared-types';
+import type { RequestContext, UUID } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
 
 export interface StockMovementRecord {

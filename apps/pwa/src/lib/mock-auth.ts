@@ -1,4 +1,4 @@
-import type { AuthTokens } from '@vetequine/shared-types';
+import type { AuthTokens } from '@quironequine/shared-types';
 import { ApiClientError } from './api';
 
 /**
@@ -8,7 +8,7 @@ import { ApiClientError } from './api';
  * de login quando o endpoint real estiver pronto.
  */
 
-const MOCK_CREDENTIALS = { email: 'dev@vetequine.com.br', password: 'senha123' };
+const MOCK_CREDENTIALS = { email: 'dev@quironequine.com.br', password: 'senha123' };
 
 const MOCK_TOKENS: AuthTokens = {
   accessToken: 'mock-access-token',

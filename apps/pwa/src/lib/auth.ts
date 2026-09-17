@@ -1,4 +1,4 @@
-import type { AuthTokens } from '@vetequine/shared-types';
+import type { AuthTokens } from '@quironequine/shared-types';
 import { api, ApiClientError, setSession } from './api';
 import { mockLogin } from './mock-auth';
 

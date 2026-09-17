@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { UPLOAD_IMAGE_EXTENSIONS, UPLOAD_MAX_FILE_SIZE_BYTES } from '@vetequine/shared-types';
-import { AppError } from '@vetequine/shared-middlewares';
+import { UPLOAD_IMAGE_EXTENSIONS, UPLOAD_MAX_FILE_SIZE_BYTES } from '@quironequine/shared-types';
+import { AppError } from '@quironequine/shared-middlewares';
 import { LocalStorageAdapter } from '../adapters/local-storage-adapter';
 import { sniffImageMimeType } from '../lib/image-sniff';
 

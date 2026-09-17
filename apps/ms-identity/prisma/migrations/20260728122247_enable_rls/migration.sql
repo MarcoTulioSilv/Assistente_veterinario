@@ -1,7 +1,7 @@
 -- Row-Level Security -- multitenancy (ADR-001 5.2 / RNF-SEG-004)
 --
 -- Superusuarios IGNORAM RLS. O runtime deve conectar como
--- vetequine_app, nunca como vetequine.
+-- quironequine_app, nunca como quironequine.
 
 CREATE OR REPLACE FUNCTION current_tenant_id() RETURNS UUID AS $$
   SELECT NULLIF(current_setting('app.current_tenant', true), '')::UUID;

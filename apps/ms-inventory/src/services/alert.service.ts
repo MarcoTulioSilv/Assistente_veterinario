@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { AlertType } from '../../node_modules/.prisma/client-inventory';
-import { EVENTS } from '@vetequine/shared-types';
-import type { RequestContext, UUID, Product } from '@vetequine/shared-types';
+import { EVENTS } from '@quironequine/shared-types';
+import type { RequestContext, UUID, Product } from '@quironequine/shared-types';
 import type { ProductRepository } from '../repositories/product.repository';
 import type { AlertConfigRepository } from '../repositories/alert-config.repository';
 import { publishDomainEvent } from '../events/publisher';

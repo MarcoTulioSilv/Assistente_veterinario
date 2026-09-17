@@ -1,4 +1,4 @@
-# Onboarding — Ambiente de Desenvolvimento VetEquine
+# Onboarding — Ambiente de Desenvolvimento Quíron Equine
 
 Guia para colocar a máquina de um desenvolvedor no mesmo estado do ambiente
 de referência. Tempo estimado: **40 a 60 minutos**, sendo a maior parte
@@ -59,8 +59,8 @@ Extensões úteis: Prisma, ESLint, Prettier, Docker.
 
 ```powershell
 cd C:\Users\SEU_USUARIO\Desktop
-git clone https://github.com/MarcoTulioSilv/Assistente_veterinario.git vetequine
-cd vetequine
+git clone https://github.com/MarcoTulioSilv/Assistente_veterinario.git quironequine
+cd quironequine
 ```
 
 Confirme as branches:
@@ -94,13 +94,13 @@ sozinho) — os dois publicam `dist/` via `main`/`types` no `package.json`,
 e essa pasta é gitignorada, então precisa existir antes de qualquer outro
 comando (`dev`, `test`, `typecheck`) funcionar. Se um dia isso não rodar
 sozinho (ex.: `npm ci --ignore-scripts`), rode
-`npx turbo run build --filter=@vetequine/shared-types --filter=@vetequine/shared-middlewares`
+`npx turbo run build --filter=@quironequine/shared-types --filter=@quironequine/shared-middlewares`
 manualmente.
 
 ### Confirmar que os workspaces foram vinculados
 
 ```powershell
-Get-ChildItem node_modules\@vetequine
+Get-ChildItem node_modules\@quironequine
 ```
 
 Devem aparecer `shared-types` e `shared-middlewares` como links simbólicos
@@ -151,11 +151,11 @@ O `.env.example` traz as URLs de migration. Você precisa acrescentar as de
 runtime, que usam a role restrita:
 
 ```bash
-DATABASE_URL_IDENTITY_APP=postgresql://vetequine_app:app_dev_password@localhost:5432/identity?schema=public
-DATABASE_URL_INVENTORY_APP=postgresql://vetequine_app:app_dev_password@localhost:5433/inventory?schema=public
+DATABASE_URL_IDENTITY_APP=postgresql://quironequine_app:app_dev_password@localhost:5432/identity?schema=public
+DATABASE_URL_INVENTORY_APP=postgresql://quironequine_app:app_dev_password@localhost:5433/inventory?schema=public
 ```
 
-**Por que duas URLs por banco:** o usuário `vetequine` é superusuário do
+**Por que duas URLs por banco:** o usuário `quironequine` é superusuário do
 PostgreSQL, e superusuários ignoram Row-Level Security. Se a aplicação
 conectar com ele, o isolamento entre tenants não funciona — silenciosamente,
 sem erro nenhum. Detalhes em `ADR-003` §1.
@@ -195,7 +195,7 @@ O `-Scope Process` vale só para essa janela — não altera a política da máq
 3. Aguarda o healthcheck do banco
 4. Cria as tabelas via `prisma migrate dev`
 5. Cria e aplica a migration de Row-Level Security
-6. Cria a role `vetequine_app` com as permissões corretas
+6. Cria a role `quironequine_app` com as permissões corretas
 7. Popula com dados de demonstração
 8. Verifica migrations, policies e roles
 
@@ -216,11 +216,11 @@ não há risco.
     8 policies (esperado: 8)
 
   Roles:
-    vetequine        superuser=t  bypassrls=t
-    vetequine_app    superuser=f  bypassrls=f
+    quironequine        superuser=t  bypassrls=t
+    quironequine_app    superuser=f  bypassrls=f
 ```
 
-Os dois `f` na linha do `vetequine_app` são o ponto central. Se aparecesse
+Os dois `f` na linha do `quironequine_app` são o ponto central. Se aparecesse
 `t` em `bypassrls`, as 8 policies seriam decorativas.
 
 ---
@@ -240,7 +240,7 @@ solicitados via `--profile`.
 ### Testes
 
 ```powershell
-npm run test --workspace=@vetequine/ms-identity
+npm run test --workspace=@quironequine/ms-identity
 ```
 
 Inclui o teste de isolamento RLS, que valida que um tenant não enxerga dados
@@ -250,7 +250,7 @@ de outro. Se ele falhar, o `.env` provavelmente está sem a variável
 ### Serviço
 
 ```powershell
-npm run dev --workspace=@vetequine/ms-identity
+npm run dev --workspace=@quironequine/ms-identity
 ```
 
 Em outro terminal:
@@ -270,8 +270,8 @@ Abra `http://localhost:8080` (Adminer):
 
 - Sistema: PostgreSQL
 - Servidor: `db-identity`
-- Usuário: `vetequine`
-- Senha: `vetequine`
+- Usuário: `quironequine`
+- Senha: `quironequine`
 - Base: `identity`
 
 Você deve ver 9 tabelas com os dados de demonstração.

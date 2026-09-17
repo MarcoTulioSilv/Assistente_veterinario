@@ -1,5 +1,5 @@
-import type { IAnimalService, RequestContext, UUID, Paginated, Animal } from '@vetequine/shared-types';
-import { AppError } from '@vetequine/shared-middlewares';
+import type { IAnimalService, RequestContext, UUID, Paginated, Animal } from '@quironequine/shared-types';
+import { AppError } from '@quironequine/shared-middlewares';
 import type { AnimalRepository } from '../repositories/animal.repository';
 import type { CreateAnimalInput, UpdateAnimalInput, ListAnimalsInput } from '../schemas/animal.schema';
 

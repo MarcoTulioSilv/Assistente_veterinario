@@ -7,7 +7,7 @@ const { AlertService } = await import('./alert.service');
 type ProductRepository = import('../repositories/product.repository').ProductRepository;
 type AlertConfigRepository = import('../repositories/alert-config.repository').AlertConfigRepository;
 
-import type { RequestContext, Product } from '@vetequine/shared-types';
+import type { RequestContext, Product } from '@quironequine/shared-types';
 
 const ctx: RequestContext = {
   tenantId: '11111111-1111-1111-1111-111111111111',

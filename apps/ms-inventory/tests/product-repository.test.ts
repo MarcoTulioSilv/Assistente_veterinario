@@ -5,7 +5,7 @@
  * POR QUE ESTE TESTE EXISTE: cobre RN-004 (sale_price_cents calculado
  * pelo Postgres, não em código), RF-EST-007 (estoque inicial > 0 gera
  * StockMovement de entrada), o cálculo de isNearExpiry/isLowStock na
- * leitura, RLS (roda como vetequine_app, igual ao runtime real), e a
+ * leitura, RLS (roda como quironequine_app, igual ao runtime real), e a
  * idempotência de verdade do deduct() via UNIQUE(idempotency_key) —
  * chamar duas vezes com a mesma chave não pode descontar em dobro.
  * ══════════════════════════════════════════════════════════════════
@@ -15,7 +15,7 @@ import { PrismaClient } from '../node_modules/.prisma/client-inventory';
 import { ProductRepository } from '../src/repositories/product.repository';
 import { MovementRepository } from '../src/repositories/movement.repository';
 import { prisma as appPrisma } from '../src/prisma';
-import type { RequestContext } from '@vetequine/shared-types';
+import type { RequestContext } from '@quironequine/shared-types';
 
 // UUID dedicado a este teste — diferente do usado em prisma/seed.ts
 // (aaaaaaaa-...), pra afterEach não apagar os dados de seed local.

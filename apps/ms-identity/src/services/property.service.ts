@@ -1,5 +1,5 @@
-import type { IPropertyService, RequestContext, UUID, Paginated, Property } from '@vetequine/shared-types';
-import { AppError } from '@vetequine/shared-middlewares';
+import type { IPropertyService, RequestContext, UUID, Paginated, Property } from '@quironequine/shared-types';
+import { AppError } from '@quironequine/shared-middlewares';
 import type { PropertyRepository } from '../repositories/property.repository';
 import type { GeoService } from './geo.service';
 import type { PlanService } from './plan.service';

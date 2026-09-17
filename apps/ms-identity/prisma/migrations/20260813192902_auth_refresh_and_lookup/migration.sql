@@ -11,9 +11,9 @@ ALTER TABLE "users" ADD COLUMN     "refresh_token_expires_at" TIMESTAMPTZ;
 --
 -- Por que funciona sem furar RLS para o resto do sistema: a funcao
 -- roda com os privilegios do DONO (SECURITY DEFINER), nao de quem
--- chama. O dono e a role de migration (vetequine, superusuario,
+-- chama. O dono e a role de migration (quironequine, superusuario,
 -- bypassrls=true por natureza) -- por isso a funcao ignora RLS, mas
--- so devolve exatamente as colunas que o corpo seleciona. vetequine_app
+-- so devolve exatamente as colunas que o corpo seleciona. quironequine_app
 -- recebe GRANT EXECUTE nestas funcoes (ver 01-create-app-role.sql),
 -- nunca GRANT SELECT direto nas tabelas -- esse grant continua
 -- restrito por RLS como sempre foi.
@@ -61,5 +61,5 @@ $$;
 
 REVOKE ALL ON FUNCTION auth_lookup_by_email(TEXT) FROM PUBLIC;
 REVOKE ALL ON FUNCTION auth_tenant_id_for_user(UUID) FROM PUBLIC;
--- GRANT EXECUTE para vetequine_app fica em infra/postgres-init/01-create-app-role.sql,
+-- GRANT EXECUTE para quironequine_app fica em infra/postgres-init/01-create-app-role.sql,
 -- que roda depois das migrations (a role pode nao existir ainda neste ponto).

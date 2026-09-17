@@ -1,5 +1,5 @@
-import type { ITenantService, RequestContext, RegisterTenantDto, UpdateVeterinarianDto, TenantProfile } from '@vetequine/shared-types';
-import { AppError } from '@vetequine/shared-middlewares';
+import type { ITenantService, RequestContext, RegisterTenantDto, UpdateVeterinarianDto, TenantProfile } from '@quironequine/shared-types';
+import { AppError } from '@quironequine/shared-middlewares';
 import { hashPassword } from '../lib/password';
 import type { TenantRepository } from '../repositories/tenant.repository';
 

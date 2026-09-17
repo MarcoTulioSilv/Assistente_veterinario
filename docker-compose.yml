@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════
-# VetEquine — Ambiente de Desenvolvimento Local
+# Quíron Equine — Ambiente de Desenvolvimento Local
 # Uso:  docker compose up -d
 #       docker compose logs -f
 #       docker compose down -v   (apaga volumes)
@@ -11,99 +11,99 @@ services:
     image: postgres:16-alpine
     container_name: vq-db-identity
     environment:
-      POSTGRES_USER: vetequine
-      POSTGRES_PASSWORD: vetequine
+      POSTGRES_USER: quironequine
+      POSTGRES_PASSWORD: quironequine
       POSTGRES_DB: identity
     ports: ['5432:5432']
     volumes:
       - db-identity-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U vetequine -d identity']
+      test: ['CMD-SHELL', 'pg_isready -U quironequine -d identity']
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [vetequine-net]
+    networks: [quironequine-net]
 
   db-inventory:
     image: postgres:16-alpine
     container_name: vq-db-inventory
     environment:
-      POSTGRES_USER: vetequine
-      POSTGRES_PASSWORD: vetequine
+      POSTGRES_USER: quironequine
+      POSTGRES_PASSWORD: quironequine
       POSTGRES_DB: inventory
     ports: ['5433:5432']
     volumes:
       - db-inventory-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U vetequine -d inventory']
+      test: ['CMD-SHELL', 'pg_isready -U quironequine -d inventory']
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [vetequine-net]
+    networks: [quironequine-net]
 
   db-clinical:
     image: postgres:16-alpine
     container_name: vq-db-clinical
     environment:
-      POSTGRES_USER: vetequine
-      POSTGRES_PASSWORD: vetequine
+      POSTGRES_USER: quironequine
+      POSTGRES_PASSWORD: quironequine
       POSTGRES_DB: clinical
     ports: ['5434:5432']
     volumes:
       - db-clinical-data:/var/lib/postgresql/data
-    networks: [vetequine-net]
+    networks: [quironequine-net]
     profiles: [m2]
 
   db-scheduling:
     image: postgres:16-alpine
     container_name: vq-db-scheduling
     environment:
-      POSTGRES_USER: vetequine
-      POSTGRES_PASSWORD: vetequine
+      POSTGRES_USER: quironequine
+      POSTGRES_PASSWORD: quironequine
       POSTGRES_DB: scheduling
     ports: ['5435:5432']
     volumes:
       - db-scheduling-data:/var/lib/postgresql/data
-    networks: [vetequine-net]
+    networks: [quironequine-net]
     profiles: [m3]
 
   db-notification:
     image: postgres:16-alpine
     container_name: vq-db-notification
     environment:
-      POSTGRES_USER: vetequine
-      POSTGRES_PASSWORD: vetequine
+      POSTGRES_USER: quironequine
+      POSTGRES_PASSWORD: quironequine
       POSTGRES_DB: notification
     ports: ['5436:5432']
     volumes:
       - db-notification-data:/var/lib/postgresql/data
-    networks: [vetequine-net]
+    networks: [quironequine-net]
     profiles: [m3]
 
   db-reporting:
     image: postgres:16-alpine
     container_name: vq-db-reporting
     environment:
-      POSTGRES_USER: vetequine
-      POSTGRES_PASSWORD: vetequine
+      POSTGRES_USER: quironequine
+      POSTGRES_PASSWORD: quironequine
       POSTGRES_DB: reporting
     ports: ['5437:5432']
     volumes:
       - db-reporting-data:/var/lib/postgresql/data
-    networks: [vetequine-net]
+    networks: [quironequine-net]
     profiles: [m3]
 
   db-aivoice:
     image: postgres:16-alpine
     container_name: vq-db-aivoice
     environment:
-      POSTGRES_USER: vetequine
-      POSTGRES_PASSWORD: vetequine
+      POSTGRES_USER: quironequine
+      POSTGRES_PASSWORD: quironequine
       POSTGRES_DB: aivoice
     ports: ['5438:5432']
     volumes:
       - db-aivoice-data:/var/lib/postgresql/data
-    networks: [vetequine-net]
+    networks: [quironequine-net]
     profiles: [m4]
 
   # ─── Redis: cache + fila (Bull) + pub/sub ───────────────────────
@@ -119,7 +119,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 5
-    networks: [vetequine-net]
+    networks: [quironequine-net]
 
   # ─── Adminer: UI web para inspecionar os bancos ─────────────────
   adminer:
@@ -131,7 +131,7 @@ services:
       ADMINER_DESIGN: dracula
     depends_on:
       - db-identity
-    networks: [vetequine-net]
+    networks: [quironequine-net]
 
 volumes:
   db-identity-data:
@@ -144,5 +144,5 @@ volumes:
   redis-data:
 
 networks:
-  vetequine-net:
+  quironequine-net:
     driver: bridge

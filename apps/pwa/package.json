@@ -1,5 +1,5 @@
 {
-  "name": "@vetequine/pwa",
+  "name": "@quironequine/pwa",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.62.0",
-    "@vetequine/shared-types": "*",
+    "@quironequine/shared-types": "*",
     "leaflet": "^1.9.4",
     "next": "^16.3.5",
     "react": "^19.0.0",

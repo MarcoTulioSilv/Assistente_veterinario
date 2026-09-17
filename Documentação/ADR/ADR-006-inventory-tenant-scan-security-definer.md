@@ -14,9 +14,9 @@
 
 ## Contexto
 
-`AlertService.checkAllTenants()` (RF-EST-004/005, RN-009) precisa varrer **todos** os tenants que têm produto ativo, uma vez por dia, pra checar validade e estoque baixo. Mas o `ms-inventory` não tem tabela `Tenant` — cada microsserviço tem seu próprio banco (ADR-001 §5.1) — então não há como descobrir a lista de tenants por um join local, e a conexão de runtime (`vetequine_app`) não ignora RLS por desenho.
+`AlertService.checkAllTenants()` (RF-EST-004/005, RN-009) precisa varrer **todos** os tenants que têm produto ativo, uma vez por dia, pra checar validade e estoque baixo. Mas o `ms-inventory` não tem tabela `Tenant` — cada microsserviço tem seu próprio banco (ADR-001 §5.1) — então não há como descobrir a lista de tenants por um join local, e a conexão de runtime (`quironequine_app`) não ignora RLS por desenho.
 
-A primeira versão deste código (PR #9) resolveu isso com `adminPrisma`: um `PrismaClient` inteiro, conectado como o superusuário `vetequine`, exportado como variável de `prisma.ts` e vivo pelo processo inteiro. Revisão do João (PR #9) apontou que isso é mais arriscado que o padrão já estabelecido pela ADR-004 em três eixos:
+A primeira versão deste código (PR #9) resolveu isso com `adminPrisma`: um `PrismaClient` inteiro, conectado como o superusuário `quironequine`, exportado como variável de `prisma.ts` e vivo pelo processo inteiro. Revisão do João (PR #9) apontou que isso é mais arriscado que o padrão já estabelecido pela ADR-004 em três eixos:
 
 1. **Amplitude**: `adminPrisma` pode ler/escrever qualquer tabela; a ADR-004 restringe a exatamente as colunas que cada função seleciona.
 2. **Ciclo de vida**: `adminPrisma` fica vivo o processo inteiro; uma função SQL só bypassa RLS durante a chamada.
@@ -24,7 +24,7 @@ A primeira versão deste código (PR #9) resolveu isso com `adminPrisma`: um `Pr
 
 ## Decisão
 
-Reaplicar o padrão da ADR-004: uma função PostgreSQL `SECURITY DEFINER`, somente leitura, de propriedade da role de migration (`vetequine`, superusuário — por isso ignora RLS independente de quem chama):
+Reaplicar o padrão da ADR-004: uma função PostgreSQL `SECURITY DEFINER`, somente leitura, de propriedade da role de migration (`quironequine`, superusuário — por isso ignora RLS independente de quem chama):
 
 ```sql
 inventory_list_active_tenant_ids() → SETOF UUID
@@ -32,7 +32,7 @@ inventory_list_active_tenant_ids() → SETOF UUID
 
 Devolve só os `tenant_id` distintos de `products` com `deleted_at IS NULL` — nunca `SELECT *`, nunca outra coluna.
 
-`vetequine_app` recebe `GRANT EXECUTE` nessa função (em `infra/postgres-init/01-create-app-role.sql`, mesmo bloco condicional `IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = ...)` já usado pelas funções da ADR-004) — **nunca** acesso direto à tabela além do grant geral já existente (que continua sob RLS).
+`quironequine_app` recebe `GRANT EXECUTE` nessa função (em `infra/postgres-init/01-create-app-role.sql`, mesmo bloco condicional `IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = ...)` já usado pelas funções da ADR-004) — **nunca** acesso direto à tabela além do grant geral já existente (que continua sob RLS).
 
 `adminPrisma` foi removido de `apps/ms-inventory/src/prisma.ts` inteiramente — não existe mais nenhum client Prisma paralelo que bypassa RLS no processo. `ProductRepository.listActiveTenantIds()` chama a função via `prisma.$queryRaw` (o client normal, RLS ativo), exatamente como `AuthRepository` já faz para `auth_lookup_by_email`/`auth_tenant_id_for_user`.
 
@@ -44,7 +44,7 @@ Devolve só os `tenant_id` distintos de `products` com `deleted_at IS NULL` — 
 
 ## Verificação
 
-Confirmado manualmente: `psql -U vetequine_app -d inventory -c "SELECT inventory_list_active_tenant_ids();"` retorna os tenants esperados, mesmo conectando diretamente como a role restrita (sem passar por `withTenant`) — prova que o bypass está na função, não na conexão. Testes de integração existentes (`tests/product-repository.test.ts`, cobrindo `listActiveTenantIds()`) continuam verdes sem nenhuma mudança de asserção.
+Confirmado manualmente: `psql -U quironequine_app -d inventory -c "SELECT inventory_list_active_tenant_ids();"` retorna os tenants esperados, mesmo conectando diretamente como a role restrita (sem passar por `withTenant`) — prova que o bypass está na função, não na conexão. Testes de integração existentes (`tests/product-repository.test.ts`, cobrindo `listActiveTenantIds()`) continuam verdes sem nenhuma mudança de asserção.
 
 ## Revisão
 

@@ -4,9 +4,9 @@ import { ToastProvider } from '@/components/ui';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: { default: 'VetEquine', template: '%s — VetEquine' },
+  title: { default: 'Quíron Equine', template: '%s — Quíron Equine' },
   description: 'Sistema de gestão veterinária equina',
-  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'VetEquine' },
+  appleWebApp: { capable: true, statusBarStyle: 'default', title: 'Quíron Equine' },
 };
 
 export const viewport: Viewport = {

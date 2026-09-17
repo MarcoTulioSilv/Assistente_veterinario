@@ -1,5 +1,5 @@
 {
-  "name": "@vetequine/ms-identity",
+  "name": "@quironequine/ms-identity",
   "version": "1.0.0",
   "private": true,
   "main": "dist/index.js",
@@ -21,8 +21,8 @@
   },
   "dependencies": {
     "@prisma/client": "^6.2.0",
-    "@vetequine/shared-middlewares": "*",
-    "@vetequine/shared-types": "*",
+    "@quironequine/shared-middlewares": "*",
+    "@quironequine/shared-types": "*",
     "bcryptjs": "^2.4.3",
     "express": "^4.21.2",
     "jose": "^5.9.0",

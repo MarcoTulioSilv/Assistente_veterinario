@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { StockService } from './stock.service';
 import type { ProductRepository } from '../repositories/product.repository';
 import type { MovementRepository, StockMovementRecord } from '../repositories/movement.repository';
-import type { RequestContext, Product } from '@vetequine/shared-types';
+import type { RequestContext, Product } from '@quironequine/shared-types';
 
 const ctx: RequestContext = {
   tenantId: '11111111-1111-1111-1111-111111111111',

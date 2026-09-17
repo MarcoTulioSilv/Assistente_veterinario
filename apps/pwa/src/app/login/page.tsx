@@ -51,7 +51,7 @@ export default function LoginPage(): React.ReactElement {
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
         <div className="mb-6 text-center">
-          <h1 className="text-xl font-bold text-primary-800">VetEquine</h1>
+          <h1 className="text-xl font-bold text-primary-800">Quíron Equine</h1>
           <p className="mt-1 text-sm text-slate-500">Entre com sua conta para continuar</p>
         </div>
 

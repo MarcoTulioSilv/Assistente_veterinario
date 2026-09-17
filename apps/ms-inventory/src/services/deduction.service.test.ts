@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { DeductionService, deriveItemIdempotencyKey } from './deduction.service';
-import type { IStockService } from '@vetequine/shared-types';
-import type { DomainEvent } from '@vetequine/shared-types';
+import type { IStockService } from '@quironequine/shared-types';
+import type { DomainEvent } from '@quironequine/shared-types';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const APPOINTMENT_ID = '22222222-2222-2222-2222-222222222222';
