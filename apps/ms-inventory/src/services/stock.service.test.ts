@@ -146,6 +146,40 @@ describe('StockService.deduct', () => {
       quantity: 2,
       reason: 'appointment',
       idempotencyKey: 'evt-idempotency-key',
+      referenceId: null,
+      referenceType: null,
+    });
+  });
+
+  it('sem reference, referenceId/referenceType ficam null (compatibilidade com quem já chama sem o parâmetro)', async () => {
+    const record = vi.fn().mockResolvedValue(movement);
+    const service = new StockService(fakeProducts(), fakeMovements({ record }));
+
+    await service.deduct(ctx, product.id, 2, 'evt-idempotency-key');
+
+    expect(record).toHaveBeenCalledWith(
+      ctx,
+      product.id,
+      expect.objectContaining({ referenceId: null, referenceType: null }),
+    );
+  });
+
+  it('com reference, repassa referenceId/referenceType pro repositório', async () => {
+    const record = vi.fn().mockResolvedValue(movement);
+    const service = new StockService(fakeProducts(), fakeMovements({ record }));
+
+    await service.deduct(ctx, product.id, 2, 'evt-idempotency-key', {
+      referenceId: 'appointment-id-123',
+      referenceType: 'appointment',
+    });
+
+    expect(record).toHaveBeenCalledWith(ctx, product.id, {
+      type: 'out',
+      quantity: 2,
+      reason: 'appointment',
+      idempotencyKey: 'evt-idempotency-key',
+      referenceId: 'appointment-id-123',
+      referenceType: 'appointment',
     });
   });
 
@@ -161,12 +195,16 @@ describe('StockService.deduct', () => {
       quantity: 2,
       reason: 'appointment',
       idempotencyKey: 'chave-repetida',
+      referenceId: null,
+      referenceType: null,
     });
     expect(record).toHaveBeenNthCalledWith(2, ctx, product.id, {
       type: 'out',
       quantity: 2,
       reason: 'appointment',
       idempotencyKey: 'chave-repetida',
+      referenceId: null,
+      referenceType: null,
     });
   });
 });

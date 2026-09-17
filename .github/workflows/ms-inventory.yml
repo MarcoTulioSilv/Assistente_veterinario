@@ -49,9 +49,19 @@ jobs:
         options: >-
           --health-cmd pg_isready --health-interval 10s
           --health-timeout 5s --health-retries 5
+      # DeductionService (RN-003) usa BullMQ/Redis de verdade no teste
+      # de integração — sem isto, esse teste nunca roda em CI (os
+      # testes unitários escapam disso via vi.mock em events/publisher).
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
     env:
       DATABASE_URL_INVENTORY: postgresql://vetequine:vetequine@localhost:5432/inventory_test
       DATABASE_URL_INVENTORY_APP: postgresql://vetequine_app:app_dev_password@localhost:5432/inventory_test
+      REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -83,7 +93,32 @@ jobs:
           cache: npm
       - run: npm ci
 
-      # BLOQUEIA o merge: vulnerabilidade que chega a producao
+      # BLOQUEIA o merge: vulnerabilidade que chega a producao.
+      # Roda sem --workspace, entao audita o repo INTEIRO (monorepo com
+      # lockfile unico) -- uma vulnerabilidade em qualquer servico (ex.:
+      # apps/pwa) bloqueia o CI de qualquer outro (aqui, ms-inventory).
+      #
+      # PENDENTE (@joaolmpv): next 16.2.12 (apps/pwa) tem RCE critica
+      # (GHSA-p293-qw3h-jr36, GHSA-2xp9-vwfh-vxw4). Tentei corrigir
+      # nesta branch (bump de next + overrides de sharp/qs no
+      # package.json raiz) e revertido tudo, por dois motivos:
+      #   1. next >=16.3.3 quebra o build de producao:
+      #      "Cannot read properties of null (reading 'useContext')"
+      #      Export encountered an error on /_global-error/page
+      #   2. os overrides de sharp/qs, mesmo isolados (sem mexer em
+      #      next), se mostraram frágeis nesta instalação do npm --
+      #      em vez de atualizar as versões, uma tentativa acabou
+      #      REMOVENDO sharp/qs da árvore de dependências (`npm ls`
+      #      passou a não encontrá-los) -- pior que a vulnerabilidade.
+      # ACHADO NOVO, separado do audit: rodando `next build` local
+      # mesmo com next@16.2.12 (a versão "boa" original, sem nenhuma
+      # mudança de dependência), o build JÁ FALHA sozinho, em
+      # /animals/new: "Cannot read properties of null (reading
+      # 'useState')" durante o prerender -- parece pré-existente
+      # nesta branch/develop, não relacionado ao audit. Vale conferir
+      # se `apps/pwa`'s CI (pwa.yml) está passando de verdade.
+      # Fora do escopo desta PR (backend/DeductionService) mexer no
+      # app do PWA sem revisão -- ver comentário no PR #16.
       - name: Audit de dependências de produção
         run: npm audit --omit=dev --audit-level=high
 

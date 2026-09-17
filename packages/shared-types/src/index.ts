@@ -278,8 +278,19 @@ export interface IStockService {
   create(ctx: RequestContext, data: CreateProductDto): Promise<Product>;
   update(ctx: RequestContext, id: UUID, data: UpdateProductDto): Promise<Product>;
   softDelete(ctx: RequestContext, id: UUID): Promise<void>;
-  /** RN-003: baixa idempotente disparada por evento do broker */
-  deduct(ctx: RequestContext, productId: UUID, qty: number, idempotencyKey: UUID): Promise<void>;
+  /**
+   * RN-003: baixa idempotente disparada por evento do broker.
+   * `reference` liga o StockMovement resultante de volta à origem (ex.:
+   * o atendimento que consumiu o produto) — opcional/compatível com
+   * quem já chama sem ele.
+   */
+  deduct(
+    ctx: RequestContext,
+    productId: UUID,
+    qty: number,
+    idempotencyKey: UUID,
+    reference?: { referenceId: UUID; referenceType: string },
+  ): Promise<void>;
 }
 
 export interface CreateProductDto {

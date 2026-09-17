@@ -41,7 +41,13 @@ export class StockService implements IStockService {
   }
 
   /** RN-003: baixa idempotente disparada por evento do broker (appointment.done) */
-  async deduct(ctx: RequestContext, productId: UUID, qty: number, idempotencyKey: UUID): Promise<void> {
+  async deduct(
+    ctx: RequestContext,
+    productId: UUID,
+    qty: number,
+    idempotencyKey: UUID,
+    reference?: { referenceId: UUID; referenceType: string },
+  ): Promise<void> {
     const existing = await this.products.findById(ctx, productId);
     if (!existing) throw AppError.notFound('Produto não encontrado');
 
@@ -50,6 +56,8 @@ export class StockService implements IStockService {
       quantity: qty,
       reason: 'appointment',
       idempotencyKey,
+      referenceId: reference?.referenceId ?? null,
+      referenceType: reference?.referenceType ?? null,
     });
   }
 
