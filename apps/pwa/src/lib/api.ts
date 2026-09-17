@@ -4,6 +4,9 @@ import type {
   Owner,
   Property,
   Animal,
+  Product,
+  ProductCategory,
+  StockMovement,
   AuthTokens,
   TenantProfile,
   UpdateVeterinarianDto,
@@ -13,6 +16,9 @@ import type {
   UpdatePropertyDto,
   CreateAnimalDto,
   UpdateAnimalDto,
+  CreateProductDto,
+  UpdateProductDto,
+  CreateMovementDto,
 } from '@vetequine/shared-types';
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
@@ -140,6 +146,25 @@ export const api = {
       request<Animal>(`/animals/${id}/transfer`, {
         method: 'POST',
         body: JSON.stringify({ toPropertyId, notes }),
+      }),
+  },
+  products: {
+    list: (params?: { page?: number; limit?: number; search?: string; category?: ProductCategory }) =>
+      request<Paginated<Product>>(`/products?${buildQuery(params)}`),
+    get: (id: string) => request<Product>(`/products/${id}`),
+    create: (data: CreateProductDto) =>
+      request<Product>('/products', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: string, data: UpdateProductDto) =>
+      request<Product>(`/products/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    remove: (id: string) => request<void>(`/products/${id}`, { method: 'DELETE' }),
+    listMovements: (id: string, params?: { page?: number; limit?: number }) =>
+      request<{ data: StockMovement[]; total: number }>(
+        `/products/${id}/movements?${buildQuery(params)}`,
+      ),
+    recordMovement: (id: string, data: CreateMovementDto) =>
+      request<StockMovement>(`/products/${id}/movements`, {
+        method: 'POST',
+        body: JSON.stringify(data),
       }),
   },
   tenants: {

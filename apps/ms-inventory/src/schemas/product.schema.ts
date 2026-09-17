@@ -26,7 +26,10 @@ export const createProductSchema = z.object({
   category: z.enum(PRODUCT_CATEGORIES),
 });
 
-export const updateProductSchema = createProductSchema.partial();
+// `quantityInStock` de propósito fora do update: mudar o estoque só via
+// StockMovement (RF-EST-007) — permitir aqui contornaria o ledger, mesmo
+// problema que RN-010 evita pra transferência de animal entre propriedades.
+export const updateProductSchema = createProductSchema.omit({ quantityInStock: true }).partial();
 
 export const listProductsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

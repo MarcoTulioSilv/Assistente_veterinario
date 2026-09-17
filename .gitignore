@@ -50,3 +50,14 @@ prisma/*.db-journal
 
 # Docker volumes locais
 docker-data/
+
+# Next 16.3+ gera isto sozinho em apps/pwa a cada dev/build (agentRules:
+# false no next.config.ts não cobre todos os casos) -- nunca deve ir pro
+# repo, o CLAUDE.md real do projeto é o da raiz do monorepo.
+apps/pwa/AGENTS.md
+apps/pwa/CLAUDE.md
+
+# Playwright (apps/pwa/e2e)
+apps/pwa/test-results/
+apps/pwa/playwright-report/
+apps/pwa/blob-report/
