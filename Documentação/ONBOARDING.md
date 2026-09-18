@@ -376,6 +376,17 @@ git check-ignore -v node_modules
 
 Sem isso o Git tentaria indexar milhares de arquivos.
 
+### 8.9 `password authentication failed for user "vetequine"` (depois do rebranding)
+
+Seu `.env` está desatualizado. O rebranding VetEquine → Quíron Equine trocou o
+usuário/senha do Postgres e a role de aplicação (`vetequine`/`vetequine_app` →
+`quironequine`/`quironequine_app`) no `docker-compose.yml` e no
+`infra/postgres-init/01-create-app-role.sql` — mas o `.env` é local e gitignorado,
+então ele não muda sozinho quando você puxa essa atualização. Copie os novos
+valores de `DATABASE_URL_*`, `REDIS_QUEUE_PREFIX` e `S3_BUCKET` do `.env.example`
+pro seu `.env` (mantendo `JWT_SECRET` e demais segredos) e rode
+`npm run docker:reset` pra recriar os volumes do zero com a role nova.
+
 ---
 
 ## 9. Estrutura do projeto — quem é dono do quê

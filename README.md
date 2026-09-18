@@ -35,6 +35,17 @@ npm run db:seed --workspace=@quironequine/ms-identity
 npm run dev
 ```
 
+> **Já tinha o projeto rodando antes do rebranding (VetEquine → Quíron Equine)?**
+> O usuário/senha do Postgres e a role de aplicação mudaram de `vetequine`/`vetequine_app`
+> para `quironequine`/`quironequine_app` (ver `docker-compose.yml` e
+> `infra/postgres-init/01-create-app-role.sql`). Seu `.env` local **não** é atualizado
+> automaticamente ao puxar essa mudança — sem isso, os serviços falham ao conectar no
+> banco, silenciosamente. Depois de atualizar:
+> 1. Copie os novos valores de `DATABASE_URL_*`, `REDIS_QUEUE_PREFIX` e `S3_BUCKET` do
+>    `.env.example` pro seu `.env` (mantenha seu `JWT_SECRET` e demais segredos)
+> 2. `npm run docker:reset` (recria os volumes do zero com a nova role)
+> 3. Rode de novo os passos 4–6 acima (migrations, RLS, seed)
+
 **Acessos após o setup:**
 
 | Serviço | URL | Credencial |
