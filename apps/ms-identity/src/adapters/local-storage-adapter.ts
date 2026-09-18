@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { UPLOAD_IMAGE_EXTENSIONS } from '@vetequine/shared-types';
+import { UPLOAD_IMAGE_EXTENSIONS } from '@quironequine/shared-types';
 import type { StorageAdapter, UploadedFile } from './storage-adapter';
 
 const UPLOADS_DIR = path.join(__dirname, '../../uploads');

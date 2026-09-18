@@ -6,14 +6,14 @@
  * pending), e RN-010/transfer() — a parte mais delicada, garante que
  * o log em animal_transfers é criado corretamente (incluindo
  * fromPropertyId nulo na primeira atribuição) e que Animal.propertyId
- * é atualizado. Roda como vetequine_app (RLS ativo), igual ao runtime.
+ * é atualizado. Roda como quironequine_app (RLS ativo), igual ao runtime.
  * ══════════════════════════════════════════════════════════════════
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { AnimalRepository } from '../src/repositories/animal.repository';
 import { prisma as appPrisma } from '../src/prisma';
-import type { RequestContext } from '@vetequine/shared-types';
+import type { RequestContext } from '@quironequine/shared-types';
 
 const TENANT_ID = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
 

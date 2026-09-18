@@ -26,7 +26,7 @@ import { DeductionService } from '../src/services/deduction.service';
 import { startDeductionWorker } from '../src/events/deduction-consumer';
 import { publishDomainEvent, closeEventsQueue } from '../src/events/publisher';
 import { prisma as appPrisma } from '../src/prisma';
-import type { RequestContext, DomainEvent } from '@vetequine/shared-types';
+import type { RequestContext, DomainEvent } from '@quironequine/shared-types';
 
 // UUID dedicado a este teste — diferente dos usados nos outros testes
 // de integração, pra afterEach não apagar dados de outro arquivo.

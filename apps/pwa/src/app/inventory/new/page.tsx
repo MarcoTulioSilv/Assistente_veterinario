@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { CreateProductDto, ProductCategory, ProductUnit } from '@vetequine/shared-types';
+import type { CreateProductDto, ProductCategory, ProductUnit } from '@quironequine/shared-types';
 import { Spinner, useToast } from '@/components/ui';
 import { api, ApiClientError, hasSession } from '@/lib/api';
 import { parseBRLToCents, parseOptionalNumber } from '@/lib/money';

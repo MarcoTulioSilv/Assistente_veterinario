@@ -1,12 +1,12 @@
 import { PrismaClient } from '../node_modules/.prisma/client-inventory';
-import { logger } from '@vetequine/shared-middlewares';
+import { logger } from '@quironequine/shared-middlewares';
 
 const runtimeUrl = process.env['DATABASE_URL_INVENTORY_APP'];
 
 if (!runtimeUrl) {
   throw new Error(
     'DATABASE_URL_INVENTORY_APP ausente. O runtime precisa conectar como ' +
-    'vetequine_app — o superusuário ignora Row-Level Security e o ' +
+    'quironequine_app — o superusuário ignora Row-Level Security e o ' +
     'isolamento entre tenants ficaria furado sem erro visível.',
   );
 }

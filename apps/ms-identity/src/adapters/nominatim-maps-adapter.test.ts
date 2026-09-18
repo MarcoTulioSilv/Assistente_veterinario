@@ -40,7 +40,7 @@ describe('NominatimMapsAdapter.geocode', () => {
     expect(calledUrl.searchParams.get('format')).toBe('json');
     expect(calledUrl.searchParams.get('q')).toBe('Rua X, Jataí - GO');
     expect(calledUrl.searchParams.get('limit')).toBe('1');
-    expect((init.headers as Record<string, string>)['User-Agent']).toMatch(/^VetEquine\/1\.0/);
+    expect((init.headers as Record<string, string>)['User-Agent']).toMatch(/^QuironEquine\/1\.0/);
   });
 
   it('retorna null (sem lançar) quando o endereço não é encontrado', async () => {

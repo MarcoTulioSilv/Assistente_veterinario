@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AnimalService } from './animal.service';
 import type { AnimalRepository } from '../repositories/animal.repository';
-import type { RequestContext, Animal } from '@vetequine/shared-types';
+import type { RequestContext, Animal } from '@quironequine/shared-types';
 
 const ctx: RequestContext = {
   tenantId: '11111111-1111-1111-1111-111111111111',

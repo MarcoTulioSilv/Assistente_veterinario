@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useRef, useState } from 'react';
-import { UPLOAD_IMAGE_EXTENSIONS, UPLOAD_MAX_FILE_SIZE_BYTES } from '@vetequine/shared-types';
+import { UPLOAD_IMAGE_EXTENSIONS, UPLOAD_MAX_FILE_SIZE_BYTES } from '@quironequine/shared-types';
 import { cn } from '@/lib/cn';
 import { api, ApiClientError } from '@/lib/api';
 import { Spinner } from './Spinner';

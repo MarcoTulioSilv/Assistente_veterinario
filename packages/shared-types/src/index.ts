@@ -1,5 +1,5 @@
 /**
- * VetEquine — Tipos compartilhados entre microsserviços e PWA
+ * Quíron Equine — Tipos compartilhados entre microsserviços e PWA
  *
  * IMPORTANTE (Plano de Trabalho §5.1):
  * Dev 1 publica as INTERFACES aqui ANTES de implementar os Services.

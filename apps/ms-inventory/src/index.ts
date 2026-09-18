@@ -1,5 +1,5 @@
-import type { DomainEvent } from '@vetequine/shared-types';
-import { createServiceLogger } from '@vetequine/shared-middlewares';
+import type { DomainEvent } from '@quironequine/shared-types';
+import { createServiceLogger } from '@quironequine/shared-middlewares';
 import { createApp } from './app';
 import { disconnectPrisma } from './prisma';
 import { alertQueue, scheduleAlertChecks, startAlertWorker } from './services/alert-scheduler';

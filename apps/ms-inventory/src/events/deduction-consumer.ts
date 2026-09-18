@@ -1,5 +1,5 @@
 import { Worker, type Job } from 'bullmq';
-import { createServiceLogger } from '@vetequine/shared-middlewares';
+import { createServiceLogger } from '@quironequine/shared-middlewares';
 import { DOMAIN_EVENTS_QUEUE_NAME } from './publisher';
 
 const log = createServiceLogger('deduction-consumer');
@@ -8,7 +8,7 @@ const connection = {
   url: process.env['REDIS_URL'] ?? 'redis://localhost:6379',
 };
 
-const prefix = process.env['REDIS_QUEUE_PREFIX'] ?? 'vetequine';
+const prefix = process.env['REDIS_QUEUE_PREFIX'] ?? 'quironequine';
 
 /**
  * Plumbing BullMQ pura — sem lógica própria, tudo que decide o que

@@ -1,5 +1,5 @@
-import type { IStockService, RequestContext, UUID, Paginated, Product } from '@vetequine/shared-types';
-import { AppError } from '@vetequine/shared-middlewares';
+import type { IStockService, RequestContext, UUID, Paginated, Product } from '@quironequine/shared-types';
+import { AppError } from '@quironequine/shared-middlewares';
 import type { ProductRepository } from '../repositories/product.repository';
 import type { MovementRepository, StockMovementRecord } from '../repositories/movement.repository';
 import type { CreateProductInput, UpdateProductInput, ListProductsInput } from '../schemas/product.schema';

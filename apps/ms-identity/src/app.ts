@@ -5,7 +5,7 @@ import {
   authMiddleware,
   errorHandler,
   notFoundHandler,
-} from '@vetequine/shared-middlewares';
+} from '@quironequine/shared-middlewares';
 import { healthRouter } from './controllers/health.controller';
 import { authRouter } from './controllers/auth.controller';
 import { ownerRouter } from './controllers/owner.controller';

@@ -1,5 +1,5 @@
 # ══════════════════════════════════════════════════════════════════
-#  VetEquine — Setup do banco MS1 Identity & Registry
+#  Quíron Equine — Setup do banco MS1 Identity & Registry
 #
 #  Uso:  .\scripts\setup-db.ps1
 #  Rode da RAIZ do monorepo.
@@ -110,7 +110,7 @@ $rlsSql = @'
 -- Row-Level Security -- multitenancy (ADR-001 5.2 / RNF-SEG-004)
 --
 -- Superusuarios IGNORAM RLS. O runtime deve conectar como
--- vetequine_app, nunca como vetequine.
+-- quironequine_app, nunca como quironequine.
 
 CREATE OR REPLACE FUNCTION current_tenant_id() RETURNS UUID AS $$
   SELECT NULLIF(current_setting('app.current_tenant', true), '')::UUID;
@@ -187,7 +187,7 @@ if ($exit -ne 0) { Fail "Falha ao aplicar a migration de RLS (exit $exit)" }
 Ok "RLS aplicado"
 
 # ─── 5. Role de aplicacao ─────────────────────────────────────────
-Step 5 "Criando a role vetequine_app"
+Step 5 "Criando a role quironequine_app"
 
 $rolePath = 'infra\postgres-init\01-create-app-role.sql'
 if (-not (Test-Path $rolePath)) {
@@ -199,7 +199,7 @@ if (-not (Test-Path $rolePath)) {
 docker cp $rolePath vq-db-identity:/tmp/create-app-role.sql *>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail "Falha ao copiar o arquivo para o container" }
 
-docker exec vq-db-identity psql -U vetequine -d identity -v ON_ERROR_STOP=1 -f /tmp/create-app-role.sql
+docker exec vq-db-identity psql -U quironequine -d identity -v ON_ERROR_STOP=1 -f /tmp/create-app-role.sql
 if ($LASTEXITCODE -ne 0) { Fail "Falha ao criar a role" }
 Ok "role criada"
 
@@ -219,20 +219,20 @@ Step 7 "Verificacao final"
 Write-Host ""
 
 Write-Host "  Migrations aplicadas:" -ForegroundColor White
-docker exec vq-db-identity psql -U vetequine -d identity -t -c `
+docker exec vq-db-identity psql -U quironequine -d identity -t -c `
   "SELECT '    ' || migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY started_at;"
 
 Write-Host "  Policies de RLS:" -ForegroundColor White
-$pc = (docker exec vq-db-identity psql -U vetequine -d identity -t -A -c `
+$pc = (docker exec vq-db-identity psql -U quironequine -d identity -t -A -c `
   "SELECT count(*) FROM pg_policies WHERE schemaname='public';")
 Write-Host "    $($pc.Trim()) policies (esperado: 8)"
 
 Write-Host "  Roles:" -ForegroundColor White
-docker exec vq-db-identity psql -U vetequine -d identity -t -c `
-  "SELECT '    ' || rpad(rolname,16) || ' superuser=' || rolsuper || '  bypassrls=' || rolbypassrls FROM pg_roles WHERE rolname LIKE 'vetequine%' ORDER BY rolname;"
+docker exec vq-db-identity psql -U quironequine -d identity -t -c `
+  "SELECT '    ' || rpad(rolname,16) || ' superuser=' || rolsuper || '  bypassrls=' || rolbypassrls FROM pg_roles WHERE rolname LIKE 'quironequine%' ORDER BY rolname;"
 
 Write-Host ""
 Write-Host "  Setup concluido." -ForegroundColor Green
-Write-Host "  Login de demo: demo@vetequine.com.br / vetequine123" -ForegroundColor Gray
+Write-Host "  Login de demo: demo@quironequine.com.br / quironequine123" -ForegroundColor Gray
 Write-Host "  Proximo: teste de isolamento RLS (Passo 9 do guia)." -ForegroundColor Gray
 Write-Host ""

@@ -6,7 +6,7 @@ import type { AuthRepository, AuthLookupRow, AuthUserRow } from '../repositories
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
 const USER_ID = '22222222-2222-2222-2222-222222222222';
-const EMAIL = 'dev@vetequine.com.br';
+const EMAIL = 'dev@quironequine.com.br';
 const PASSWORD = 'senha-correta-123';
 
 let PASSWORD_HASH: string;

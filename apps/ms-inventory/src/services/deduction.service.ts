@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { EVENTS } from '@vetequine/shared-types';
-import type { DomainEvent, IStockService, RequestContext, UUID } from '@vetequine/shared-types';
-import { createServiceLogger } from '@vetequine/shared-middlewares';
+import { EVENTS } from '@quironequine/shared-types';
+import type { DomainEvent, IStockService, RequestContext, UUID } from '@quironequine/shared-types';
+import { createServiceLogger } from '@quironequine/shared-middlewares';
 import { appointmentDonePayloadSchema } from '../schemas/appointment-done.schema';
 
 const log = createServiceLogger('deduction-service');

@@ -5,14 +5,14 @@
  * POR QUE ESTE TESTE EXISTE: cobre RN-006 (cadastro parcial fica
  * pending), a criação de property_owners a partir de ownerIds (lógica
  * nova, sem precedente no Owner), o filtro por ownerId em list(), e
- * roda como vetequine_app (RLS ativo), igual ao runtime real.
+ * roda como quironequine_app (RLS ativo), igual ao runtime real.
  * ══════════════════════════════════════════════════════════════════
  */
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { PropertyRepository } from '../src/repositories/property.repository';
 import { prisma as appPrisma } from '../src/prisma';
-import type { RequestContext } from '@vetequine/shared-types';
+import type { RequestContext } from '@quironequine/shared-types';
 
 const TENANT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 

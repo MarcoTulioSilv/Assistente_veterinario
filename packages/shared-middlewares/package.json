@@ -1,5 +1,5 @@
 {
-  "name": "@vetequine/shared-middlewares",
+  "name": "@quironequine/shared-middlewares",
   "version": "1.0.0",
   "private": true,
   "main": "./dist/index.js",
@@ -12,7 +12,7 @@
     "clean": "rimraf dist .turbo"
   },
   "dependencies": {
-    "@vetequine/shared-types": "*",
+    "@quironequine/shared-types": "*",
     "express": "^4.21.2",
     "jose": "^5.9.0",
     "pino": "^9.6.0"

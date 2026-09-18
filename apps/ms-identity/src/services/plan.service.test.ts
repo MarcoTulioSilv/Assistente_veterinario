@@ -1,5 +1,5 @@
 import { PlanService } from './plan.service';
-import type { RequestContext } from '@vetequine/shared-types';
+import type { RequestContext } from '@quironequine/shared-types';
 
 const ctx = (plan: 'basic' | 'plus'): RequestContext => ({
   tenantId: '00000000-0000-0000-0000-000000000001',

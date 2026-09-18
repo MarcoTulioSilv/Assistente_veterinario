@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import type { TenantProfile } from '@vetequine/shared-types';
-import { AppError } from '@vetequine/shared-middlewares';
+import type { TenantProfile } from '@quironequine/shared-types';
+import { AppError } from '@quironequine/shared-middlewares';
 import { prisma, withTenant } from '../prisma';
 import type { RegisterTenantInput, UpdateVeterinarianInput } from '../schemas/tenant.schema';
 

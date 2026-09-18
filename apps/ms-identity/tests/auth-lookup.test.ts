@@ -7,7 +7,7 @@
  * findAuthByEmail/findTenantIdForUser são a única exceção documentada
  * a "toda leitura de users passa por withTenant()" (ADR-004). O
  * objetivo é provar que o AuthRepository funciona de ponta a ponta
- * rodando como a role RESTRITA (vetequine_app, mesma conexão usada
+ * rodando como a role RESTRITA (quironequine_app, mesma conexão usada
  * em produção via src/prisma.ts), sem abrir uma porta mais larga do
  * que a estritamente necessária.
  *
@@ -22,8 +22,8 @@ import { prisma as appPrisma } from '../src/prisma';
 const TENANT_ID = '33333333-3333-3333-3333-333333333333';
 const USER_ID = '44444444-4444-4444-4444-444444444444';
 const DELETED_USER_ID = '55555555-5555-5555-5555-555555555555';
-const EMAIL = 'auth-lookup-test@vetequine.com.br';
-const DELETED_EMAIL = 'auth-lookup-deleted@vetequine.com.br';
+const EMAIL = 'auth-lookup-test@quironequine.com.br';
+const DELETED_EMAIL = 'auth-lookup-deleted@quironequine.com.br';
 const UNKNOWN_USER_ID = '00000000-0000-0000-0000-000000000000';
 
 /** Conexao de migration: superusuario, ignora RLS. Usada so no setup/assert. */
@@ -90,7 +90,7 @@ describe('AuthRepository — bypass controlado de RLS (ADR-004)', () => {
     });
 
     it('retorna null para e-mail inexistente', async () => {
-      await expect(repo.findAuthByEmail('nao-existe@vetequine.com.br')).resolves.toBeNull();
+      await expect(repo.findAuthByEmail('nao-existe@quironequine.com.br')).resolves.toBeNull();
     });
 
     it('ignora usuário soft-deletado', async () => {

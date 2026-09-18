@@ -1,5 +1,5 @@
-import type { RequestContext } from '@vetequine/shared-types';
-import { AppError } from '@vetequine/shared-middlewares';
+import type { RequestContext } from '@quironequine/shared-types';
+import { AppError } from '@quironequine/shared-middlewares';
 
 /**
  * Limites por plano — ERS §2.6.

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { OwnerService } from './owner.service';
 import type { OwnerRepository } from '../repositories/owner.repository';
 import type { PlanService } from './plan.service';
-import type { RequestContext, Owner } from '@vetequine/shared-types';
+import type { RequestContext, Owner } from '@quironequine/shared-types';
 
 const ctx = (plan: 'basic' | 'plus' = 'basic'): RequestContext => ({
   tenantId: '11111111-1111-1111-1111-111111111111',

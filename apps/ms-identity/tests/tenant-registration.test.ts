@@ -25,7 +25,7 @@ const input = (overrides: Partial<RegisterTenantInput> = {}): RegisterTenantInpu
   crmvState: 'GO',
   cpfCnpj: '111.222.333-44',
   phone: '(64) 90000-0000',
-  email: `tenant-reg-test-${Date.now()}-${Math.random().toString(36).slice(2)}@vetequine.com.br`,
+  email: `tenant-reg-test-${Date.now()}-${Math.random().toString(36).slice(2)}@quironequine.com.br`,
   password: 'não-importa-aqui',
   ...overrides,
 });
@@ -80,8 +80,8 @@ describe('TenantRepository.register — transação atômica (Tenant+User+Veteri
 
   it('dois registros com o mesmo nome geram slugs diferentes', async () => {
     const name = `Mesmo Nome ${Date.now()}`;
-    const a = await repo.register(input({ fullName: name, email: `a-${Date.now()}@vetequine.com.br` }), HASH);
-    const b = await repo.register(input({ fullName: name, email: `b-${Date.now()}@vetequine.com.br` }), HASH);
+    const a = await repo.register(input({ fullName: name, email: `a-${Date.now()}@quironequine.com.br` }), HASH);
+    const b = await repo.register(input({ fullName: name, email: `b-${Date.now()}@quironequine.com.br` }), HASH);
     createdTenantIds.push(a.tenantId, b.tenantId);
 
     const [tenantA, tenantB] = await Promise.all([
@@ -91,7 +91,7 @@ describe('TenantRepository.register — transação atômica (Tenant+User+Veteri
     expect(tenantA.slug).not.toBe(tenantB.slug);
   });
 
-  it('findProfile lê o perfil recém-criado via withTenant (vetequine_app, com RLS)', async () => {
+  it('findProfile lê o perfil recém-criado via withTenant (quironequine_app, com RLS)', async () => {
     const data = input();
     const { tenantId } = await repo.register(data, HASH);
     createdTenantIds.push(tenantId);

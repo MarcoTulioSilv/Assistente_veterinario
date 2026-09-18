@@ -1,11 +1,11 @@
 import { Queue } from 'bullmq';
-import type { DomainEvent } from '@vetequine/shared-types';
+import type { DomainEvent } from '@quironequine/shared-types';
 
 const connection = {
   url: process.env['REDIS_URL'] ?? 'redis://localhost:6379',
 };
 
-const prefix = process.env['REDIS_QUEUE_PREFIX'] ?? 'vetequine';
+const prefix = process.env['REDIS_QUEUE_PREFIX'] ?? 'quironequine';
 
 /**
  * Fila genérica de domain events (ADR-001 §5.3/5.4) — primeiro

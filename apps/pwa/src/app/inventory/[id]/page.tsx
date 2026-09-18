@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import type { CreateMovementDto, Product, StockMovement, UpdateProductDto } from '@vetequine/shared-types';
+import type { CreateMovementDto, Product, StockMovement, UpdateProductDto } from '@quironequine/shared-types';
 import { Button, Input, Select, Spinner, useToast } from '@/components/ui';
 import { api, ApiClientError, hasSession } from '@/lib/api';
 import { cn } from '@/lib/cn';

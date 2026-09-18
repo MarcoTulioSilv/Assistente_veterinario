@@ -3,7 +3,7 @@ import { PropertyService } from './property.service';
 import type { PropertyRepository } from '../repositories/property.repository';
 import type { GeoService } from './geo.service';
 import type { PlanService } from './plan.service';
-import type { RequestContext, Property } from '@vetequine/shared-types';
+import type { RequestContext, Property } from '@quironequine/shared-types';
 
 const ctx: RequestContext = {
   tenantId: '11111111-1111-1111-1111-111111111111',

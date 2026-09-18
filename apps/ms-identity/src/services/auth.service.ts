@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { SignJWT } from 'jose';
 import { TOTP, Secret } from 'otpauth';
-import type { IAuthService, AuthTokens, UUID, UserRole, TenantPlan } from '@vetequine/shared-types';
-import { AppError, getJwtSecret } from '@vetequine/shared-middlewares';
+import type { IAuthService, AuthTokens, UUID, UserRole, TenantPlan } from '@quironequine/shared-types';
+import { AppError, getJwtSecret } from '@quironequine/shared-middlewares';
 import type { AuthRepository, AuthLookupRow } from '../repositories/auth.repository';
 import { hashPassword, comparePassword, DUMMY_BCRYPT_HASH } from '../lib/password';
 

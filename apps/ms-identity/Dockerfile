@@ -12,21 +12,21 @@ RUN npx prisma generate --schema apps/ms-identity/prisma/schema.prisma
 # turbo (nao "npm run build --workspace") -- ms-identity depende de
 # shared-types/shared-middlewares estarem buildados primeiro (dist/ e
 # gitignorado); turbo.json ja declara isso via dependsOn: ["^build"].
-RUN npx turbo run build --filter=@vetequine/ms-identity
+RUN npx turbo run build --filter=@quironequine/ms-identity
 
 # ─── Stage 2: runtime ────────────────────────────────────────────
 FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-RUN addgroup -g 1001 nodejs && adduser -S -u 1001 vetequine
+RUN addgroup -g 1001 nodejs && adduser -S -u 1001 quironequine
 
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/ms-identity/dist ./dist
 COPY --from=builder /app/apps/ms-identity/prisma ./prisma
 COPY --from=builder /app/apps/ms-identity/package.json ./
 
-USER vetequine
+USER quironequine
 EXPOSE 3001
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { TenantService } from './tenant.service';
 import type { TenantRepository } from '../repositories/tenant.repository';
-import type { RequestContext, TenantProfile, RegisterTenantDto } from '@vetequine/shared-types';
+import type { RequestContext, TenantProfile, RegisterTenantDto } from '@quironequine/shared-types';
 
 const TENANT_ID = '66666666-6666-6666-6666-666666666666';
 const USER_ID = '77777777-7777-7777-7777-777777777777';
@@ -13,7 +13,7 @@ const registerInput: RegisterTenantDto = {
   crmvState: 'GO',
   cpfCnpj: '123.456.789-00',
   phone: '(64) 99999-1234',
-  email: 'ana@vetequine.com.br',
+  email: 'ana@quironequine.com.br',
   password: 'senha-do-cadastro-123',
 };
 

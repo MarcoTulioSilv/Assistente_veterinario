@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent, type ReactNode } from 'react';
-import type { Owner, Property } from '@vetequine/shared-types';
+import type { Owner, Property } from '@quironequine/shared-types';
 import { Button, ImageUploadField, Input, Select } from '@/components/ui';
 import { animalFormSchema, type AnimalFormValues } from './schema';
 

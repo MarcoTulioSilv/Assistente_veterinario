@@ -43,9 +43,9 @@ npm run dev
 Espere aparecer no terminal:
 
 ```
-@vetequine/ms-identity:dev: MS1 Identity & Registry iniciado ... port: 3001
-@vetequine/bff:dev: BFF Gateway iniciado ... port: 3000
-@vetequine/pwa:dev: ✓ Ready in ...  - Local: http://localhost:3100
+@quironequine/ms-identity:dev: MS1 Identity & Registry iniciado ... port: 3001
+@quironequine/bff:dev: BFF Gateway iniciado ... port: 3000
+@quironequine/pwa:dev: ✓ Ready in ...  - Local: http://localhost:3100
 ```
 
 | Serviço | URL | O que é |
@@ -64,8 +64,8 @@ Credenciais do seed (`apps/ms-identity/prisma/seed.ts` — rodar
 `npm run db:seed` se ainda não existir esse usuário):
 
 ```
-E-mail: demo@vetequine.com.br
-Senha:  vetequine123
+E-mail: demo@quironequine.com.br
+Senha:  quironequine123
 ```
 
 Depois do login, o "Meu perfil" (`/profile`) mostra os dados do
@@ -97,7 +97,7 @@ Conserta assim:
 
 ```powershell
 Remove-Item -Recurse -Force node_modules\@next\swc-win32-x64-msvc
-npm install --workspace=@vetequine/pwa
+npm install --workspace=@quironequine/pwa
 ```
 
 Se o mesmo tipo de erro aparecer em outro binário nativo (`turbo`, esbuild,
@@ -120,7 +120,7 @@ Get-NetTCPConnection -LocalPort 3100 | Select-Object -ExpandProperty OwningProce
 Confirme que o `db:seed` já rodou nesse banco:
 
 ```powershell
-npm run db:seed --workspace=@vetequine/ms-identity
+npm run db:seed --workspace=@quironequine/ms-identity
 ```
 
 Outros problemas de ambiente (Docker, `.env`, RLS) — ver a seção 8 do

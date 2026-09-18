@@ -18,11 +18,11 @@ jobs:
           node-version: '20'
           cache: npm
       - run: npm ci
-      # turbo (nao "npm run --workspace") -- pwa depende de @vetequine/shared-types
+      # turbo (nao "npm run --workspace") -- pwa depende de @quironequine/shared-types
       # buildado primeiro (dist/ e gitignorado), turbo.json ja resolve isso via
       # dependsOn: ["^build"]. Mesmo bug corrigido no ms-identity.yml.
-      - run: npx turbo run lint --filter=@vetequine/pwa
-      - run: npx turbo run typecheck --filter=@vetequine/pwa
-      - run: npx turbo run build --filter=@vetequine/pwa
+      - run: npx turbo run lint --filter=@quironequine/pwa
+      - run: npx turbo run typecheck --filter=@quironequine/pwa
+      - run: npx turbo run build --filter=@quironequine/pwa
         env:
           NEXT_PUBLIC_BFF_URL: http://localhost:3000/api/v1

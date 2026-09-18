@@ -1,7 +1,7 @@
 // ══════════════════════════════════════════════════════════════════
 // MS1 — Identity & Registry Service
 // Marco M1 · Jul/2026 · Dev 1 (Marco Túlio)
-// Base: ERD VetEquine · ADR-001 §5.1 (database-per-service)
+// Base: ERD Quíron Equine · ADR-001 §5.1 (database-per-service)
 // ══════════════════════════════════════════════════════════════════
 
 generator client {

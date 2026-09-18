@@ -76,6 +76,27 @@ export default tseslint.config(
     rules: { 'no-console': 'off' },
   },
 
+  // ─── Service Worker: globals do ambiente de worker, não Node/browser ──
+  // sw.js só cai no eslint.configs.recommended (o bloco de globals acima
+  // é escopado a **/*.ts/**/*.tsx) — sem isto, no-undef falha em toda API
+  // padrão de Service Worker (self, caches, fetch...).
+  {
+    files: ['**/public/sw.js'],
+    languageOptions: {
+      globals: {
+        self: 'readonly',
+        caches: 'readonly',
+        fetch: 'readonly',
+        Headers: 'readonly',
+        Response: 'readonly',
+        URL: 'readonly',
+        AbortController: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+      },
+    },
+  },
+
   // Desativa regras que conflitam com Prettier — sempre por último
   prettier,
 );

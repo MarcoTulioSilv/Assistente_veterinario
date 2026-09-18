@@ -1,5 +1,5 @@
 import type { Property as PrismaProperty } from '@prisma/client';
-import type { RequestContext, UUID, Paginated, Property } from '@vetequine/shared-types';
+import type { RequestContext, UUID, Paginated, Property } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
 import type { CreatePropertyInput, UpdatePropertyInput, ListPropertiesInput } from '../schemas/property.schema';
 

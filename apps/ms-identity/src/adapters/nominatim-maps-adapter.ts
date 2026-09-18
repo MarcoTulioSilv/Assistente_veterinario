@@ -1,4 +1,4 @@
-import { createServiceLogger } from '@vetequine/shared-middlewares';
+import { createServiceLogger } from '@quironequine/shared-middlewares';
 import type { MapsAdapter } from './maps-adapter';
 
 const log = createServiceLogger('nominatim-maps-adapter');
@@ -29,7 +29,7 @@ function sleep(ms: number): Promise<void> {
  */
 export class NominatimMapsAdapter implements MapsAdapter {
   private static readonly BASE_URL = 'https://nominatim.openstreetmap.org/search';
-  private static readonly USER_AGENT = 'VetEquine/1.0 (contato@vetequine.com)';
+  private static readonly USER_AGENT = 'QuironEquine/1.0 (contato@quironequine.com)';
   private static readonly MIN_INTERVAL_MS = 1000;
   private static readonly TIMEOUT_MS = 5000;
 

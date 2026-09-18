@@ -1,5 +1,5 @@
 import type { Animal as PrismaAnimal } from '@prisma/client';
-import type { RequestContext, UUID, Paginated, Animal } from '@vetequine/shared-types';
+import type { RequestContext, UUID, Paginated, Animal } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
 import type { CreateAnimalInput, UpdateAnimalInput, ListAnimalsInput } from '../schemas/animal.schema';
 

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Product as PrismaProduct } from '../../node_modules/.prisma/client-inventory';
-import type { RequestContext, UUID, Paginated, Product } from '@vetequine/shared-types';
+import type { RequestContext, UUID, Paginated, Product } from '@quironequine/shared-types';
 import { prisma, withTenant } from '../prisma';
 import type { CreateProductInput, UpdateProductInput, ListProductsInput } from '../schemas/product.schema';
 

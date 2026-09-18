@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
-import type { TenantProfile } from '@vetequine/shared-types';
+import type { TenantProfile } from '@quironequine/shared-types';
 import { Button, ImageUploadField, Input, Spinner, useToast } from '@/components/ui';
 import { AppHeader } from '@/components/AppHeader';
 import { api, ApiClientError, hasSession } from '@/lib/api';
