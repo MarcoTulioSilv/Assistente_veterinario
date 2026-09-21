@@ -20,6 +20,10 @@ import type {
   UpdateProductDto,
   CreateMovementDto,
 } from '@quironequine/shared-types';
+import { ApiClientError } from './api-error';
+import { apiDemo } from './api.demo';
+
+export { ApiClientError } from './api-error';
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
 
@@ -42,16 +46,6 @@ export function clearSession(): void {
 /** Usado por telas protegidas para redirecionar a /login sem sessão. */
 export function hasSession(): boolean {
   return getToken() !== null;
-}
-
-export class ApiClientError extends Error {
-  constructor(
-    public readonly status: number,
-    public readonly body: ApiError,
-  ) {
-    super(body.message);
-    this.name = 'ApiClientError';
-  }
 }
 
 function buildQuery(params?: Record<string, string | number | undefined>): string {
@@ -89,7 +83,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 /** Cliente tipado do BFF — Dev 2 é o dono */
-export const api = {
+const realApi = {
   auth: {
     login: (email: string, password: string, totpCode?: string) =>
       request<AuthTokens>('/auth/login', {
@@ -180,3 +174,15 @@ export const api = {
     },
   },
 };
+
+/**
+ * Build estático pro GitHub Pages (NEXT_PUBLIC_DEMO_MODE=true, ver
+ * next.config.ts output:'export') não tem BFF nem banco por trás -- troca
+ * pro cliente 100% em memória de api.demo.ts. `as typeof realApi`: apiDemo
+ * tem a mesma forma (cada método aceita os mesmos parâmetros ou menos,
+ * o que TS permite atribuir), só não bate 1:1 nos tipos de retorno de
+ * alguns métodos de mutação (sempre rejeitam) -- não vale duplicar a
+ * assinatura inteira só por isso.
+ */
+export const api: typeof realApi =
+  process.env['NEXT_PUBLIC_DEMO_MODE'] === 'true' ? (apiDemo as typeof realApi) : realApi;

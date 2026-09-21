@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: ['@quironequine/shared-types'],
+  output: 'export',
+  basePath: '/Assistente_veterinario',
+  assetPrefix: '/Assistente_veterinario',
   // Next 16.3+ gera AGENTS.md/CLAUDE.md sozinho a cada `next dev` -- o
   // CLAUDE.md real do projeto é mantido à mão na raiz do monorepo.
   agentRules: false,
