@@ -1,0 +1,51 @@
+name: Demo PWA (GitHub Pages)
+
+# Manual, de propósito -- essa demo roda só com NEXT_PUBLIC_DEMO_MODE=true
+# (fixtures em memória, apps/pwa/src/lib/demo-fixtures.ts), nunca deve subir
+# sozinha num push comum. Só existe na branch demo/pwa-githubpages, que por
+# sua vez nunca é mergeada em develop (next.config.ts com output:'export'
+# fixo é incompatível com o app real, que precisa do BFF).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (export estático)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/demo/pwa-githubpages'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      # turbo (nao "npm run --workspace") -- pwa depende de @quironequine/shared-types
+      # buildado primeiro (dist/ e gitignorado), turbo.json ja resolve isso via
+      # dependsOn: ["^build"]. Mesmo padrao do pwa.yml.
+      - run: npx turbo run build --filter=@quironequine/pwa
+        env:
+          NEXT_PUBLIC_DEMO_MODE: 'true'
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: apps/pwa/out
+
+  deploy:
+    name: Deploy
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
