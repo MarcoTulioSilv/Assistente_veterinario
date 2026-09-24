@@ -1,0 +1,102 @@
+name: MS3 Clinical
+
+on:
+  push:
+    branches: [main, staging, develop]
+    paths:
+      - 'apps/ms-clinical/**'
+      - 'packages/**'
+      - '.github/workflows/ms-clinical.yml'
+  pull_request:
+    paths:
+      - 'apps/ms-clinical/**'
+      - 'packages/**'
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  lint:
+    name: Lint & TypeCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate --schema apps/ms-clinical/prisma/schema.prisma
+      # turbo (nao "npm run --workspace") -- typecheck/lint dependem de shared-types
+      # e shared-middlewares estarem buildados primeiro (turbo.json dependsOn: ["^build"]).
+      - run: npx turbo run lint --filter=@quironequine/ms-clinical
+      - run: npx turbo run typecheck --filter=@quironequine/ms-clinical
+
+  test:
+    name: Testes Unitários
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: quironequine
+          POSTGRES_PASSWORD: quironequine
+          POSTGRES_DB: clinical_test
+        ports: ['5434:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      # O relay do outbox publica no broker de verdade no teste ponta a
+      # ponta -- sem Redis esse teste nao roda em CI.
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL_CLINICAL: postgresql://quironequine:quironequine@localhost:5434/clinical_test
+      DATABASE_URL_CLINICAL_APP: postgresql://quironequine_app:app_dev_password@localhost:5434/clinical_test
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate --schema apps/ms-clinical/prisma/schema.prisma
+      - run: npx prisma migrate deploy --schema apps/ms-clinical/prisma/schema.prisma
+      # Cria a role restrita (quironequine_app) e concede as permissoes pos-migration --
+      # inclui o GRANT EXECUTE em clinical_list_pending_outbox, sem o qual o relay
+      # nao enxerga os pendentes (ADR-002).
+      - name: Criar role quironequine_app
+        run: psql "$DATABASE_URL_CLINICAL" -f infra/postgres-init/01-create-app-role.sql
+      - run: npx turbo run test:cov --filter=@quironequine/ms-clinical
+
+  security:
+    name: SAST & Audit
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      # BLOQUEIA o merge: vulnerabilidade que chega a producao.
+      # Roda sem --workspace, entao audita o repo INTEIRO (monorepo com
+      # lockfile unico).
+      - name: Audit de dependências de produção
+        run: npm audit --omit=dev --audit-level=high
+
+      # INFORMATIVO: ferramentas de build (nao bloqueia)
+      - name: Audit completo
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  # O job de build Docker entra junto com a camada HTTP (controllers, Dev 2):
+  # hoje o servico sobe so com /health, entao uma imagem nao teria o que servir.
