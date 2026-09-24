@@ -40,12 +40,12 @@ if (process.env['NODE_ENV'] !== 'production') {
  * Uso obrigatório em TODO Repository:
  *   return withTenant(ctx.tenantId, (tx) => tx.appointment.findMany());
  */
-export async function withTenant<T>(
-  tenantId: string,
-  fn: (
-    tx: Omit<PrismaClient, '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'>,
-  ) => Promise<T>,
-): Promise<T> {
+export type TenantTx = Omit<
+  PrismaClient,
+  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
+>;
+
+export async function withTenant<T>(tenantId: string, fn: (tx: TenantTx) => Promise<T>): Promise<T> {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(`SELECT set_config('app.current_tenant', $1, true)`, tenantId);
     return fn(tx);

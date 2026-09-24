@@ -76,9 +76,16 @@ Pub/Sub daria o fan-out de graça, mas ao custo de perder toda mensagem publicad
 
 Registradas aqui de propósito, para não virarem descoberta arqueológica depois:
 
-**1. O padrão Outbox não está implementado.** O ADR-001 §6.2 lista *"Padrão Outbox para eventos críticos"* como mitigação do risco "distribuição de transações (sem ACID cross-service)". Hoje `publishDomainEvent()` escreve direto no Redis: se o `finish()` de um atendimento commitar no Postgres e o Redis estiver indisponível no instante seguinte, a baixa de estoque se perde — o commit não é atômico com a publicação. Até agora isso não tinha consequência prática (o único publisher real, `alert.triggered`, não tem consumidor). Com o MS3 publicando `appointment.done`, passa a ter.
+**1. ~~O padrão Outbox não está implementado.~~ Implementado no MS3** (revisão 1.1 desta ADR). O ADR-001 §6.2 lista *"Padrão Outbox para eventos críticos"* como mitigação do risco "distribuição de transações (sem ACID cross-service)". Publicar direto no Redis não é atômico com o commit: se o `finish()` de um atendimento commitasse no Postgres e o Redis estivesse indisponível no instante seguinte, a baixa de estoque se perderia em silêncio.
 
-Decisão: **fica para a fatia seguinte**, junto com o `AppointmentService.finish()` — que é o primeiro publish genuinamente crítico e o lugar natural para a tabela `outbox_events` e o relay. Não implementar agora é escolha consciente, não esquecimento; misturar as duas mudanças tornaria este PR difícil de revisar.
+Como ficou, em `apps/ms-clinical`:
+
+- `outbox_events` guarda o envelope do evento, gravado **na mesma transação** da mudança de negócio (`enqueueOutboxEvent(tx, ...)` recebe o `tx` de quem chama justamente para não abrir transação própria). Ou os dois acontecem, ou nenhum.
+- Um relay drena a tabela e publica no broker. Ele é um `setTimeout` encadeado, **não** um job repetível do BullMQ — e isso é deliberado: o relay existe para sobreviver ao broker estar fora do ar, então o gatilho dele não pode morar dentro do que ele conserta. Redis fora com relay agendado no BullMQ significaria nunca drenar, nem depois do Redis voltar.
+- **Entrega ao menos uma vez, por desenho**: publica primeiro, marca depois. Morrer entre as duas coisas republica no ciclo seguinte, e o `jobId` (a `idempotencyKey` do envelope) descarta o duplicado. A ordem inversa perderia o evento — exatamente o que o padrão existe para impedir.
+- A leitura é cross-tenant (o relay é infraestrutura, não roda no contexto de um tenant), então usa uma função `SECURITY DEFINER` estreita, `clinical_list_pending_outbox`, seguindo o padrão já estabelecido pelas ADR-004 e ADR-006 — nunca um client Prisma de superusuário. A **marcação** não precisa de bypass: o relay já tem o `tenant_id` de cada linha e faz o `UPDATE` dentro de `withTenant()`, com a policy ativa.
+
+O `ms-inventory` **não** ganhou outbox, de propósito: o único evento que ele publica (`alert.triggered`) nasce de uma varredura de leitura, não de uma escrita transacional — não há commit com o qual ser atômico.
 
 **2. `EVENTS.STOCK_DEDUCTED` não consta da tabela do §5.3** e não tem publisher nem consumidor. Está em `shared-types` desde a Sprint 3, sem uso. Mapeado com lista de assinantes vazia. Ou ganha um consumidor documentado, ou deve ser removido — decidir quando o MS6 (Reporting) for desenhado.
 
@@ -97,9 +104,11 @@ Decisão: **fica para a fatia seguinte**, junto com o `AppointmentService.finish
 - `tests/deduction-consumer.test.ts` (Postgres + Redis reais) continua verde: publica `appointment.done` de verdade pelo `publishDomainEvent`, o worker do inventory consome da fila própria e a baixa é aplicada.
 - `apps/ms-inventory` com cobertura mantida acima do piso de 70% (RNF-MAN-003).
 - Conferido que não sobrou referência a `DOMAIN_EVENTS_QUEUE_NAME` (a fila única antiga) em nenhum serviço.
+- Outbox: `apps/ms-clinical/tests/outbox.test.ts`, contra Postgres e Redis reais, cobre o que só integração prova — que o rollback da transação leva o evento junto (a razão de o padrão existir), que a função `SECURITY DEFINER` enxerga pendentes de tenants diferentes enquanto o caminho normal continua isolado por RLS, e que o ciclo do relay publica e marca. Mais o unitário do relay com dependências falsas, incluindo a ordem publicar-antes-de-marcar e falha parcial não interrompendo o lote.
 
 ## Histórico
 
 | Versão | Data | Descrição |
 |---|---|---|
 | 1.0 | Set/2026 | Criação. Formaliza Redis/BullMQ e introduz fan-out por fila de consumidor. |
+| 1.1 | Set/2026 | Padrão Outbox implementado no MS3 (era a ponta solta nº 1), fechando a mitigação prevista no ADR-001 §6.2. |

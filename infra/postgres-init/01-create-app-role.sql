@@ -84,6 +84,17 @@ BEGIN
 END
 $$;
 
+-- ─── 4c. Leitura do outbox pelo relay (SECURITY DEFINER) ──────────
+-- ADR-002 (reaplica o padrao do ADR-004/006). So existe no banco do
+-- clinical -- rode este arquivo so apos as migrations correspondentes.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'clinical_list_pending_outbox') THEN
+    GRANT EXECUTE ON FUNCTION clinical_list_pending_outbox(INTEGER) TO quironequine_app;
+  END IF;
+END
+$$;
+
 -- ─── 5. Confirmacao ───────────────────────────────────────────────
 -- As duas colunas devem ser 'f' na linha do quironequine_app.
 -- Se 'ignora_rls' for 't', as policies seriam decorativas.

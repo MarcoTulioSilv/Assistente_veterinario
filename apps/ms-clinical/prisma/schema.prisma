@@ -166,6 +166,44 @@ model AppointmentItem {
   @@map("appointment_items")
 }
 
+/// Padrão Outbox (ADR-001 §6.2, ADR-002).
+///
+/// O evento é gravado AQUI, na MESMA transação que a mudança de negócio
+/// que o originou — então ou os dois acontecem, ou nenhum. Um relay
+/// separado lê esta tabela e publica no broker depois do commit.
+///
+/// Sem isso, `finish()` commitaria o atendimento no Postgres e publicaria
+/// no Redis em seguida, sem atomicidade: Redis fora do ar nesse instante
+/// = baixa de estoque e pendência financeira perdidas em silêncio.
+model OutboxEvent {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  /// Nome do evento (EVENTS.* de shared-types) — vira o nome do job.
+  eventName String @map("event_name") @db.VarChar(100)
+
+  /// Envelope DomainEvent completo, serializado.
+  payload Json @db.JsonB
+
+  /// Chave do envelope. O relay a usa como jobId no BullMQ, então
+  /// republicar a mesma linha (crash entre publicar e marcar) não
+  /// duplica o job — ADR-001 §5.4.
+  idempotencyKey String @unique @map("idempotency_key") @db.Uuid
+
+  /// NULL = ainda não publicado. É a fila do relay.
+  publishedAt DateTime? @map("published_at") @db.Timestamptz
+
+  attempts  Int     @default(0)
+  lastError String? @map("last_error") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  /// Índice da query do relay: pendentes, mais antigo primeiro.
+  @@index([publishedAt, createdAt])
+  @@index([tenantId])
+  @@map("outbox_events")
+}
+
 /// RF-ATD-005: prescrição / protocolo de tratamento.
 model Prescription {
   id            String @id @default(uuid()) @db.Uuid
