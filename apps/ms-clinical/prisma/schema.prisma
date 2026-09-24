@@ -36,12 +36,6 @@ enum AppointmentStatus {
   cancelled
 }
 
-/// RN-002 / RF-CAD-015
-enum PaymentStatus {
-  pending
-  received
-}
-
 /// RF-ATD-005
 enum AdministrationRoute {
   oral
@@ -91,9 +85,10 @@ model Appointment {
   /// evento do broker e na pendência financeira (RF-ATD-008).
   totalCents Int @default(0) @map("total_cents")
 
-  paymentStatus PaymentStatus @default(pending) @map("payment_status")
-  paidAt        DateTime?     @map("paid_at") @db.Timestamptz
-  finishedAt    DateTime?     @map("finished_at") @db.Timestamptz
+  // Situação de pagamento não mora aqui: o ADR-001 §5.3 dá o RN-002 ao
+  // Reporting, que abre a pendência ao consumir `appointment.done`.
+  // Ver apps/ms-reporting/prisma/schema.prisma → FinancialRecord.
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
@@ -108,7 +103,6 @@ model Appointment {
   @@index([ownerId])
   @@index([performedAt])
   @@index([status])
-  @@index([paymentStatus])
   @@map("appointments")
 }
 

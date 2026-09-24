@@ -347,9 +347,6 @@ export type AppointmentType = 'clinico_geral' | 'reproducao' | 'odontologico' | 
  */
 export type AppointmentStatus = 'draft' | 'finished' | 'cancelled';
 
-/** RN-002 / RF-CAD-015: só sai de `pending` com pagamento registrado pelo usuário. */
-export type PaymentStatus = 'pending' | 'received';
-
 /** RF-ATD-005 */
 export type AdministrationRoute =
   | 'oral'
@@ -425,8 +422,9 @@ export interface Appointment {
   displacementKm: number;
   displacementRateCents: Cents;
   totalCents: Cents;
-  paymentStatus: PaymentStatus;
-  paidAt: ISODateString | null;
+  // Situação de pagamento NÃO vive aqui: o ADR-001 §5.3 dá o RN-002 ao
+  // Reporting, que cria a pendência a partir de `appointment.done`. Ver
+  // `FinancialRecord` / `IFinancialService` na seção MS6.
   finishedAt: ISODateString | null;
   createdAt: ISODateString;
   items: AppointmentItem[];
@@ -476,13 +474,86 @@ export interface IAppointmentService {
   /** Só enquanto `status: 'draft'` — depois de finalizado o orçamento está congelado. */
   update(ctx: RequestContext, id: UUID, data: UpdateAppointmentDto): Promise<Appointment>;
   /**
-   * RF-ATD-008 + RN-003: congela o orçamento, abre a pendência financeira e
-   * publica o evento de consumo no broker (baixa de estoque no MS2).
+   * RF-ATD-008 + RN-003: congela o orçamento e publica `appointment.done`.
+   * O evento tem dois destinos (ADR-001 §5.3): o MS2 baixa o estoque e o MS6
+   * abre a pendência financeira. O MS3 não registra pagamento — ver
+   * `IFinancialService.registerPayment()`.
    */
   finish(ctx: RequestContext, id: UUID): Promise<Appointment>;
-  /** RN-002: única transição para `received`. */
-  registerPayment(ctx: RequestContext, id: UUID): Promise<Appointment>;
   softDelete(ctx: RequestContext, id: UUID): Promise<void>;
+}
+
+// ═══ MS6 — Reporting (fatia financeira, antecipada para o M2) ═════
+//
+// ATENÇÃO, João: esta seção chegou antes da hora de propósito.
+//
+// O MS6 inteiro (fluxo de caixa, dashboard, gráficos, configurações) é M3,
+// Dez/2026 — isso não mudou. Só a **pendência financeira** foi antecipada
+// para o M2, e o motivo é evitar retrabalho seu:
+//
+// O ADR-001 §5.3 atribui o RN-002 ("cria registro financeiro pendente") ao
+// Reporting, não ao Clinical. A primeira versão do schema do MS3 tinha
+// `payment_status`/`paid_at` no atendimento e um `registerPayment()` na
+// `IAppointmentService` — divergia do ADR. Se isso tivesse ficado de pé até
+// Dez/2026, a tela de atendimento teria sido construída contra um contrato
+// que mudaria de serviço depois: trocaria endpoint, trocaria o shape da
+// resposta, e os dados de pagamento precisariam de migração entre bancos.
+//
+// Antecipando a fatia, o contrato nasce no lugar certo e a tela é escrita
+// uma vez só. Prático: o pagamento não sai da `IAppointmentService`, sai
+// daqui; a situação de pagamento de um atendimento é lida do MS6, não do
+// MS3 (o BFF compõe, se a tela precisar dos dois juntos).
+
+/** RN-002 / RF-CAD-015: só sai de `pending` com pagamento registrado pelo usuário. */
+export type PaymentStatus = 'pending' | 'received';
+
+/** RN-002 cobre os três: atendimento, exame e vacinação. */
+export type FinancialSourceType = 'appointment' | 'exam' | 'vaccination';
+
+/**
+ * RF-ATD-008 (pendência na aba do proprietário) + RF-REL-004 (todo item
+ * registrado vai para o relatório financeiro). Criado a partir de evento do
+ * broker, nunca por digitação direta.
+ */
+export interface FinancialRecord {
+  id: UUID;
+  /** Dono da pendência — a "aba do proprietário" do RF-ATD-008. */
+  ownerId: UUID;
+  sourceType: FinancialSourceType;
+  /** Id do atendimento/exame/vacinação no MS3 — sem FK (database-per-service). */
+  sourceId: UUID;
+  amountCents: Cents;
+  status: PaymentStatus;
+  /** Quando o serviço foi prestado (não quando a pendência foi criada). */
+  occurredAt: ISODateString;
+  paidAt: ISODateString | null;
+  createdAt: ISODateString;
+}
+
+export interface CreateFinancialRecordDto {
+  ownerId: UUID;
+  sourceType: FinancialSourceType;
+  sourceId: UUID;
+  amountCents: Cents;
+  occurredAt: ISODateString;
+}
+
+export interface IFinancialService {
+  list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<FinancialRecord>>;
+  /** RF-ATD-008: pendências de um proprietário. */
+  listByOwner(ctx: RequestContext, ownerId: UUID, params: PaginationParams): Promise<Paginated<FinancialRecord>>;
+  findBySource(ctx: RequestContext, sourceType: FinancialSourceType, sourceId: UUID): Promise<FinancialRecord | null>;
+  /**
+   * RN-002: única transição para `received`. Publica `payment.registered`
+   * (ADR-001 §5.3 — o MS5 notifica o proprietário).
+   */
+  registerPayment(ctx: RequestContext, id: UUID): Promise<FinancialRecord>;
+  /**
+   * Disparado por evento do broker, idempotente — mesmo contrato do
+   * `IStockService.deduct()`: redelivery não pode duplicar pendência
+   * (ADR-001 §5.4).
+   */
+  recordPending(ctx: RequestContext, data: CreateFinancialRecordDto, idempotencyKey: UUID): Promise<void>;
 }
 
 // ═══ Eventos do Message Broker (ADR-001 §5.3) ═════════════════════
@@ -537,6 +608,16 @@ export interface AppointmentDonePayload {
   ownerId: UUID;
   totalCostCents: Cents;
   consumedItems: Array<{ productId: UUID; quantity: number }>;
+}
+
+/** RN-002 — publicado pelo ms-reporting ao registrar pagamento, notifica o proprietário (ADR-001 §5.3). */
+export interface PaymentRegisteredPayload {
+  financialRecordId: UUID;
+  ownerId: UUID;
+  sourceType: FinancialSourceType;
+  sourceId: UUID;
+  amountCents: Cents;
+  paidAt: ISODateString;
 }
 
 /** RF-EST-004/005 — detectado pelo ms-inventory, entregue por um futuro ms-notification */

@@ -1,0 +1,78 @@
+// ══════════════════════════════════════════════════════════════════
+// MS6 — Reporting Service (só a fatia financeira)
+// Antecipado do M3 (Dez/2026) para o M2 · Set/2026 · Dev 1
+//
+// POR QUE ESTE SERVIÇO NASCEU ANTES DA HORA:
+// O ADR-001 §5.3 atribui o RN-002 ("cria registro financeiro pendente")
+// ao Reporting, consumindo `appointment.done` do Clinical. A primeira
+// versão do schema do MS3 tinha payment_status/paid_at no atendimento —
+// divergia do ADR. Deixar assim até Dez/2026 significaria construir a
+// tela de atendimento contra um contrato que mudaria de serviço depois,
+// e migrar dados de pagamento entre bancos. Antecipar só a pendência
+// custa menos que refazer.
+//
+// FORA DESTA FATIA (continuam M3): fluxo de caixa, dashboard, gráficos
+// e configurações.
+// ══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client-reporting"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL_REPORTING")
+}
+
+/// RN-002 / RF-CAD-015
+enum PaymentStatus {
+  pending
+  received
+}
+
+/// RN-002 cobre os três: atendimento, exame e vacinação.
+enum FinancialSourceType {
+  appointment
+  exam
+  vaccination
+}
+
+/// RF-ATD-008 (pendência na aba do proprietário) + RF-REL-004 (todo item
+/// registrado vai para o relatório financeiro).
+model FinancialRecord {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  /// Dono da pendência — MS1, sem FK (database-per-service, ADR-001 §5.1).
+  ownerId String @map("owner_id") @db.Uuid
+
+  /// Atendimento/exame/vacinação no MS3 — também sem FK.
+  sourceType FinancialSourceType @map("source_type")
+  sourceId   String              @map("source_id") @db.Uuid
+
+  amountCents Int           @map("amount_cents")
+  status      PaymentStatus @default(pending)
+
+  /// Quando o serviço foi prestado (vem do evento), não quando a
+  /// pendência foi criada — é por esta data que o relatório financeiro
+  /// agrupa, e reprocessar o evento não pode mudá-la.
+  occurredAt DateTime  @map("occurred_at") @db.Timestamptz
+  paidAt     DateTime? @map("paid_at") @db.Timestamptz
+
+  /// ADR-001 §5.4: a pendência nasce de evento do broker, então
+  /// redelivery não pode duplicar cobrança. Mesmo mecanismo do
+  /// stock_movements.idempotency_key.
+  idempotencyKey String @unique @map("idempotency_key") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  @@index([tenantId])
+  @@index([ownerId])
+  @@index([status])
+  @@index([occurredAt])
+  @@index([sourceType, sourceId])
+  @@map("financial_records")
+}
