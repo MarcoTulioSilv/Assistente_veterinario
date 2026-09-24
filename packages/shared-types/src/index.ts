@@ -497,6 +497,32 @@ export const EVENTS = {
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];
 
+/**
+ * Quem consome cada evento — espelha a tabela do ADR-001 §5.3, que é a
+ * fonte da verdade. Existe porque o broker (Redis/BullMQ, ADR-002) não
+ * tem fan-out nativo: dois workers na MESMA fila competem por round-robin
+ * em vez de receberem cópias. Então o publisher entrega uma cópia por
+ * assinante, numa fila por serviço — e é esta tabela que diz quais.
+ *
+ * O nome é o slug do serviço (o `ms-` de `apps/ms-<slug>`), não o nome da
+ * fila: `domainEventsQueueName()` monta a fila a partir dele.
+ *
+ * Serviço que ainda não existe continua listado de propósito: o evento
+ * fica acumulado na fila dele até o serviço subir, em vez de se perder.
+ */
+export const EVENT_SUBSCRIBERS: Record<EventName, readonly string[]> = {
+  // RN-003 (baixa de estoque) + RN-002 (pendência financeira) — dois
+  // consumidores para o MESMO evento; é o caso que a fila única quebrava.
+  [EVENTS.APPOINTMENT_DONE]: ['inventory', 'reporting'],
+  [EVENTS.ALERT_TRIGGERED]: ['notification'],
+  [EVENTS.PAYMENT_REGISTERED]: ['notification'],
+  [EVENTS.SCHEDULE_REMINDER_DUE]: ['notification'],
+  [EVENTS.GEOFENCE_TRIGGERED]: ['notification'],
+  // Não consta da tabela do ADR-001 §5.3 e não tem consumidor definido —
+  // ver ADR-002 §"Pontas soltas". Publicar hoje seria jogar fora.
+  [EVENTS.STOCK_DEDUCTED]: [],
+};
+
 export interface DomainEvent<T = unknown> {
   name: EventName;
   tenantId: UUID;
