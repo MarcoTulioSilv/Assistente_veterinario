@@ -336,6 +336,155 @@ export interface CreateMovementDto {
   notes?: string;
 }
 
+// ═══ MS3 — Clinical ═══════════════════════════════════════════════
+/** RF-ATD-002 */
+export type AppointmentType = 'clinico_geral' | 'reproducao' | 'odontologico' | 'locomotor' | 'cirurgia';
+
+/**
+ * `draft` → em preenchimento, orçamento ainda mutável.
+ * `finished` → RF-ATD-008: orçamento congelado, pendência financeira criada,
+ * baixa de estoque publicada no broker (RN-003). Transição irreversível.
+ */
+export type AppointmentStatus = 'draft' | 'finished' | 'cancelled';
+
+/** RN-002 / RF-CAD-015: só sai de `pending` com pagamento registrado pelo usuário. */
+export type PaymentStatus = 'pending' | 'received';
+
+/** RF-ATD-005 */
+export type AdministrationRoute =
+  | 'oral'
+  | 'intravenosa'
+  | 'intramuscular'
+  | 'subcutanea'
+  | 'topica'
+  | 'intrauterina'
+  | 'outra';
+
+/** RF-ATD-006: item de estoque (gera baixa) ou procedimento (só cobra). */
+export type AppointmentItemKind = 'product' | 'procedure';
+
+export interface AppointmentItem {
+  id: UUID;
+  kind: AppointmentItemKind;
+  /** Só em `kind: 'product'` — referência ao MS2, sem FK (database-per-service). */
+  productId: UUID | null;
+  /** Nome congelado no atendimento: o produto pode ser renomeado ou removido depois. */
+  description: string;
+  quantity: number;
+  unitPriceCents: Cents;
+  totalCents: Cents;
+}
+
+/** RF-ATD-005: prescrição / protocolo de tratamento. */
+export interface Prescription {
+  id: UUID;
+  /** A "flag origem" do RF-ATD-005: do estoque (MS2) quando preenchido, receita externa quando null. */
+  productId: UUID | null;
+  medicationName: string;
+  dose: string;
+  route: AdministrationRoute;
+  /** Texto livre — "a cada 12h por 5 dias". */
+  schedule: string;
+  applicationSite: string | null;
+  notes: string | null;
+}
+
+/**
+ * RF-ATD-001: ficha clínica. Os campos narrativos nomeados no requisito são
+ * colunas; `generalExam` e `specialExams` são JSONB porque a forma muda por
+ * tipo de atendimento (os exames especiais de reprodução não são os mesmos de
+ * locomotor) — ADR-001 §4 já previa JSONB pra ficha clínica.
+ */
+export interface MedicalRecord {
+  id: UUID;
+  appointmentId: UUID;
+  anamnesis: string | null;
+  generalExam: Record<string, unknown> | null;
+  specialExams: Record<string, unknown> | null;
+  diagnosis: string | null;
+  treatment: string | null;
+  prognosis: string | null;
+  referral: string | null;
+}
+
+export interface Appointment {
+  id: UUID;
+  /** Referências ao MS1 — sem FK, sem join (ADR-001 §5.1). */
+  ownerId: UUID;
+  propertyId: UUID;
+  animalId: UUID;
+  veterinarianId: UUID;
+  type: AppointmentType;
+  status: AppointmentStatus;
+  /** RF-ATD-004: animal temporariamente fora da propriedade de registro. */
+  animalLocation: string | null;
+  performedAt: ISODateString;
+  // RF-ATD-006 — orçamento. A taxa de km fica gravada aqui (e não lida de uma
+  // config global na exibição) pra que o orçamento antigo não mude quando ela mudar.
+  laborCents: Cents;
+  displacementKm: number;
+  displacementRateCents: Cents;
+  totalCents: Cents;
+  paymentStatus: PaymentStatus;
+  paidAt: ISODateString | null;
+  finishedAt: ISODateString | null;
+  createdAt: ISODateString;
+  items: AppointmentItem[];
+  prescriptions: Prescription[];
+  medicalRecord: MedicalRecord | null;
+}
+
+export interface CreateAppointmentItemDto {
+  kind: AppointmentItemKind;
+  productId?: UUID;
+  description: string;
+  quantity: number;
+  unitPriceCents: Cents;
+}
+
+export type CreatePrescriptionDto = Omit<Prescription, 'id' | 'applicationSite' | 'notes'> & {
+  applicationSite?: string;
+  notes?: string;
+};
+
+export type CreateMedicalRecordDto = Partial<Omit<MedicalRecord, 'id' | 'appointmentId'>>;
+
+export interface CreateAppointmentDto {
+  ownerId: UUID;
+  propertyId: UUID;
+  animalId: UUID;
+  veterinarianId: UUID;
+  type: AppointmentType;
+  animalLocation?: string;
+  performedAt: ISODateString;
+  laborCents?: Cents;
+  displacementKm?: number;
+  displacementRateCents?: Cents;
+  items?: CreateAppointmentItemDto[];
+  prescriptions?: CreatePrescriptionDto[];
+  medicalRecord?: CreateMedicalRecordDto;
+}
+
+export type UpdateAppointmentDto = Partial<Omit<CreateAppointmentDto, 'animalId' | 'ownerId'>>;
+
+export interface IAppointmentService {
+  list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<Appointment>>;
+  findById(ctx: RequestContext, id: UUID): Promise<Appointment | null>;
+  /** RF-ATD-011: histórico completo por animal, acessível pela tela do animal. */
+  listByAnimal(ctx: RequestContext, animalId: UUID, params: PaginationParams): Promise<Paginated<Appointment>>;
+  create(ctx: RequestContext, data: CreateAppointmentDto): Promise<Appointment>;
+  /** Só enquanto `status: 'draft'` — depois de finalizado o orçamento está congelado. */
+  update(ctx: RequestContext, id: UUID, data: UpdateAppointmentDto): Promise<Appointment>;
+  /**
+   * RF-ATD-008 + RN-003: congela o orçamento, abre a pendência financeira e
+   * publica o evento de consumo no broker (baixa de estoque no MS2).
+   */
+  finish(ctx: RequestContext, id: UUID): Promise<Appointment>;
+  /** RN-002: única transição para `received`. */
+  registerPayment(ctx: RequestContext, id: UUID): Promise<Appointment>;
+  softDelete(ctx: RequestContext, id: UUID): Promise<void>;
+}
+
 // ═══ Eventos do Message Broker (ADR-001 §5.3) ═════════════════════
 export const EVENTS = {
   APPOINTMENT_DONE: 'appointment.done',

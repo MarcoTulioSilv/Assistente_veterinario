@@ -1,0 +1,199 @@
+// ══════════════════════════════════════════════════════════════════
+// MS3 — Clinical Service
+// Marco M2 · Set/2026 · Dev 1 (Marco Túlio)
+//
+// Atendimento clínico / ficha clínica (RF-ATD-001 a 011). Exames
+// (RF-EXM) e vacinação (RF-VAC) entram nas Sprints 6 e 7.
+//
+// Referências a outros microsserviços (proprietário, propriedade,
+// animal, veterinário do MS1; produto do MS2) são UUID sem FK:
+// database-per-service (ADR-001 §5.1) — não existe join entre bancos,
+// a integridade é validada na borda, não pelo Postgres.
+// ══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client-clinical"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL_CLINICAL")
+}
+
+/// RF-ATD-002
+enum AppointmentType {
+  clinico_geral
+  reproducao
+  odontologico
+  locomotor
+  cirurgia
+}
+
+enum AppointmentStatus {
+  draft
+  finished
+  cancelled
+}
+
+/// RN-002 / RF-CAD-015
+enum PaymentStatus {
+  pending
+  received
+}
+
+/// RF-ATD-005
+enum AdministrationRoute {
+  oral
+  intravenosa
+  intramuscular
+  subcutanea
+  topica
+  intrauterina
+  outra
+}
+
+/// RF-ATD-006
+enum AppointmentItemKind {
+  product
+  procedure
+}
+
+model Appointment {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  // ─── Referências ao MS1 (sem FK — ver cabeçalho) ───────────────
+  ownerId        String @map("owner_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  animalId       String @map("animal_id") @db.Uuid
+  veterinarianId String @map("veterinarian_id") @db.Uuid
+
+  type   AppointmentType
+  status AppointmentStatus @default(draft)
+
+  /// RF-ATD-004: animal temporariamente em local diferente da propriedade de registro
+  animalLocation String?  @map("animal_location") @db.Text
+  performedAt    DateTime @map("performed_at") @db.Timestamptz
+
+  // ─── RF-ATD-006: orçamento ─────────────────────────────────────
+  // Centavos, INTEGER (ADR-001 §5.6). A taxa de km fica gravada na linha
+  // em vez de lida de uma config global na exibição: quando a taxa mudar,
+  // o orçamento já fechado não pode mudar junto.
+  laborCents            Int     @default(0) @map("labor_cents")
+  displacementKm        Decimal @default(0) @map("displacement_km") @db.Decimal(10, 2)
+  displacementRateCents Int     @default(0) @map("displacement_rate_cents")
+
+  /// Soma dos itens + mão de obra + deslocamento, congelada em finish().
+  /// Não é coluna GENERATED (ao contrário de products.sale_price_cents):
+  /// depende das linhas filhas, e uma generated column só enxerga a
+  /// própria linha. Congelar também é requisito: é o valor que vai no
+  /// evento do broker e na pendência financeira (RF-ATD-008).
+  totalCents Int @default(0) @map("total_cents")
+
+  paymentStatus PaymentStatus @default(pending) @map("payment_status")
+  paidAt        DateTime?     @map("paid_at") @db.Timestamptz
+  finishedAt    DateTime?     @map("finished_at") @db.Timestamptz
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  medicalRecord MedicalRecord?
+  items         AppointmentItem[]
+  prescriptions Prescription[]
+
+  @@index([tenantId])
+  @@index([animalId])
+  @@index([ownerId])
+  @@index([performedAt])
+  @@index([status])
+  @@index([paymentStatus])
+  @@map("appointments")
+}
+
+/// RF-ATD-001: ficha clínica.
+model MedicalRecord {
+  id            String @id @default(uuid()) @db.Uuid
+  tenantId      String @map("tenant_id") @db.Uuid
+  appointmentId String @unique @map("appointment_id") @db.Uuid
+
+  /// Campos narrativos nomeados no RF-ATD-001 ficam em coluna — são os
+  /// mesmos em todo tipo de atendimento e aparecem no histórico do animal
+  /// (RF-ATD-011) sem precisar abrir o JSON.
+  anamnesis String? @db.Text
+  diagnosis String? @db.Text
+  treatment String? @db.Text
+  prognosis String? @db.Text
+  referral  String? @db.Text
+
+  /// Já o exame físico é JSONB (ADR-001 §4): os sinais vitais variam e os
+  /// exames especiais mudam por tipo de atendimento — os de reprodução não
+  /// são os de locomotor. Em coluna viraria dezenas de campos nulos; a
+  /// validação da forma fica no Zod, por tipo, não no banco.
+  generalExam  Json? @map("general_exam") @db.JsonB
+  specialExams Json? @map("special_exams") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("medical_records")
+}
+
+/// RF-ATD-006/007: linha do orçamento.
+model AppointmentItem {
+  id            String @id @default(uuid()) @db.Uuid
+  tenantId      String @map("tenant_id") @db.Uuid
+  appointmentId String @map("appointment_id") @db.Uuid
+
+  kind AppointmentItemKind
+
+  /// Só em `product`: produto no MS2 (sem FK — ver cabeçalho). É este campo
+  /// que vira `consumedItems` no evento de baixa de estoque (RN-003).
+  productId String? @map("product_id") @db.Uuid
+
+  /// Nome e preço congelados no atendimento: o produto pode ser renomeado,
+  /// ter o preço alterado ou ser removido depois, e a ficha tem valor legal.
+  description    String  @db.VarChar(255)
+  quantity       Decimal @db.Decimal(10, 3)
+  unitPriceCents Int     @map("unit_price_cents")
+  totalCents     Int     @map("total_cents")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([appointmentId])
+  @@index([productId])
+  @@map("appointment_items")
+}
+
+/// RF-ATD-005: prescrição / protocolo de tratamento.
+model Prescription {
+  id            String @id @default(uuid()) @db.Uuid
+  tenantId      String @map("tenant_id") @db.Uuid
+  appointmentId String @map("appointment_id") @db.Uuid
+
+  /// A "flag origem" do RF-ATD-005: preenchido = saiu do estoque (MS2);
+  /// null = receita externa, o tutor compra por fora.
+  productId      String?             @map("product_id") @db.Uuid
+  medicationName String              @map("medication_name") @db.VarChar(255)
+  dose           String              @db.VarChar(100)
+  route          AdministrationRoute
+  /// Texto livre — "a cada 12h por 5 dias".
+  schedule        String  @db.VarChar(255)
+  applicationSite String? @map("application_site") @db.VarChar(255)
+  notes           String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([appointmentId])
+  @@map("prescriptions")
+}
