@@ -87,9 +87,17 @@ export const updateAppointmentSchema = createAppointmentSchema
   .omit({ ownerId: true, animalId: true })
   .partial();
 
+/**
+ * `animalId` opcional: presente, o controller roteia pra
+ * `IAppointmentService.listByAnimal()` (RF-ATD-011); ausente, pro `list()`
+ * normal. Fica aqui (não em `PaginationParams` de shared-types) porque a
+ * interface publicada já separa os dois métodos — o schema só reflete essa
+ * escolha, não inventa uma nova.
+ */
 export const listAppointmentsSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
+  animalId: z.string().uuid().optional(),
 });
 
 export type AppointmentItemInput = z.infer<typeof appointmentItemSchema>;
