@@ -12,16 +12,15 @@ const connection = {
 const prefix = process.env['REDIS_QUEUE_PREFIX'] ?? 'quironequine';
 
 /**
- * Uma fila por serviço consumidor (ADR-002). O broker é Redis/BullMQ, que
- * não tem exchange nem fan-out: dois workers na mesma fila COMPETEM por
- * round-robin, cada job indo pra um só deles. Como o ADR-001 §5.3 já prevê
- * `appointment.done` sendo consumido por Inventory E Reporting, uma fila
- * compartilhada entregaria cada evento a um dos dois — silenciosamente.
+ * Uma fila por serviço consumidor (ADR-002) — mesma convenção do MS2 e do
+ * MS3. O fan-out é do publisher porque o Redis/BullMQ não tem exchange.
  *
- * Então o fan-out é do publisher: uma cópia do evento por assinante
- * (EVENT_SUBSCRIBERS, em shared-types, espelhando a tabela do §5.3).
- *
- * BullMQ proíbe ':' no nome da fila — daí o hífen; o namespace é o `prefix`.
+ * Diferente do MS3, aqui NÃO há outbox. O único evento publicado é
+ * `payment.registered`, e perdê-lo não quebra invariante de negócio: o
+ * registro financeiro já está correto no banco, o que se perde é a
+ * notificação ao proprietário (ADR-001 §5.3, consumidor é o MS5). O
+ * critério do ADR-001 §6.2 é "eventos críticos" — quando a notificação
+ * virar exigência (recibo legal, por exemplo), revisar.
  */
 const DOMAIN_EVENTS_QUEUE_BASE = 'domain-events';
 
@@ -29,7 +28,6 @@ export function domainEventsQueueName(service: string): string {
   return `${DOMAIN_EVENTS_QUEUE_BASE}-${service}`;
 }
 
-/** Uma Queue por serviço, criada sob demanda e reaproveitada. */
 const queues = new Map<string, Queue>();
 
 function queueFor(service: string): Queue {
@@ -55,15 +53,9 @@ export async function publishDomainEvent<T>(event: DomainEvent<T>): Promise<void
   await Promise.all(
     subscribers.map((service) =>
       queueFor(service).add(event.name, event, {
-        // jobId é por fila no BullMQ: a mesma chave em duas filas não
-        // colide, então cada consumidor mantém seu próprio dedup.
         jobId: event.idempotencyKey,
         removeOnComplete: 500,
         removeOnFail: 1000,
-        // Sem isto, zero retry por padrão — uma falha transiente (ex. banco
-        // fora do ar por um instante) perderia a baixa de estoque pra
-        // sempre em vez de tentar de novo. Idempotente do lado de quem
-        // consome (ver DeductionService), então retry é seguro.
         attempts: 5,
         backoff: { type: 'exponential', delay: 2000 },
       }),

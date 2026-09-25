@@ -1,0 +1,102 @@
+name: MS6 Reporting
+
+on:
+  push:
+    branches: [main, staging, develop]
+    paths:
+      - 'apps/ms-reporting/**'
+      - 'packages/**'
+      - '.github/workflows/ms-reporting.yml'
+  pull_request:
+    paths:
+      - 'apps/ms-reporting/**'
+      - 'packages/**'
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  lint:
+    name: Lint & TypeCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate --schema apps/ms-reporting/prisma/schema.prisma
+      # turbo (nao "npm run --workspace") -- typecheck/lint dependem de shared-types
+      # e shared-middlewares estarem buildados primeiro (turbo.json dependsOn: ["^build"]).
+      - run: npx turbo run lint --filter=@quironequine/ms-reporting
+      - run: npx turbo run typecheck --filter=@quironequine/ms-reporting
+
+  test:
+    name: Testes Unitários
+    runs-on: ubuntu-latest
+    needs: lint
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: quironequine
+          POSTGRES_PASSWORD: quironequine
+          POSTGRES_DB: reporting_test
+        ports: ['5437:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 10s
+          --health-timeout 5s --health-retries 5
+      # O consumidor de appointment.done e o publisher de payment.registered
+      # usam BullMQ; o teste de integracao carrega esses modulos.
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
+    env:
+      DATABASE_URL_REPORTING: postgresql://quironequine:quironequine@localhost:5437/reporting_test
+      DATABASE_URL_REPORTING_APP: postgresql://quironequine_app:app_dev_password@localhost:5437/reporting_test
+      REDIS_URL: redis://localhost:6379
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate --schema apps/ms-reporting/prisma/schema.prisma
+      - run: npx prisma migrate deploy --schema apps/ms-reporting/prisma/schema.prisma
+      # Cria a role restrita (quironequine_app) e concede as permissoes pos-migration --
+      # sem isso os testes que usam DATABASE_URL_REPORTING_APP (RLS) nao tem role
+      # pra conectar (mesmo padrao dos demais servicos, ADR-003 Decisao 1).
+      - name: Criar role quironequine_app
+        run: psql "$DATABASE_URL_REPORTING" -f infra/postgres-init/01-create-app-role.sql
+      - run: npx turbo run test:cov --filter=@quironequine/ms-reporting
+
+  security:
+    name: SAST & Audit
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+
+      # BLOQUEIA o merge: vulnerabilidade que chega a producao.
+      # Roda sem --workspace, entao audita o repo INTEIRO (monorepo com
+      # lockfile unico).
+      - name: Audit de dependências de produção
+        run: npm audit --omit=dev --audit-level=high
+
+      # INFORMATIVO: ferramentas de build (nao bloqueia)
+      - name: Audit completo
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+  # O job de build Docker entra junto com a camada HTTP (controllers, Dev 2):
+  # hoje o servico sobe com /health e o consumidor do broker, sem rotas de negocio.
