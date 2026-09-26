@@ -6,6 +6,7 @@ import {
   notFoundHandler,
 } from '@quironequine/shared-middlewares';
 import { healthRouter } from './controllers/health.controller';
+import { appointmentRouter } from './controllers/appointment.controller';
 
 export function createApp(): Express {
   const app = express();
@@ -17,9 +18,8 @@ export function createApp(): Express {
   app.use('/health', healthRouter);
 
   // Rotas protegidas — exigem JWT válido.
-  // As rotas de atendimento/prescrição entram aqui (Dev 2, Sprint 5):
-  // o AppointmentService e o AppointmentRepository já estão prontos.
   app.use(authMiddleware);
+  app.use('/appointments', appointmentRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
