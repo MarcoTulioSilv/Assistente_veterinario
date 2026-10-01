@@ -101,6 +101,19 @@ E uma correção que estava em produção sem ninguém notar: o consumidor do MS
 
 **5. Testes usam prefixo de fila próprio** (`quironequine-test`, via `vitest.config.ts` de cada serviço). Sem isso, rodar os testes com o `npm run dev` ligado colocava o worker do teste e o do serviço de dev na mesma fila, competindo — o de dev pegava o job e o teste esperava até estourar o tempo. É a mesma propriedade de fila compartilhada desta ADR, só que mordendo o ambiente de desenvolvimento.
 
+**6. Eventos de exame, fora da tabela do ADR-001 §5.3** (revisão 1.3, Sprint 6). O ADR-001 não prevê evento de exame; o caminho natural seria copiar o atendimento, com um único evento levando baixa e cobrança juntas. A decisão dos stakeholders (01/10/2026) separou as duas coisas: a **coleta é opcional** (outra pessoa pode colher a amostra) e a **cobrança é opcional** (o cliente pode pagar o laboratório direto). O que entra na conta depende de quem coletou, então a cobrança só fecha na primeira saída do status `requested`: registrando a coleta, ou pulando direto pra análise ou resultado. Por isso viraram eventos separados:
+
+| Evento | Publicado quando | Consumido por | Efeito |
+|---|---|---|---|
+| `exam.collected` | O veterinário registrou a coleta **e** usou insumos | **Inventory** | Baixa dos insumos (motivo `exam` no movimento) |
+| `exam.charged` | A cobrança fechou com valor > 0 | **Reporting** | Pendência financeira com `sourceType: 'exam'` |
+| `exam.deleted` | Pedido com pendência foi excluído | **Reporting** | Cancela a pendência (mesma lógica de ordem do item 4) |
+| `exam.result_due` | Job diário, 07h de São Paulo: data prevista amanhã ou hoje | **Notification** (MS5) | Lembrete pro veterinário buscar o resultado |
+
+Os três primeiros saem pelo outbox, na mesma transação da mudança de status, com chave derivada do pedido. O total congelado é calculado sobre o pedido **já travado** pelo UPDATE condicional: uma edição de preço concorrente não escapa. Uma exceção ao RF-EXM-006 ficou registrada: quando o cliente paga o laboratório direto e o veterinário coletou, os **insumos entram na conta** (mão de obra + km + insumos). Sem o procedimento na conta, os insumos deixam de estar embutidos nele.
+
+O `exam.result_due` é publicado direto, sem outbox, como o `alert.triggered`: é uma varredura de leitura, sem commit com o qual ser atômico. A varredura cruza tenants pela função `SECURITY DEFINER` `clinical_list_exams_result_due` (padrão da ADR-006). A chave vem de (pedido, tipo de lembrete), então o job rodar duas vezes no mesmo dia não duplica o aviso. Até o MS5 existir, esses eventos acumulam na fila dele, como na ponta solta nº 3. O volume é baixo: no máximo dois por pedido.
+
 ## Consequências
 
 **Positivas.** O fan-out do §5.3 passa a funcionar de verdade antes de existir consumidor duplicado — o bug nasceria silencioso e só apareceria em produção com o MS6 no ar. Nenhuma infraestrutura nova: nada muda no `docker-compose`, no CI, nos scripts de deploy ou no custo mensal. A tabela `EVENT_SUBSCRIBERS` em `shared-types` dá uma fonte única para o roteamento, rastreável linha a linha contra a tabela do ADR-001 §5.3.
@@ -123,3 +136,4 @@ E uma correção que estava em produção sem ninguém notar: o consumidor do MS
 | 1.0 | Set/2026 | Criação. Formaliza Redis/BullMQ e introduz fan-out por fila de consumidor. |
 | 1.1 | Set/2026 | Padrão Outbox implementado no MS3 (era a ponta solta nº 1), fechando a mitigação prevista no ADR-001 §6.2. |
 | 1.2 | Out/2026 | Evento `appointment.deleted` (exclusão de atendimento finalizado cancela a pendência, independente da ordem de chegada); `performedAt` no `appointment.done`; MS2 aceita atendimento sem item de estoque; prefixo de fila próprio nos testes. |
+| 1.3 | Out/2026 | Eventos de exame (`exam.collected`, `exam.charged`, `exam.deleted`, `exam.result_due`): coleta e cobrança opcionais, cobrança fechada na saída de `requested`; MS2 baixa insumo de exame com motivo `exam`; MS6 abre e cancela pendência de exame. |
