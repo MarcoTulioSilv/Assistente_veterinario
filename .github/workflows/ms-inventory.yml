@@ -128,9 +128,17 @@ jobs:
         continue-on-error: true
 
   build:
-    name: Build Docker
+    name: Build Docker + smoke test
     runs-on: ubuntu-latest
     needs: [test, security]
+    # Redis pro smoke test: o servico sobe workers do BullMQ no boot.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 10s
+          --health-timeout 5s --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -139,6 +147,28 @@ jobs:
           context: .
           file: apps/ms-inventory/Dockerfile
           push: false
+          # load: a imagem precisa ficar no daemon local pro smoke test rodar.
+          load: true
           tags: quironequine/ms-inventory:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      # Buildar nao basta: as imagens antigas buildavam e morriam no boot com
+      # MODULE_NOT_FOUND. O /health (liveness) nao toca no banco -- a URL so
+      # precisa existir, porque o Prisma conecta no primeiro uso.
+      - name: Smoke test -- a imagem sobe e responde /health
+        run: |
+          docker run -d --name smoke --network host \
+            -e NODE_ENV=production \
+            -e PORT_MS_INVENTORY=3002 \
+            -e DATABASE_URL_INVENTORY_APP=postgresql://smoke:smoke@localhost:5432/smoke \
+            -e REDIS_URL=redis://localhost:6379 \
+            -e JWT_SECRET=smoke-test-secret \
+            quironequine/ms-inventory:${{ github.sha }}
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:3002/health; then exit 0; fi
+            if [ "$(docker inspect -f '{{.State.Running}}' smoke)" != "true" ]; then break; fi
+            sleep 1
+          done
+          echo "A imagem nao respondeu /health -- logs do container:"
+          docker logs smoke
+          exit 1

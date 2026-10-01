@@ -13,7 +13,11 @@ import type {
 } from '@quironequine/shared-types';
 import { AppError, createServiceLogger } from '@quironequine/shared-middlewares';
 import type { FinancialRepository } from '../repositories/financial.repository';
-import { appointmentDonePayloadSchema, type ListFinancialRecordsInput } from '../schemas/financial.schema';
+import {
+  appointmentDonePayloadSchema,
+  appointmentDeletedPayloadSchema,
+  type ListFinancialRecordsInput,
+} from '../schemas/financial.schema';
 
 const log = createServiceLogger('financial-service');
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -107,6 +111,9 @@ export class FinancialService implements IFinancialService {
     if (!updated) {
       const existing = await this.repo.findById(ctx, id);
       if (!existing) throw AppError.notFound('Registro financeiro não encontrado');
+      if (existing.status === 'cancelled') {
+        throw AppError.conflict('Pendência cancelada — o atendimento de origem foi excluído');
+      }
       throw AppError.conflict('Pagamento já registrado');
     }
 
@@ -131,20 +138,44 @@ export class FinancialService implements IFinancialService {
     await this.repo.recordPending(ctx, data, idempotencyKey);
   }
 
+  /** Disparado por `appointment.deleted`, idempotente e independente de ordem. */
+  async cancelBySource(
+    ctx: RequestContext,
+    data: CreateFinancialRecordDto,
+    idempotencyKey: UUID,
+  ): Promise<void> {
+    const outcome = await this.repo.cancelBySource(ctx, data, idempotencyKey);
+
+    if (outcome === 'kept-received') {
+      // Não é erro: a regra é não apagar dinheiro recebido. Mas é o caso que
+      // alguém do financeiro vai querer achar depois (possível estorno).
+      log.warn(
+        { sourceType: data.sourceType, sourceId: data.sourceId },
+        'Atendimento excluído já estava PAGO — registro de pagamento mantido',
+      );
+      return;
+    }
+
+    log.info({ sourceType: data.sourceType, sourceId: data.sourceId, outcome }, 'Pendência cancelada');
+  }
+
   /**
-   * RN-002: consome `appointment.done` e abre a pendência financeira
-   * (ADR-001 §5.3). A fila `domain-events-reporting` é só deste serviço,
-   * mas recebe todo evento que ele assina — o filtro por nome fica aqui,
-   * na camada de negócio, testável sem broker.
+   * A fila `domain-events-reporting` é só deste serviço, mas recebe todo
+   * evento que ele assina — o roteamento por nome fica aqui, na camada de
+   * negócio, testável sem broker.
    *
-   * A chave de idempotência é a do próprio envelope: um evento
-   * `appointment.done` gera exatamente uma pendência. Não precisa derivar
-   * por item como o MS2 faz, porque aqui não há array — é um valor só, o
-   * total do atendimento.
+   * A chave de idempotência é a do próprio envelope: um `appointment.done`
+   * gera exatamente uma pendência, e um `appointment.deleted` exatamente um
+   * cancelamento. Não precisa derivar por item como o MS2 faz, porque aqui
+   * não há array — é um valor só, o total do atendimento.
    */
   async handle(jobName: string, event: DomainEvent<unknown>): Promise<void> {
-    if (jobName !== EVENTS.APPOINTMENT_DONE) return;
+    if (jobName === EVENTS.APPOINTMENT_DONE) return this.onAppointmentDone(event);
+    if (jobName === EVENTS.APPOINTMENT_DELETED) return this.onAppointmentDeleted(event);
+  }
 
+  /** RN-002: abre a pendência financeira (ADR-001 §5.3). */
+  private async onAppointmentDone(event: DomainEvent<unknown>): Promise<void> {
     const payload = appointmentDonePayloadSchema.parse(event.payload);
     const ctx = systemCtx(event.tenantId, event.traceId);
 
@@ -155,7 +186,7 @@ export class FinancialService implements IFinancialService {
         sourceType: 'appointment',
         sourceId: payload.appointmentId,
         amountCents: payload.totalCostCents,
-        occurredAt: event.occurredAt,
+        occurredAt: payload.performedAt ?? event.occurredAt,
       },
       event.idempotencyKey,
     );
@@ -163,6 +194,24 @@ export class FinancialService implements IFinancialService {
     log.info(
       { appointmentId: payload.appointmentId, amountCents: payload.totalCostCents },
       'Pendência financeira aberta a partir do atendimento',
+    );
+  }
+
+  /** Atendimento finalizado excluído → cancela a pendência dele. */
+  private async onAppointmentDeleted(event: DomainEvent<unknown>): Promise<void> {
+    const payload = appointmentDeletedPayloadSchema.parse(event.payload);
+    const ctx = systemCtx(event.tenantId, event.traceId);
+
+    await this.cancelBySource(
+      ctx,
+      {
+        ownerId: payload.ownerId,
+        sourceType: 'appointment',
+        sourceId: payload.appointmentId,
+        amountCents: payload.totalCostCents,
+        occurredAt: payload.performedAt,
+      },
+      event.idempotencyKey,
     );
   }
 }

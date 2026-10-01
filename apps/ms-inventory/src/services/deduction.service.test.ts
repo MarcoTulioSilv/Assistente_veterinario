@@ -130,11 +130,24 @@ describe('DeductionService.handle', () => {
     await expect(service.handle('appointment.done', event)).resolves.toBeUndefined();
   });
 
-  it('payload inválido (sem itens) rejeita antes de chamar deduct', async () => {
+  it('atendimento só de procedimento (sem item de estoque) é no-op, não falha', async () => {
+    // O MS3 publica appointment.done mesmo sem produto, porque o MS6 abre a
+    // pendência financeira a partir do mesmo evento. Falhar aqui fazia o job
+    // tentar 5 vezes no broker por nada.
     const deduct = vi.fn();
     const service = new DeductionService(fakeStock({ deduct }));
 
-    await expect(service.handle('appointment.done', appointmentDoneEvent([]))).rejects.toThrow();
+    await expect(service.handle('appointment.done', appointmentDoneEvent([]))).resolves.toBeUndefined();
+    expect(deduct).not.toHaveBeenCalled();
+  });
+
+  it('payload realmente inválido (productId que não é UUID) rejeita antes de chamar deduct', async () => {
+    const deduct = vi.fn();
+    const service = new DeductionService(fakeStock({ deduct }));
+
+    await expect(
+      service.handle('appointment.done', appointmentDoneEvent([{ productId: 'não-é-uuid', quantity: 1 }])),
+    ).rejects.toThrow();
     expect(deduct).not.toHaveBeenCalled();
   });
 });

@@ -91,6 +91,16 @@ O `ms-inventory` **não** ganhou outbox, de propósito: o único evento que ele 
 
 **3. Fila de serviço inexistente cresce sem limite.** `removeOnComplete`/`removeOnFail` só podam jobs já processados; job em espera fica. `alert.triggered` vai acumular em `domain-events-notification` até o MS5 existir (Dez/2026). O volume é baixo (alerta diário por tenant), então é aceitável — mas se o MS5 atrasar muito ou o volume crescer, podar a fila ou suspender o publish.
 
+**4. Evento novo fora da tabela do ADR-001 §5.3: `appointment.deleted`** (revisão 1.2). Nasceu da regra de exclusão de atendimento finalizado (decisão do Marco, 01/10/2026): o atendimento pode ser excluído, e a exclusão cancela a pendência financeira no MS6. Só o `reporting` assina — o estoque consumido não volta, porque o produto foi de fato usado no animal. Rascunho excluído não publica nada (nunca gerou cobrança). Pagamento já recebido nunca é cancelado: o registro fica `received` e o caso vai pra log como aviso, porque é o que alguém do financeiro vai querer achar (possível estorno).
+
+O ponto delicado é a **ordem de chegada**. Um `appointment.done` que falha uma vez entra em retry com backoff, e nesse intervalo o `appointment.deleted` pode ser processado primeiro — o cancelamento não acharia nada, e o retry criaria uma pendência cobrando um atendimento já excluído. A solução foi uma UNIQUE em `(source_type, source_id)` no `financial_records`: uma origem tem no máximo um registro. Se a exclusão chega antes, ela grava a origem já como `cancelled`; quando a pendência tenta nascer, esbarra na UNIQUE e o registro cancelado prevalece. Testado nas duas ordens, contra o banco real.
+
+Junto veio uma correção de dado: o `appointment.done` passou a carregar `performedAt`. A pendência usava o `occurredAt` do envelope, que é o momento da **finalização** no sistema — um atendimento feito dia 30 e fechado dia 2 cairia no mês errado do relatório. Também faria a mesma origem ter datas diferentes conforme a ordem dos eventos. Eventos antigos que ainda estejam na fila no deploy caem no comportamento anterior.
+
+E uma correção que estava em produção sem ninguém notar: o consumidor do MS2 exigia `consumedItems` com pelo menos um item (`.min(1)`), mas o MS3 publica a lista vazia quando o atendimento é só de procedimento — uma consulta simples. Todo atendimento desses falhava 5 vezes no broker antes de desistir. Lista vazia agora é válida e significa "nada a baixar".
+
+**5. Testes usam prefixo de fila próprio** (`quironequine-test`, via `vitest.config.ts` de cada serviço). Sem isso, rodar os testes com o `npm run dev` ligado colocava o worker do teste e o do serviço de dev na mesma fila, competindo — o de dev pegava o job e o teste esperava até estourar o tempo. É a mesma propriedade de fila compartilhada desta ADR, só que mordendo o ambiente de desenvolvimento.
+
 ## Consequências
 
 **Positivas.** O fan-out do §5.3 passa a funcionar de verdade antes de existir consumidor duplicado — o bug nasceria silencioso e só apareceria em produção com o MS6 no ar. Nenhuma infraestrutura nova: nada muda no `docker-compose`, no CI, nos scripts de deploy ou no custo mensal. A tabela `EVENT_SUBSCRIBERS` em `shared-types` dá uma fonte única para o roteamento, rastreável linha a linha contra a tabela do ADR-001 §5.3.
@@ -112,3 +122,4 @@ O `ms-inventory` **não** ganhou outbox, de propósito: o único evento que ele 
 |---|---|---|
 | 1.0 | Set/2026 | Criação. Formaliza Redis/BullMQ e introduz fan-out por fila de consumidor. |
 | 1.1 | Set/2026 | Padrão Outbox implementado no MS3 (era a ponta solta nº 1), fechando a mitigação prevista no ADR-001 §6.2. |
+| 1.2 | Out/2026 | Evento `appointment.deleted` (exclusão de atendimento finalizado cancela a pendência, independente da ordem de chegada); `performedAt` no `appointment.done`; MS2 aceita atendimento sem item de estoque; prefixo de fila próprio nos testes. |

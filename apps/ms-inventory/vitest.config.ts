@@ -13,6 +13,11 @@ config({ path: '../../.env' });
 export default defineConfig({
   test: {
     environment: 'node',
+    // Prefixo de fila próprio dos testes. Sem isso, rodar os testes com o
+    // `npm run dev` ligado coloca o worker do teste e o do serviço de dev na
+    // MESMA fila do Redis — eles competem (round-robin, ADR-002), o de dev
+    // pega o job e o teste espera até estourar o tempo.
+    env: { REDIS_QUEUE_PREFIX: 'quironequine-test' },
     globals: true,
     include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
     // Testes de integracao compartilham banco -- sem paralelismo
