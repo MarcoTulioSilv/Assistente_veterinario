@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { EVENTS } from '@quironequine/shared-types';
 import type {
   IAppointmentService,
@@ -25,47 +24,7 @@ import type {
   AppointmentItemInput,
   PrescriptionInput,
 } from '../schemas/appointment.schema';
-
-interface BudgetInput {
-  items: Array<{ totalCents: number }>;
-  laborCents: number;
-  displacementKm: number;
-  displacementRateCents: number;
-}
-
-/**
- * RF-ATD-006: itens de estoque + procedimentos + mão de obra + deslocamento
- * (km × valor/km). Tudo em centavos inteiros (ADR-001 §5.6) — o arredondamento
- * do deslocamento acontece uma vez, no fim, e não por km.
- */
-export function calculateTotalCents(input: BudgetInput): number {
-  const itemsCents = input.items.reduce((sum, item) => sum + item.totalCents, 0);
-  const displacementCents = Math.round(input.displacementKm * input.displacementRateCents);
-  return itemsCents + input.laborCents + displacementCents;
-}
-
-export function calculateItemTotalCents(quantity: number, unitPriceCents: number): number {
-  return Math.round(quantity * unitPriceCents);
-}
-
-/**
- * Chave de idempotência do envelope, derivada do atendimento — nunca
- * aleatória.
- *
- * É o outro lado do problema documentado no DeductionService do MS2: lá, a
- * proteção cobre reentrega do MESMO evento (retry do BullMQ), mas não um
- * publisher que emita dois eventos com chaves diferentes pro mesmo
- * atendimento. Derivando do appointmentId, "dois eventos para o mesmo
- * atendimento" deixa de ser possível: a segunda gravação no outbox esbarra
- * na UNIQUE de idempotency_key.
- *
- * SHA-1 formatado como UUID pelo mesmo motivo do MS2 — `idempotency_key` é
- * coluna `@db.Uuid` de verdade, e o projeto evita o pacote `uuid`.
- */
-export function deriveEventIdempotencyKey(eventName: string, appointmentId: string): UUID {
-  const hex = createHash('sha1').update(`${eventName}:${appointmentId}`).digest('hex').slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
+import { calculateTotalCents, calculateItemTotalCents, deriveEventIdempotencyKey } from './billing';
 
 /**
  * RN-003: só item de estoque vira baixa. Procedimento não tem produto e não
