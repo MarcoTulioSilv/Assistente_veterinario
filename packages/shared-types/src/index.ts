@@ -280,18 +280,25 @@ export interface IStockService {
   softDelete(ctx: RequestContext, id: UUID): Promise<void>;
   /**
    * RN-003: baixa idempotente disparada por evento do broker.
-   * `reference` liga o StockMovement resultante de volta à origem (ex.:
-   * o atendimento que consumiu o produto) — opcional/compatível com
-   * quem já chama sem ele.
+   * `reference` liga o StockMovement resultante de volta à origem (o
+   * atendimento ou exame que consumiu o produto) e também define o MOTIVO
+   * do movimento — consumo de exame sai como `exam`, não como `appointment`.
+   * Sem `reference`, o motivo é `appointment` (compatível com quem já chama).
    */
   deduct(
     ctx: RequestContext,
     productId: UUID,
     qty: number,
     idempotencyKey: UUID,
-    reference?: { referenceId: UUID; referenceType: string },
+    reference?: { referenceId: UUID; referenceType: StockConsumptionSource },
   ): Promise<void>;
 }
+
+/**
+ * De onde vem um consumo de estoque (RN-003). Cada valor também é um
+ * `MovementReason` — é o motivo registrado na movimentação.
+ */
+export type StockConsumptionSource = 'appointment' | 'exam' | 'vaccination';
 
 export interface CreateProductDto {
   name: string;
@@ -498,6 +505,245 @@ export interface IAppointmentService {
   softDelete(ctx: RequestContext, id: UUID): Promise<void>;
 }
 
+// ─── MS3 — Exames (RF-EXM-001 a 006, Sprint 6) ────────────────────
+//
+// Decisões do Marco e dos stakeholders (01/10/2026), que definem o modelo:
+//  - status e laudo são do PEDIDO inteiro, não de cada animal;
+//  - no máximo uma pendência financeira por pedido (RN-002);
+//  - o prazo do tipo gera a DATA PREVISTA do resultado; o status só avança
+//    por ação real (coleta, envio ao laboratório, laudo anexado);
+//  - o catálogo de tipos é de cada clínica e começa VAZIO — nada é imposto.
+//    EXAM_TYPE_SUGGESTIONS só ajuda a preencher;
+//  - a COLETA é opcional: outra pessoa pode colher a amostra;
+//  - a COBRANÇA é opcional: o cliente pode pagar o laboratório direto.
+//
+// Como a cobrança depende de quem coletou, ela só fecha na primeira saída de
+// `requested` — registrando a coleta, ou pulando direto pra análise/resultado:
+//  - vet cobra o exame: procedimento × animais + (se coletou: mão de obra + km);
+//    insumos não entram (RF-EXM-006: "sem custo, apenas controle");
+//  - cliente paga o laboratório direto: se o vet coletou, mão de obra + km +
+//    insumos; se não coletou, nada. Esta é uma exceção ao RF-EXM-006 — sem o
+//    procedimento na conta, os insumos deixam de estar embutidos nele.
+
+/** RF-EXM-002: tipo de um campo do protocolo de exame. */
+export type ExamProtocolFieldType = 'text' | 'number' | 'date' | 'select';
+
+/**
+ * RF-EXM-002: um campo específico do protocolo. O PWA monta o formulário a
+ * partir desta lista, e o MS3 valida os valores do pedido contra ela.
+ */
+export interface ExamProtocolField {
+  /** Chave no `protocolData` do pedido — letras, números e `_`. */
+  key: string;
+  label: string;
+  type: ExamProtocolFieldType;
+  /** Cobrado só ao confirmar a coleta; o rascunho pode ficar incompleto. */
+  required: boolean;
+  /** Obrigatório (e só aceito) em `select`. */
+  options?: string[];
+}
+
+/** Catálogo da clínica (RF-EXM-002/004/006). */
+export interface ExamType {
+  id: UUID;
+  name: string;
+  /** Preço do procedimento POR ANIMAL — sugerido no pedido, editável lá. */
+  defaultPriceCents: Cents;
+  /** O "tempo previamente cadastrado" do RF-EXM-004. Nulo = sem data prevista nem lembrete. */
+  expectedTurnaroundDays: number | null;
+  protocolFields: ExamProtocolField[];
+  createdAt: ISODateString;
+}
+
+export interface CreateExamTypeDto {
+  name: string;
+  defaultPriceCents?: Cents;
+  expectedTurnaroundDays?: number | null;
+  protocolFields?: ExamProtocolField[];
+}
+
+export type UpdateExamTypeDto = Partial<CreateExamTypeDto>;
+
+export interface IExamTypeService {
+  list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<ExamType>>;
+  findById(ctx: RequestContext, id: UUID): Promise<ExamType | null>;
+  create(ctx: RequestContext, data: CreateExamTypeDto): Promise<ExamType>;
+  /** Não altera pedidos já criados: cada pedido guarda a própria cópia dos campos. */
+  update(ctx: RequestContext, id: UUID, data: UpdateExamTypeDto): Promise<ExamType>;
+  softDelete(ctx: RequestContext, id: UUID): Promise<void>;
+}
+
+export interface ExamTypeSuggestion {
+  name: string;
+  protocolFields: ExamProtocolField[];
+}
+
+/** Campos genéricos de qualquer requisição de exame de laboratório. */
+const EXAM_REQUEST_GENERIC_FIELDS: ExamProtocolField[] = [
+  {
+    key: 'finalidade',
+    label: 'Finalidade',
+    type: 'select',
+    required: false,
+    options: ['Trânsito (GTA)', 'Evento ou competição', 'Compra e venda', 'Rotina', 'Outra'],
+  },
+  { key: 'laboratorio', label: 'Laboratório', type: 'text', required: false },
+  { key: 'numero_requisicao', label: 'Nº da requisição', type: 'text', required: false },
+];
+
+/**
+ * Sugestões pra ajudar o veterinário a montar o catálogo — NÃO entram no
+ * catálogo sozinhas: uma clínica pode prestar um serviço só (decisão do
+ * Marco). O PWA oferece a lista; escolhida uma, vira um `CreateExamTypeDto`
+ * já preenchido, que o vet ajusta. Sem preço nem prazo de propósito: são da
+ * clínica e do laboratório dela. Ampliar a lista com os stakeholders.
+ */
+export const EXAM_TYPE_SUGGESTIONS: readonly ExamTypeSuggestion[] = [
+  { name: 'Mormo', protocolFields: EXAM_REQUEST_GENERIC_FIELDS },
+  { name: 'AIE (Anemia Infecciosa Equina)', protocolFields: EXAM_REQUEST_GENERIC_FIELDS },
+];
+
+/**
+ * RF-EXM-004, com a coleta opcional: `draft → requested → [collected] →
+ * in_analysis → result_available`. `collected` só existe se o veterinário
+ * colheu; de `requested` dá pra ir direto pra análise ou resultado. Só avança
+ * por ação real: nunca afirma um resultado que não existe.
+ */
+export type ExamStatus = 'draft' | 'requested' | 'collected' | 'in_analysis' | 'result_available';
+
+/**
+ * RF-EXM-006: insumo usado na coleta — sempre dá baixa no estoque. Só é
+ * COBRADO quando o cliente paga o laboratório direto (ver cabeçalho da seção).
+ */
+export interface ExamRequestItem {
+  id: UUID;
+  productId: UUID;
+  /** Nome e preço congelados no pedido, como nos itens do atendimento. */
+  description: string;
+  quantity: number;
+  unitPriceCents: Cents;
+  totalCents: Cents;
+}
+
+/** RF-EXM-001: o pedido de exame. */
+export interface ExamRequest {
+  id: UUID;
+  /** Referências ao MS1 — sem FK (ADR-001 §5.1). */
+  ownerId: UUID;
+  propertyId: UUID;
+  veterinarianId: UUID;
+  examTypeId: UUID;
+  /** Cópia do tipo no momento do pedido: o vet pode editar o tipo depois. */
+  examTypeName: string;
+  protocolFields: ExamProtocolField[];
+  protocolData: Record<string, unknown>;
+  /** Coleta — preenchidos só se o veterinário colheu (`registerCollection`). */
+  material: string | null;
+  collectedAt: ISODateString | null;
+  /** RF-EXM-003. O pedido tem animais, OU um lote, OU os dois. */
+  animalIds: UUID[];
+  lotDescription: string | null;
+  lotSize: number | null;
+  status: ExamStatus;
+  /** Data de coleta + prazo do tipo. Base do lembrete D-1/no dia. */
+  expectedResultAt: ISODateString | null;
+  /** RF-EXM-005 — o arquivo sobe pelo endpoint de upload; aqui só a URL. */
+  resultFileUrl: string | null;
+  resultUploadedAt: ISODateString | null;
+  /** O cliente paga o laboratório direto — muda o que entra na conta. */
+  paidDirectlyByClient: boolean;
+  // RF-EXM-006. Mão de obra e km só existem se o veterinário coletou.
+  /** Preço do procedimento por animal. */
+  unitPriceCents: Cents;
+  laborCents: Cents;
+  displacementKm: number;
+  displacementRateCents: Cents;
+  /** Valor cobrado, congelado quando a cobrança fecha. 0 = nada a cobrar. */
+  totalCents: Cents;
+  /** Quando a cobrança fechou. Nulo = ainda pode mudar (rascunho/solicitado). */
+  chargedAt: ISODateString | null;
+  createdAt: ISODateString;
+  items: ExamRequestItem[];
+}
+
+export interface CreateExamRequestItemDto {
+  productId: UUID;
+  description: string;
+  quantity: number;
+  /** Preço de venda do produto (MS2) — só pesa se o cliente paga o laboratório direto. */
+  unitPriceCents: Cents;
+}
+
+export interface CreateExamRequestDto {
+  ownerId: UUID;
+  propertyId: UUID;
+  veterinarianId: UUID;
+  examTypeId: UUID;
+  protocolData?: Record<string, unknown>;
+  animalIds?: UUID[];
+  /** `null` tira o lote do pedido (na edição). */
+  lotDescription?: string | null;
+  lotSize?: number | null;
+  /** Se ausente, vem do `defaultPriceCents` do tipo. */
+  unitPriceCents?: Cents;
+  paidDirectlyByClient?: boolean;
+}
+
+/** Permitido até a cobrança fechar (rascunho e solicitado). */
+export type UpdateExamRequestDto = Partial<Omit<CreateExamRequestDto, 'ownerId'>>;
+
+/** Coleta feita pelo veterinário (opcional no fluxo). */
+export interface RegisterExamCollectionDto {
+  material: string;
+  collectedAt: ISODateString;
+  items?: CreateExamRequestItemDto[];
+  laborCents?: Cents;
+  displacementKm?: number;
+  displacementRateCents?: Cents;
+}
+
+export interface IExamService {
+  list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<ExamRequest>>;
+  findById(ctx: RequestContext, id: UUID): Promise<ExamRequest | null>;
+  /** RF-CAD-026: exames na tela do animal. Pedido só por lote não entra. */
+  listByAnimal(ctx: RequestContext, animalId: UUID, params: PaginationParams): Promise<Paginated<ExamRequest>>;
+  create(ctx: RequestContext, data: CreateExamRequestDto): Promise<ExamRequest>;
+  /**
+   * Até a cobrança fechar (rascunho e solicitado). Trocar o tipo troca também
+   * a cópia dos campos do protocolo. Em `requested`, os obrigatórios do
+   * protocolo continuam cobrados.
+   */
+  update(ctx: RequestContext, id: UUID, data: UpdateExamRequestDto): Promise<ExamRequest>;
+  /** `draft → requested`: emite o pedido. Exige animais ou lote e os obrigatórios do protocolo. */
+  issue(ctx: RequestContext, id: UUID): Promise<ExamRequest>;
+  /**
+   * `requested → collected`: o veterinário colheu. Publica `exam.collected`
+   * (baixa dos insumos, RN-003) e fecha a cobrança (`exam.charged`, se houver
+   * valor). Calcula a data prevista do resultado a partir da coleta.
+   */
+  registerCollection(ctx: RequestContext, id: UUID, data: RegisterExamCollectionDto): Promise<ExamRequest>;
+  /**
+   * `requested | collected → in_analysis`: amostra no laboratório. Saindo de
+   * `requested` (outra pessoa coletou), é aqui que a cobrança fecha.
+   */
+  sendToAnalysis(ctx: RequestContext, id: UUID): Promise<ExamRequest>;
+  /**
+   * RF-EXM-005: anexa o laudo e vai pra `result_available`. Aceita pular
+   * etapas (o vet pode não ter marcado o envio) e reanexar (correção). Se
+   * ainda estava em `requested`, fecha a cobrança também.
+   */
+  attachResult(ctx: RequestContext, id: UUID, resultFileUrl: string): Promise<ExamRequest>;
+  /**
+   * Pedido que ainda não cobrou nada some em silêncio. Pedido com cobrança
+   * fechada publica `exam.deleted` e o MS6 cancela a pendência. Estoque não
+   * volta.
+   *
+   * ATENÇÃO, João — mesmo pop-up BLOQUEANTE do atendimento antes de excluir
+   * pedido com `chargedAt` preenchido (`IAppointmentService.softDelete`).
+   */
+  softDelete(ctx: RequestContext, id: UUID): Promise<void>;
+}
+
 // ═══ MS6 — Reporting (fatia financeira, antecipada para o M2) ═════
 //
 // ATENÇÃO, João: esta seção chegou antes da hora de propósito.
@@ -588,6 +834,10 @@ export interface IFinancialService {
 export const EVENTS = {
   APPOINTMENT_DONE: 'appointment.done',
   APPOINTMENT_DELETED: 'appointment.deleted',
+  EXAM_COLLECTED: 'exam.collected',
+  EXAM_CHARGED: 'exam.charged',
+  EXAM_DELETED: 'exam.deleted',
+  EXAM_RESULT_DUE: 'exam.result_due',
   STOCK_DEDUCTED: 'stock.deducted',
   ALERT_TRIGGERED: 'alert.triggered',
   PAYMENT_REGISTERED: 'payment.registered',
@@ -618,6 +868,15 @@ export const EVENT_SUBSCRIBERS: Record<EventName, readonly string[]> = {
   // atendimento finalizado (ADR-002, revisão 1.2). Só o reporting assina:
   // o estoque consumido não volta, o produto foi de fato usado no animal.
   [EVENTS.APPOINTMENT_DELETED]: ['reporting'],
+  // Exames (ADR-002, revisão 1.3). Diferente do atendimento, baixa e
+  // cobrança são eventos SEPARADOS: a coleta é opcional e a cobrança também,
+  // então um pedido pode ter uma sem a outra.
+  [EVENTS.EXAM_COLLECTED]: ['inventory'],
+  [EVENTS.EXAM_CHARGED]: ['reporting'],
+  [EVENTS.EXAM_DELETED]: ['reporting'],
+  // Lembrete D-1 e no dia pra buscar o resultado. Quem entrega push e
+  // notificação é o MS5 (dez/2026); até lá o evento espera na fila dele.
+  [EVENTS.EXAM_RESULT_DUE]: ['notification'],
   [EVENTS.ALERT_TRIGGERED]: ['notification'],
   [EVENTS.PAYMENT_REGISTERED]: ['notification'],
   [EVENTS.SCHEDULE_REMINDER_DUE]: ['notification'],
@@ -662,6 +921,40 @@ export interface AppointmentDeletedPayload {
   totalCostCents: Cents;
   /** Quando o atendimento foi realizado — a data da pendência, não da exclusão. */
   performedAt: ISODateString;
+}
+
+/** O veterinário colheu e usou insumos: baixa no MS2 (RN-003). Coleta sem insumo não publica. */
+export interface ExamCollectedPayload {
+  examRequestId: UUID;
+  consumedItems: Array<{ productId: UUID; quantity: number }>;
+}
+
+/** Cobrança do pedido fechada com valor > 0: o MS6 abre a pendência (RN-002). */
+export interface ExamChargedPayload {
+  examRequestId: UUID;
+  ownerId: UUID;
+  totalCostCents: Cents;
+  /** Data da coleta, ou do envio ao laboratório se outra pessoa coletou — a data da pendência. */
+  performedAt: ISODateString;
+}
+
+/** Pedido com cobrança fechada foi excluído: o MS6 cancela a pendência. */
+export interface ExamDeletedPayload {
+  examRequestId: UUID;
+  ownerId: UUID;
+  totalCostCents: Cents;
+  performedAt: ISODateString;
+}
+
+/** Lembrete pra buscar o resultado: um dia antes e no dia da data prevista. */
+export interface ExamResultDuePayload {
+  examRequestId: UUID;
+  ownerId: UUID;
+  /** Quem deve ser lembrado. */
+  veterinarianId: UUID;
+  examTypeName: string;
+  expectedResultAt: ISODateString;
+  kind: 'day_before' | 'due_today';
 }
 
 /** RN-002 — publicado pelo ms-reporting ao registrar pagamento, notifica o proprietário (ADR-001 §5.3). */
