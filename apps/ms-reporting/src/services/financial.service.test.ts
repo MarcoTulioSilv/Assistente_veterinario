@@ -29,6 +29,7 @@ function record(overrides: Partial<FinancialRecord> = {}): FinancialRecord {
     status: 'pending',
     occurredAt: '2026-09-24T12:00:00.000Z',
     paidAt: null,
+    cancelledAt: null,
     createdAt: '2026-09-24T12:00:00.000Z',
     ...overrides,
   };
@@ -42,8 +43,26 @@ function fakeRepo(overrides: Partial<FinancialRepository> = {}): FinancialReposi
     findBySource: vi.fn().mockResolvedValue(record()),
     recordPending: vi.fn().mockResolvedValue(record()),
     markReceived: vi.fn().mockResolvedValue(record({ status: 'received', paidAt: '2026-09-25T10:00:00.000Z' })),
+    cancelBySource: vi.fn().mockResolvedValue('cancelled'),
     ...overrides,
   } as unknown as FinancialRepository;
+}
+
+function appointmentDeletedEvent(overrides: Partial<DomainEvent<unknown>> = {}): DomainEvent<unknown> {
+  return {
+    name: 'appointment.deleted',
+    tenantId: ctx.tenantId,
+    traceId: ctx.traceId,
+    idempotencyKey: '88888888-8888-8888-8888-888888888888',
+    occurredAt: '2026-10-01T09:00:00.000Z',
+    payload: {
+      appointmentId: APPOINTMENT_ID,
+      ownerId: OWNER_ID,
+      totalCostCents: 27000,
+      performedAt: '2026-09-30T14:00:00.000Z',
+    },
+    ...overrides,
+  };
 }
 
 function appointmentDoneEvent(overrides: Partial<DomainEvent<unknown>> = {}): DomainEvent<unknown> {
@@ -121,7 +140,19 @@ describe('FinancialService.handle (RN-002 via broker)', () => {
     );
   });
 
-  it('usa a data do evento, não a de agora — o relatório agrupa por quando o serviço foi prestado', async () => {
+  it('a data da pendência é a de REALIZAÇÃO do atendimento, não a da finalização', async () => {
+    // Feito dia 30, fechado no sistema dia 2: tem que cair no mês 9.
+    const recordPending = vi.fn().mockResolvedValue(record());
+    const service = new FinancialService(fakeRepo({ recordPending }), vi.fn());
+    const event = appointmentDoneEvent({ occurredAt: '2026-10-02T08:00:00.000Z' });
+    (event.payload as Record<string, unknown>)['performedAt'] = '2026-09-30T14:00:00.000Z';
+
+    await service.handle('appointment.done', event);
+
+    expect(recordPending.mock.calls[0]![1].occurredAt).toBe('2026-09-30T14:00:00.000Z');
+  });
+
+  it('evento antigo sem performedAt (ainda na fila no deploy) cai na data do envelope', async () => {
     const recordPending = vi.fn().mockResolvedValue(record());
     const service = new FinancialService(fakeRepo({ recordPending }), vi.fn());
 
@@ -139,7 +170,67 @@ describe('FinancialService.handle (RN-002 via broker)', () => {
   });
 });
 
+describe('FinancialService.handle — appointment.deleted', () => {
+  it('cancela a pendência da origem, com a data de realização do atendimento', async () => {
+    const cancelBySource = vi.fn().mockResolvedValue('cancelled');
+    const service = new FinancialService(fakeRepo({ cancelBySource }), vi.fn());
+    const event = appointmentDeletedEvent();
+
+    await service.handle('appointment.deleted', event);
+
+    expect(cancelBySource).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: ctx.tenantId }),
+      {
+        ownerId: OWNER_ID,
+        sourceType: 'appointment',
+        sourceId: APPOINTMENT_ID,
+        amountCents: 27000,
+        occurredAt: '2026-09-30T14:00:00.000Z',
+      },
+      event.idempotencyKey,
+    );
+  });
+
+  it('atendimento já pago: mantém o pagamento e não falha (o job não pode ficar em retry)', async () => {
+    const service = new FinancialService(
+      fakeRepo({ cancelBySource: vi.fn().mockResolvedValue('kept-received') }),
+      vi.fn(),
+    );
+
+    await expect(service.handle('appointment.deleted', appointmentDeletedEvent())).resolves.toBeUndefined();
+  });
+
+  it('não confunde os eventos: appointment.deleted não abre pendência', async () => {
+    const recordPending = vi.fn();
+    const service = new FinancialService(fakeRepo({ recordPending }), vi.fn());
+
+    await service.handle('appointment.deleted', appointmentDeletedEvent());
+
+    expect(recordPending).not.toHaveBeenCalled();
+  });
+
+  it('rejeita payload malformado vindo do broker', async () => {
+    const service = new FinancialService(fakeRepo(), vi.fn());
+
+    await expect(
+      service.handle('appointment.deleted', appointmentDeletedEvent({ payload: { appointmentId: 'x' } })),
+    ).rejects.toThrow();
+  });
+});
+
 describe('FinancialService.registerPayment (RN-002)', () => {
+  it('pendência cancelada não pode ser paga — e a mensagem diz o porquê', async () => {
+    const service = new FinancialService(
+      fakeRepo({
+        markReceived: vi.fn().mockResolvedValue(null),
+        findById: vi.fn().mockResolvedValue(record({ status: 'cancelled' })),
+      }),
+      vi.fn(),
+    );
+
+    await expect(service.registerPayment(ctx, RECORD_ID)).rejects.toThrow(/atendimento de origem foi excluído/);
+  });
+
   it('marca como recebido e publica payment.registered', async () => {
     const publish = vi.fn().mockResolvedValue(undefined);
     const service = new FinancialService(fakeRepo(), publish);

@@ -480,6 +480,21 @@ export interface IAppointmentService {
    * `IFinancialService.registerPayment()`.
    */
   finish(ctx: RequestContext, id: UUID): Promise<Appointment>;
+  /**
+   * Soft delete (LGPD). Atendimento em rascunho só some — nunca gerou
+   * cobrança. Atendimento FINALIZADO também pode ser excluído, mas publica
+   * `appointment.deleted` e o MS6 cancela a pendência financeira dele.
+   *
+   * ATENÇÃO, João — a tela precisa de um pop-up BLOQUEANTE antes de excluir
+   * atendimento com `status: 'finished'` (decisão do Marco). O aviso deve
+   * dizer que:
+   *  - a pendência financeira do proprietário será cancelada;
+   *  - se o atendimento já foi PAGO, o registro de pagamento é mantido (não
+   *    se apaga dinheiro recebido) — dá pra saber pelo
+   *    `IFinancialService.findBySource('appointment', id)`;
+   *  - o estoque consumido NÃO volta: o produto foi de fato usado no animal.
+   * Rascunho não precisa do aviso.
+   */
   softDelete(ctx: RequestContext, id: UUID): Promise<void>;
 }
 
@@ -504,8 +519,12 @@ export interface IAppointmentService {
 // daqui; a situação de pagamento de um atendimento é lida do MS6, não do
 // MS3 (o BFF compõe, se a tela precisar dos dois juntos).
 
-/** RN-002 / RF-CAD-015: só sai de `pending` com pagamento registrado pelo usuário. */
-export type PaymentStatus = 'pending' | 'received';
+/**
+ * RN-002 / RF-CAD-015: só sai de `pending` para `received` com pagamento
+ * registrado pelo usuário. `cancelled` vem da exclusão do atendimento de
+ * origem — e só a partir de `pending`: pagamento recebido nunca é cancelado.
+ */
+export type PaymentStatus = 'pending' | 'received' | 'cancelled';
 
 /** RN-002 cobre os três: atendimento, exame e vacinação. */
 export type FinancialSourceType = 'appointment' | 'exam' | 'vaccination';
@@ -527,6 +546,7 @@ export interface FinancialRecord {
   /** Quando o serviço foi prestado (não quando a pendência foi criada). */
   occurredAt: ISODateString;
   paidAt: ISODateString | null;
+  cancelledAt: ISODateString | null;
   createdAt: ISODateString;
 }
 
@@ -554,11 +574,20 @@ export interface IFinancialService {
    * (ADR-001 §5.4).
    */
   recordPending(ctx: RequestContext, data: CreateFinancialRecordDto, idempotencyKey: UUID): Promise<void>;
+  /**
+   * Disparado por `appointment.deleted`, idempotente. Cancela a pendência da
+   * origem se ela estiver `pending`; se já foi `received`, mantém. Funciona
+   * em qualquer ordem de chegada: se a exclusão for processada antes da
+   * criação da pendência (retry do broker), deixa a origem marcada como
+   * cancelada e a pendência já nasce cancelada.
+   */
+  cancelBySource(ctx: RequestContext, data: CreateFinancialRecordDto, idempotencyKey: UUID): Promise<void>;
 }
 
 // ═══ Eventos do Message Broker (ADR-001 §5.3) ═════════════════════
 export const EVENTS = {
   APPOINTMENT_DONE: 'appointment.done',
+  APPOINTMENT_DELETED: 'appointment.deleted',
   STOCK_DEDUCTED: 'stock.deducted',
   ALERT_TRIGGERED: 'alert.triggered',
   PAYMENT_REGISTERED: 'payment.registered',
@@ -585,6 +614,10 @@ export const EVENT_SUBSCRIBERS: Record<EventName, readonly string[]> = {
   // RN-003 (baixa de estoque) + RN-002 (pendência financeira) — dois
   // consumidores para o MESMO evento; é o caso que a fila única quebrava.
   [EVENTS.APPOINTMENT_DONE]: ['inventory', 'reporting'],
+  // Não consta da tabela do §5.3 — nasceu da regra de exclusão de
+  // atendimento finalizado (ADR-002, revisão 1.2). Só o reporting assina:
+  // o estoque consumido não volta, o produto foi de fato usado no animal.
+  [EVENTS.APPOINTMENT_DELETED]: ['reporting'],
   [EVENTS.ALERT_TRIGGERED]: ['notification'],
   [EVENTS.PAYMENT_REGISTERED]: ['notification'],
   [EVENTS.SCHEDULE_REMINDER_DUE]: ['notification'],
@@ -608,6 +641,27 @@ export interface AppointmentDonePayload {
   ownerId: UUID;
   totalCostCents: Cents;
   consumedItems: Array<{ productId: UUID; quantity: number }>;
+  /**
+   * Quando o atendimento foi REALIZADO — é a data da pendência financeira
+   * (o relatório agrupa por ela). Não confundir com o `occurredAt` do
+   * envelope, que é quando ele foi finalizado no sistema: um atendimento
+   * feito dia 30 e fechado dia 2 cairia no mês errado.
+   */
+  performedAt: ISODateString;
+}
+
+/**
+ * Exclusão de atendimento FINALIZADO (rascunho não publica nada — nunca
+ * gerou cobrança). Carrega o mesmo que a pendência precisaria, pra que o MS6
+ * consiga registrar a origem como cancelada mesmo que a exclusão chegue antes
+ * do `appointment.done` (reprocessamento do broker fora de ordem).
+ */
+export interface AppointmentDeletedPayload {
+  appointmentId: UUID;
+  ownerId: UUID;
+  totalCostCents: Cents;
+  /** Quando o atendimento foi realizado — a data da pendência, não da exclusão. */
+  performedAt: ISODateString;
 }
 
 /** RN-002 — publicado pelo ms-reporting ao registrar pagamento, notifica o proprietário (ADR-001 §5.3). */

@@ -11,12 +11,16 @@ import type {
 import { withTenant } from '../prisma';
 import type { ListFinancialRecordsInput } from '../schemas/financial.schema';
 
-// P2002 é suficiente: FinancialRecord só tem UM campo @unique
-// (idempotencyKey). `err.meta.target` não é confiável pra identificar a
-// constraint em todos os drivers/engines do Prisma.
-function isUniqueIdempotencyKeyError(err: unknown): boolean {
+// FinancialRecord tem duas UNIQUEs (idempotency_key e a origem), e o
+// tratamento é o mesmo pras duas — buscar o registro da origem. Por isso não
+// importa qual disparou, o que é bom: `err.meta.target` não é confiável pra
+// identificar a constraint em todos os drivers/engines do Prisma.
+function isUniqueError(err: unknown): boolean {
   return err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002';
 }
+
+/** Desfecho do cancelamento — o service registra em log; os testes conferem. */
+export type CancelOutcome = 'cancelled' | 'kept-received' | 'already-cancelled' | 'cancelled-before-pending';
 
 /**
  * Camada de acesso a dados — Dev 1 é o dono.
@@ -111,17 +115,99 @@ export class FinancialRepository {
         return toDomain(row);
       });
     } catch (err) {
-      if (!isUniqueIdempotencyKeyError(err)) throw err;
+      if (!isUniqueError(err)) throw err;
 
+      // Duas UNIQUEs podem ter disparado, e as duas significam "essa origem
+      // já tem registro": a idempotency_key (reentrega do mesmo evento) ou a
+      // (source_type, source_id) (a exclusão chegou antes e deixou a origem
+      // marcada como cancelada). Nos dois casos o registro existente vence —
+      // inclusive o cancelado, que assim não ressuscita como pendente.
+      //
       // A busca precisa de uma transação NOVA: no Postgres, o INSERT que
       // violou a UNIQUE aborta a transação inteira, e qualquer comando
       // seguinte dentro dela falha com 25P02. Mesmo padrão do
       // MovementRepository do MS2.
-      const existing = await withTenant(ctx.tenantId, (tx) =>
-        tx.financialRecord.findUniqueOrThrow({ where: { idempotencyKey } }),
-      );
+      const existing = await this.findRowBySource(ctx, data.sourceType, data.sourceId);
+      if (!existing) throw err;
       return toDomain(existing);
     }
+  }
+
+  /**
+   * Cancela a pendência da origem quando o atendimento é excluído. Três
+   * desfechos, e nenhum depende da ordem em que os eventos chegaram:
+   *
+   *  - havia pendência `pending` → vira `cancelled`;
+   *  - havia registro `received` → fica como está (dinheiro recebido não se
+   *    apaga) e o desfecho avisa quem chamou; já `cancelled` → nada a fazer;
+   *  - não havia registro nenhum → a exclusão chegou ANTES do
+   *    `appointment.done` (retry do broker). Grava a origem já cancelada;
+   *    quando a pendência tentar nascer, esbarra na UNIQUE da origem.
+   */
+  async cancelBySource(
+    ctx: RequestContext,
+    data: CreateFinancialRecordDto,
+    idempotencyKey: UUID,
+  ): Promise<CancelOutcome> {
+    const first = await this.cancelExisting(ctx, data);
+    if (first) return first;
+
+    try {
+      await withTenant(ctx.tenantId, (tx) =>
+        tx.financialRecord.create({
+          data: {
+            tenantId: ctx.tenantId,
+            ownerId: data.ownerId,
+            sourceType: data.sourceType,
+            sourceId: data.sourceId,
+            amountCents: data.amountCents,
+            occurredAt: new Date(data.occurredAt),
+            status: 'cancelled',
+            cancelledAt: new Date(),
+            idempotencyKey,
+          },
+        }),
+      );
+      return 'cancelled-before-pending';
+    } catch (err) {
+      if (!isUniqueError(err)) throw err;
+
+      // Corrida: a pendência nasceu entre a checagem e o INSERT (ou é
+      // reentrega desta mesma exclusão). Agora o registro existe — basta
+      // repetir a checagem, numa transação nova (o INSERT abortou a anterior).
+      const retry = await this.cancelExisting(ctx, data);
+      if (retry) return retry;
+      throw err;
+    }
+  }
+
+  private async cancelExisting(
+    ctx: RequestContext,
+    data: CreateFinancialRecordDto,
+  ): Promise<CancelOutcome | null> {
+    return withTenant(ctx.tenantId, async (tx) => {
+      const { count } = await tx.financialRecord.updateMany({
+        where: { sourceType: data.sourceType, sourceId: data.sourceId, status: 'pending' },
+        data: { status: 'cancelled', cancelledAt: new Date() },
+      });
+      if (count > 0) return 'cancelled';
+
+      const existing = await tx.financialRecord.findUnique({
+        where: { sourceType_sourceId: { sourceType: data.sourceType, sourceId: data.sourceId } },
+      });
+      if (!existing) return null;
+      return existing.status === 'received' ? 'kept-received' : 'already-cancelled';
+    });
+  }
+
+  private async findRowBySource(
+    ctx: RequestContext,
+    sourceType: FinancialSourceType,
+    sourceId: UUID,
+  ): Promise<PrismaFinancialRecord | null> {
+    return withTenant(ctx.tenantId, (tx) =>
+      tx.financialRecord.findUnique({ where: { sourceType_sourceId: { sourceType, sourceId } } }),
+    );
   }
 
   /**
@@ -154,6 +240,7 @@ function toDomain(row: PrismaFinancialRecord): FinancialRecord {
     status: row.status,
     occurredAt: row.occurredAt.toISOString(),
     paidAt: row.paidAt ? row.paidAt.toISOString() : null,
+    cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
   };
 }

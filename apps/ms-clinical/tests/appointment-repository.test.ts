@@ -315,3 +315,58 @@ describe('AppointmentRepository — RLS e histórico', () => {
     expect(aindaNoBanco!.deletedAt).not.toBeNull();
   });
 });
+
+describe('Exclusão de atendimento finalizado — cancela a pendência', () => {
+  it('rascunho excluído não deixa evento nenhum no outbox', async () => {
+    const criado = await service.create(ctxA, novoInput());
+
+    await service.softDelete(ctxA, criado.id);
+
+    const eventos = await withTenant(TENANT_A, (tx) => tx.outboxEvent.findMany({}));
+    expect(eventos).toHaveLength(0);
+  });
+
+  it('finalizado excluído grava appointment.deleted no outbox, na mesma transação', async () => {
+    const criado = await service.create(ctxA, novoInput());
+    await service.finish(ctxA, criado.id);
+
+    await service.softDelete(ctxA, criado.id);
+
+    const eventos = await withTenant(TENANT_A, (tx) =>
+      tx.outboxEvent.findMany({ orderBy: { createdAt: 'asc' } }),
+    );
+    expect(eventos.map((e) => e.eventName)).toEqual(['appointment.done', 'appointment.deleted']);
+
+    const envelope = eventos[1]!.payload as unknown as {
+      payload: { appointmentId: string; totalCostCents: number; performedAt: string };
+    };
+    expect(envelope.payload.appointmentId).toBe(criado.id);
+    expect(envelope.payload.totalCostCents).toBe(27000);
+    expect(envelope.payload.performedAt).toBe(criado.performedAt);
+  });
+
+  it('excluir duas vezes falha e não grava segundo evento', async () => {
+    const criado = await service.create(ctxA, novoInput());
+    await service.finish(ctxA, criado.id);
+    await service.softDelete(ctxA, criado.id);
+
+    await expect(service.softDelete(ctxA, criado.id)).rejects.toThrow(/não encontrado/);
+
+    const exclusoes = await withTenant(TENANT_A, (tx) =>
+      tx.outboxEvent.count({ where: { eventName: 'appointment.deleted' } }),
+    );
+    expect(exclusoes).toBe(1);
+  });
+
+  it('status mudou entre a leitura e a exclusão: falha em vez de excluir sem avisar o MS6', async () => {
+    // Simula a corrida: o service leu 'draft', mas outra requisição finalizou
+    // antes da exclusão. Sem o UPDATE condicionado, o atendimento sumiria SEM
+    // appointment.deleted e a pendência do finish ficaria órfã.
+    const criado = await service.create(ctxA, novoInput());
+    await service.finish(ctxA, criado.id);
+
+    await expect(repo.softDelete(ctxA, criado.id, 'draft', null)).rejects.toThrow(/mudou de estado/);
+
+    expect(await service.findById(ctxA, criado.id)).not.toBeNull();
+  });
+});

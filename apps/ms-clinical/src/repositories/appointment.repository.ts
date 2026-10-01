@@ -242,10 +242,33 @@ export class AppointmentRepository {
     });
   }
 
-  async softDelete(ctx: RequestContext, id: UUID): Promise<void> {
-    await withTenant(ctx.tenantId, (tx) =>
-      tx.appointment.update({ where: { id }, data: { deletedAt: new Date() } }),
-    );
+  /**
+   * Exclusão e evento na mesma transação (outbox, ADR-002): ou o atendimento
+   * some E a pendência é cancelada, ou nada acontece.
+   *
+   * O UPDATE é condicionado ao status que o service viu. Sem isso, um
+   * rascunho finalizado por outra requisição entre a leitura e a exclusão
+   * seria apagado SEM publicar o evento — e a pendência do finish ficaria
+   * órfã, exatamente o que esta regra existe pra impedir.
+   */
+  async softDelete(
+    ctx: RequestContext,
+    id: UUID,
+    expectedStatus: Appointment['status'],
+    event: DomainEvent<unknown> | null,
+  ): Promise<void> {
+    await withTenant(ctx.tenantId, async (tx) => {
+      const { count } = await tx.appointment.updateMany({
+        where: { id, status: expectedStatus, deletedAt: null },
+        data: { deletedAt: new Date() },
+      });
+
+      if (count === 0) {
+        throw AppError.conflict('Atendimento mudou de estado ou já foi excluído — tente de novo');
+      }
+
+      if (event) await enqueueOutboxEvent(tx, ctx.tenantId, event);
+    });
   }
 }
 

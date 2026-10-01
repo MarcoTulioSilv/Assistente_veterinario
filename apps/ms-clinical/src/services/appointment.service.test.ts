@@ -8,6 +8,7 @@ import {
   deriveEventIdempotencyKey,
   toConsumedItems,
   buildAppointmentDoneEvent,
+  buildAppointmentDeletedEvent,
 } from './appointment.service';
 
 const ctx: RequestContext = {
@@ -279,13 +280,58 @@ describe('AppointmentService.softDelete', () => {
     await expect(service.softDelete(ctx, APPOINTMENT_ID)).rejects.toThrow(/não encontrado/);
   });
 
-  it('remove (soft delete) quando existe', async () => {
+  it('rascunho some sem publicar nada — nunca gerou cobrança', async () => {
     const softDelete = vi.fn().mockResolvedValue(undefined);
     const service = new AppointmentService(fakeRepo({ softDelete }));
 
     await service.softDelete(ctx, APPOINTMENT_ID);
 
-    expect(softDelete).toHaveBeenCalledWith(ctx, APPOINTMENT_ID);
+    expect(softDelete).toHaveBeenCalledWith(ctx, APPOINTMENT_ID, 'draft', null);
+  });
+
+  it('finalizado publica appointment.deleted pro MS6 cancelar a pendência', async () => {
+    const softDelete = vi.fn().mockResolvedValue(undefined);
+    const service = new AppointmentService(
+      fakeRepo({
+        findById: vi.fn().mockResolvedValue(
+          appointment({ status: 'finished', totalCents: 27000, performedAt: '2026-09-30T14:00:00.000Z' }),
+        ),
+        softDelete,
+      }),
+    );
+
+    await service.softDelete(ctx, APPOINTMENT_ID);
+
+    const [, , expectedStatus, event] = softDelete.mock.calls[0]!;
+    expect(expectedStatus).toBe('finished');
+    expect(event.name).toBe('appointment.deleted');
+    expect(event.payload).toEqual({
+      appointmentId: APPOINTMENT_ID,
+      ownerId: '55555555-5555-5555-5555-555555555555',
+      totalCostCents: 27000,
+      performedAt: '2026-09-30T14:00:00.000Z',
+    });
+  });
+});
+
+describe('buildAppointmentDeletedEvent', () => {
+  it('chave derivada do atendimento e diferente da do appointment.done', () => {
+    const event = buildAppointmentDeletedEvent(ctx, appointment({ status: 'finished' }));
+
+    expect(event.idempotencyKey).toBe(deriveEventIdempotencyKey('appointment.deleted', APPOINTMENT_ID));
+    expect(event.idempotencyKey).not.toBe(deriveEventIdempotencyKey('appointment.done', APPOINTMENT_ID));
+  });
+});
+
+describe('buildAppointmentDoneEvent — data da pendência', () => {
+  it('leva a data em que o atendimento foi REALIZADO, não a da finalização', () => {
+    const event = buildAppointmentDoneEvent(
+      ctx,
+      appointment({ performedAt: '2026-09-30T14:00:00.000Z' }),
+      1000,
+    );
+
+    expect(event.payload.performedAt).toBe('2026-09-30T14:00:00.000Z');
   });
 });
 

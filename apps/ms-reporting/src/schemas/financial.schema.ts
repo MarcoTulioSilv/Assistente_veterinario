@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const listFinancialRecordsSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
-  status: z.enum(['pending', 'received']).optional(),
+  status: z.enum(['pending', 'received', 'cancelled']).optional(),
 });
 
 /**
@@ -19,6 +19,16 @@ export const appointmentDonePayloadSchema = z.object({
   consumedItems: z.array(
     z.object({ productId: z.string().uuid(), quantity: z.number().positive() }),
   ),
+  // Opcional só pra eventos publicados antes de o campo existir e que ainda
+  // estejam na fila no momento do deploy — o handler cai no occurredAt.
+  performedAt: z.string().datetime().optional(),
+});
+
+export const appointmentDeletedPayloadSchema = z.object({
+  appointmentId: z.string().uuid(),
+  ownerId: z.string().uuid(),
+  totalCostCents: z.number().int().min(0),
+  performedAt: z.string().datetime(),
 });
 
 export type ListFinancialRecordsInput = z.infer<typeof listFinancialRecordsSchema>;
