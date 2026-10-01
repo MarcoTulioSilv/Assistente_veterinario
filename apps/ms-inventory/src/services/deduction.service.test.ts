@@ -172,3 +172,41 @@ describe('deriveItemIdempotencyKey', () => {
     expect(derived).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   });
 });
+
+describe('DeductionService.handle — exam.collected (RF-EXM-006)', () => {
+  const EXAM_ID = '55555555-5555-5555-5555-555555555555';
+
+  function examCollectedEvent(consumedItems: Array<{ productId: string; quantity: number }>): DomainEvent<unknown> {
+    return {
+      name: 'exam.collected',
+      tenantId: TENANT_ID,
+      traceId: 'test-trace',
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      payload: { examRequestId: EXAM_ID, consumedItems },
+    };
+  }
+
+  it('baixa os insumos da coleta com referência e motivo de exame', async () => {
+    const deduct = vi.fn().mockResolvedValue(undefined);
+    const service = new DeductionService(fakeStock({ deduct }));
+    const event = examCollectedEvent([{ productId: PRODUCT_A, quantity: 2 }]);
+
+    await service.handle('exam.collected', event);
+
+    expect(deduct).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT_ID }),
+      PRODUCT_A,
+      2,
+      deriveItemIdempotencyKey(event.idempotencyKey, 0),
+      { referenceId: EXAM_ID, referenceType: 'exam' },
+    );
+  });
+
+  it('rejeita payload de exame malformado', async () => {
+    const service = new DeductionService(fakeStock());
+    const event = { ...examCollectedEvent([]), payload: { consumedItems: [] } };
+
+    await expect(service.handle('exam.collected', event)).rejects.toThrow();
+  });
+});

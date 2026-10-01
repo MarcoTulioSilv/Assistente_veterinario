@@ -31,5 +31,20 @@ export const appointmentDeletedPayloadSchema = z.object({
   performedAt: z.string().datetime(),
 });
 
+/**
+ * `exam.charged` e `exam.deleted` têm a mesma forma: o pedido, o
+ * proprietário, o valor congelado e a data da pendência (coleta, ou envio
+ * ao laboratório se outra pessoa coletou).
+ */
+const examChargePayloadSchema = z.object({
+  examRequestId: z.string().uuid(),
+  ownerId: z.string().uuid(),
+  totalCostCents: z.number().int().min(0),
+  performedAt: z.string().datetime(),
+});
+
+export const examChargedPayloadSchema = examChargePayloadSchema;
+export const examDeletedPayloadSchema = examChargePayloadSchema;
+
 export type ListFinancialRecordsInput = z.infer<typeof listFinancialRecordsSchema>;
 export type AppointmentDonePayloadInput = z.infer<typeof appointmentDonePayloadSchema>;
