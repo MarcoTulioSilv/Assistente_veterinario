@@ -7,6 +7,7 @@ import type {
   Paginated,
   Appointment,
   AppointmentDonePayload,
+  AppointmentDeletedPayload,
   DomainEvent,
 } from '@quironequine/shared-types';
 import { AppError } from '@quironequine/shared-middlewares';
@@ -92,6 +93,28 @@ export function buildAppointmentDoneEvent(
       ownerId: appointment.ownerId,
       totalCostCents: totalCents,
       consumedItems: toConsumedItems(appointment),
+      performedAt: appointment.performedAt,
+    },
+  };
+}
+
+export function buildAppointmentDeletedEvent(
+  ctx: RequestContext,
+  appointment: Appointment,
+): DomainEvent<AppointmentDeletedPayload> {
+  return {
+    name: EVENTS.APPOINTMENT_DELETED,
+    tenantId: ctx.tenantId,
+    traceId: ctx.traceId,
+    // Um atendimento só é excluído uma vez (o filtro de deletedAt impede a
+    // segunda), então a chave derivada do id é estável e única.
+    idempotencyKey: deriveEventIdempotencyKey(EVENTS.APPOINTMENT_DELETED, appointment.id),
+    occurredAt: new Date().toISOString(),
+    payload: {
+      appointmentId: appointment.id,
+      ownerId: appointment.ownerId,
+      totalCostCents: appointment.totalCents,
+      performedAt: appointment.performedAt,
     },
   };
 }
@@ -177,10 +200,19 @@ export class AppointmentService implements IAppointmentService {
     return this.repo.finish(ctx, id, totalCents, event);
   }
 
+  /**
+   * Atendimento finalizado já virou pendência no MS6 — excluí-lo sem avisar
+   * deixaria o proprietário cobrado por algo que sumiu do histórico. Por isso
+   * só o finalizado publica `appointment.deleted`; rascunho nunca gerou
+   * cobrança e some em silêncio. O estoque não é devolvido de propósito: o
+   * produto foi de fato usado no animal.
+   */
   async softDelete(ctx: RequestContext, id: UUID): Promise<void> {
     const existing = await this.repo.findById(ctx, id);
     if (!existing) throw AppError.notFound('Atendimento não encontrado');
-    await this.repo.softDelete(ctx, id);
+
+    const event = existing.status === 'finished' ? buildAppointmentDeletedEvent(ctx, existing) : null;
+    await this.repo.softDelete(ctx, id, existing.status, event);
   }
 
   /** ADR-001 §5.4: "status check antes de processar evento". */

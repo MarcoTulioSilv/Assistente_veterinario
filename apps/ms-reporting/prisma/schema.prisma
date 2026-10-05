@@ -25,10 +25,12 @@ datasource db {
   url      = env("DATABASE_URL_REPORTING")
 }
 
-/// RN-002 / RF-CAD-015
+/// RN-002 / RF-CAD-015. `cancelled` só a partir de `pending`, quando o
+/// atendimento de origem é excluído — pagamento recebido nunca é cancelado.
 enum PaymentStatus {
   pending
   received
+  cancelled
 }
 
 /// RN-002 cobre os três: atendimento, exame e vacinação.
@@ -57,8 +59,9 @@ model FinancialRecord {
   /// Quando o serviço foi prestado (vem do evento), não quando a
   /// pendência foi criada — é por esta data que o relatório financeiro
   /// agrupa, e reprocessar o evento não pode mudá-la.
-  occurredAt DateTime  @map("occurred_at") @db.Timestamptz
-  paidAt     DateTime? @map("paid_at") @db.Timestamptz
+  occurredAt  DateTime  @map("occurred_at") @db.Timestamptz
+  paidAt      DateTime? @map("paid_at") @db.Timestamptz
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz
 
   /// ADR-001 §5.4: a pendência nasce de evento do broker, então
   /// redelivery não pode duplicar cobrança. Mesmo mecanismo do
@@ -73,6 +76,11 @@ model FinancialRecord {
   @@index([ownerId])
   @@index([status])
   @@index([occurredAt])
-  @@index([sourceType, sourceId])
+  /// Uma origem (atendimento/exame/vacinação) tem no máximo UM registro.
+  /// Além de impedir cobrança duplicada, é o que deixa a exclusão funcionar
+  /// fora de ordem: se `appointment.deleted` chegar antes do
+  /// `appointment.done` (retry do broker), a exclusão grava a origem como
+  /// `cancelled`, e o INSERT da pendência esbarra aqui em vez de nascer órfão.
+  @@unique([sourceType, sourceId])
   @@map("financial_records")
 }
