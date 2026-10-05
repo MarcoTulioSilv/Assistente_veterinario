@@ -1,9 +1,16 @@
 import { z } from 'zod';
 
+/**
+ * `ownerId` opcional: presente, o controller roteia pra
+ * `IFinancialService.listByOwner()` (RF-ATD-008, aba do proprietário);
+ * ausente, pro `list()` normal — mesmo padrão do `animalId` em
+ * ms-clinical/appointment.schema.ts.
+ */
 export const listFinancialRecordsSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
   status: z.enum(['pending', 'received', 'cancelled']).optional(),
+  ownerId: z.string().uuid().optional(),
 });
 
 /**
@@ -46,5 +53,12 @@ const examChargePayloadSchema = z.object({
 export const examChargedPayloadSchema = examChargePayloadSchema;
 export const examDeletedPayloadSchema = examChargePayloadSchema;
 
+/** Path params de GET /financial/by-source/:sourceType/:sourceId. */
+export const findBySourceParamsSchema = z.object({
+  sourceType: z.enum(['appointment', 'exam', 'vaccination']),
+  sourceId: z.string().uuid(),
+});
+
 export type ListFinancialRecordsInput = z.infer<typeof listFinancialRecordsSchema>;
 export type AppointmentDonePayloadInput = z.infer<typeof appointmentDonePayloadSchema>;
+export type FindBySourceParamsInput = z.infer<typeof findBySourceParamsSchema>;

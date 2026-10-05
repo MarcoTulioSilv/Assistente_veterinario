@@ -6,6 +6,7 @@ import {
   notFoundHandler,
 } from '@quironequine/shared-middlewares';
 import { healthRouter } from './controllers/health.controller';
+import { financialRouter } from './controllers/financial.controller';
 
 export function createApp(): Express {
   const app = express();
@@ -17,9 +18,8 @@ export function createApp(): Express {
   app.use('/health', healthRouter);
 
   // Rotas protegidas — exigem JWT válido.
-  // As rotas de pendência financeira entram aqui (Dev 2): o
-  // FinancialService e o FinancialRepository já estão prontos.
   app.use(authMiddleware);
+  app.use('/financial', financialRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
