@@ -19,6 +19,9 @@ import type {
   CreateProductDto,
   UpdateProductDto,
   CreateMovementDto,
+  Appointment,
+  FinancialRecord,
+  FinancialSourceType,
 } from '@quironequine/shared-types';
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
@@ -177,6 +180,24 @@ export const api = {
       const formData = new FormData();
       formData.append('file', file);
       return request<{ url: string }>('/uploads', { method: 'POST', body: formData });
+    },
+  },
+  appointments: {
+    list: (params?: { page?: number; limit?: number; animalId?: string }) =>
+      request<Paginated<Appointment>>(`/appointments?${buildQuery(params)}`),
+    get: (id: string) => request<Appointment>(`/appointments/${id}`),
+    remove: (id: string) => request<void>(`/appointments/${id}`, { method: 'DELETE' }),
+  },
+  financial: {
+    // 404 (sem pendência pra essa origem) é um estado válido, não um erro —
+    // vira null em vez de propagar o ApiClientError.
+    findBySource: async (sourceType: FinancialSourceType, sourceId: string) => {
+      try {
+        return await request<FinancialRecord>(`/financial/by-source/${sourceType}/${sourceId}`);
+      } catch (err) {
+        if (err instanceof ApiClientError && err.status === 404) return null;
+        throw err;
+      }
     },
   },
 };
