@@ -5,7 +5,7 @@ import { disconnectPrisma } from './prisma';
 import { FinancialRepository } from './repositories/financial.repository';
 import { FinancialService } from './services/financial.service';
 import { publishDomainEvent, closeEventsQueue } from './events/publisher';
-import { startAppointmentDoneWorker } from './events/appointment-done-consumer';
+import { startDomainEventsWorker } from './events/domain-events-consumer';
 
 const log = createServiceLogger('ms-reporting');
 const PORT = Number(process.env['PORT_MS_REPORTING'] ?? 3006);
@@ -15,14 +15,14 @@ const server = createApp().listen(PORT, () => {
 });
 
 const financialService = new FinancialService(new FinancialRepository(), publishDomainEvent);
-const appointmentWorker = startAppointmentDoneWorker((job) =>
+const domainEventsWorker = startDomainEventsWorker((job) =>
   financialService.handle(job.name, job.data as DomainEvent<unknown>),
 );
 
 async function shutdown(signal: string): Promise<void> {
   log.info({ signal }, 'Encerrando graciosamente...');
   server.close(async () => {
-    await appointmentWorker.close();
+    await domainEventsWorker.close();
     await closeEventsQueue();
     await disconnectPrisma();
     process.exit(0);

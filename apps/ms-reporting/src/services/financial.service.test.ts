@@ -228,7 +228,7 @@ describe('FinancialService.registerPayment (RN-002)', () => {
       vi.fn(),
     );
 
-    await expect(service.registerPayment(ctx, RECORD_ID)).rejects.toThrow(/atendimento de origem foi excluído/);
+    await expect(service.registerPayment(ctx, RECORD_ID)).rejects.toThrow(/de origem foi excluído/);
   });
 
   it('marca como recebido e publica payment.registered', async () => {
@@ -301,5 +301,64 @@ describe('FinancialService — delegações', () => {
     );
 
     expect(recordPending).toHaveBeenCalledWith(ctx, expect.objectContaining({ sourceType: 'exam' }), '66666666-6666-6666-6666-666666666666');
+  });
+});
+
+describe('FinancialService.handle — exame', () => {
+  const EXAM_ID = '99999999-9999-9999-9999-999999999999';
+
+  function examEvent(name: 'exam.charged' | 'exam.deleted'): DomainEvent<unknown> {
+    return {
+      name,
+      tenantId: ctx.tenantId,
+      traceId: ctx.traceId,
+      idempotencyKey: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      occurredAt: '2026-10-02T09:00:00.000Z',
+      payload: {
+        examRequestId: EXAM_ID,
+        ownerId: OWNER_ID,
+        totalCostCents: 44000,
+        performedAt: '2026-10-01T10:00:00.000Z',
+      },
+    };
+  }
+
+  const expected = {
+    ownerId: OWNER_ID,
+    sourceType: 'exam',
+    sourceId: EXAM_ID,
+    amountCents: 44000,
+    occurredAt: '2026-10-01T10:00:00.000Z',
+  };
+
+  it('exam.charged abre a pendência do exame com a data da coleta', async () => {
+    const repo = fakeRepo();
+    await new FinancialService(repo, vi.fn()).handle('exam.charged', examEvent('exam.charged'));
+
+    expect(repo.recordPending).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: ctx.tenantId }),
+      expected,
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    );
+    expect(repo.cancelBySource).not.toHaveBeenCalled();
+  });
+
+  it('exam.deleted cancela a pendência do exame', async () => {
+    const repo = fakeRepo();
+    await new FinancialService(repo, vi.fn()).handle('exam.deleted', examEvent('exam.deleted'));
+
+    expect(repo.cancelBySource).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: ctx.tenantId }),
+      expected,
+      'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    );
+    expect(repo.recordPending).not.toHaveBeenCalled();
+  });
+
+  it('rejeita payload de exame malformado', async () => {
+    const service = new FinancialService(fakeRepo(), vi.fn());
+    const event = { ...examEvent('exam.charged'), payload: { examRequestId: EXAM_ID } };
+
+    await expect(service.handle('exam.charged', event)).rejects.toThrow();
   });
 });

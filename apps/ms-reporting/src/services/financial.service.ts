@@ -16,6 +16,8 @@ import type { FinancialRepository } from '../repositories/financial.repository';
 import {
   appointmentDonePayloadSchema,
   appointmentDeletedPayloadSchema,
+  examChargedPayloadSchema,
+  examDeletedPayloadSchema,
   type ListFinancialRecordsInput,
 } from '../schemas/financial.schema';
 
@@ -112,7 +114,7 @@ export class FinancialService implements IFinancialService {
       const existing = await this.repo.findById(ctx, id);
       if (!existing) throw AppError.notFound('Registro financeiro não encontrado');
       if (existing.status === 'cancelled') {
-        throw AppError.conflict('Pendência cancelada — o atendimento de origem foi excluído');
+        throw AppError.conflict('Pendência cancelada — o atendimento ou exame de origem foi excluído');
       }
       throw AppError.conflict('Pagamento já registrado');
     }
@@ -138,7 +140,7 @@ export class FinancialService implements IFinancialService {
     await this.repo.recordPending(ctx, data, idempotencyKey);
   }
 
-  /** Disparado por `appointment.deleted`, idempotente e independente de ordem. */
+  /** Disparado por `appointment.deleted`/`exam.deleted`, idempotente e independente de ordem. */
   async cancelBySource(
     ctx: RequestContext,
     data: CreateFinancialRecordDto,
@@ -151,7 +153,7 @@ export class FinancialService implements IFinancialService {
       // alguém do financeiro vai querer achar depois (possível estorno).
       log.warn(
         { sourceType: data.sourceType, sourceId: data.sourceId },
-        'Atendimento excluído já estava PAGO — registro de pagamento mantido',
+        'Origem excluída já estava PAGA — registro de pagamento mantido',
       );
       return;
     }
@@ -172,6 +174,8 @@ export class FinancialService implements IFinancialService {
   async handle(jobName: string, event: DomainEvent<unknown>): Promise<void> {
     if (jobName === EVENTS.APPOINTMENT_DONE) return this.onAppointmentDone(event);
     if (jobName === EVENTS.APPOINTMENT_DELETED) return this.onAppointmentDeleted(event);
+    if (jobName === EVENTS.EXAM_CHARGED) return this.onExamCharged(event);
+    if (jobName === EVENTS.EXAM_DELETED) return this.onExamDeleted(event);
   }
 
   /** RN-002: abre a pendência financeira (ADR-001 §5.3). */
@@ -208,6 +212,51 @@ export class FinancialService implements IFinancialService {
         ownerId: payload.ownerId,
         sourceType: 'appointment',
         sourceId: payload.appointmentId,
+        amountCents: payload.totalCostCents,
+        occurredAt: payload.performedAt,
+      },
+      event.idempotencyKey,
+    );
+  }
+
+  /**
+   * RN-002 para exame. O MS3 só publica quando a cobrança fecha com valor —
+   * cliente que pagou o laboratório direto e não teve coleta do vet não gera
+   * evento nenhum.
+   */
+  private async onExamCharged(event: DomainEvent<unknown>): Promise<void> {
+    const payload = examChargedPayloadSchema.parse(event.payload);
+    const ctx = systemCtx(event.tenantId, event.traceId);
+
+    await this.recordPending(
+      ctx,
+      {
+        ownerId: payload.ownerId,
+        sourceType: 'exam',
+        sourceId: payload.examRequestId,
+        amountCents: payload.totalCostCents,
+        occurredAt: payload.performedAt,
+      },
+      event.idempotencyKey,
+    );
+
+    log.info(
+      { examRequestId: payload.examRequestId, amountCents: payload.totalCostCents },
+      'Pendência financeira aberta a partir do exame',
+    );
+  }
+
+  /** Pedido de exame com cobrança excluído → cancela a pendência dele. */
+  private async onExamDeleted(event: DomainEvent<unknown>): Promise<void> {
+    const payload = examDeletedPayloadSchema.parse(event.payload);
+    const ctx = systemCtx(event.tenantId, event.traceId);
+
+    await this.cancelBySource(
+      ctx,
+      {
+        ownerId: payload.ownerId,
+        sourceType: 'exam',
+        sourceId: payload.examRequestId,
         amountCents: payload.totalCostCents,
         occurredAt: payload.performedAt,
       },
