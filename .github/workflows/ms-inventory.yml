@@ -119,8 +119,12 @@ jobs:
       # se `apps/pwa`'s CI (pwa.yml) está passando de verdade.
       # Fora do escopo desta PR (backend/DeductionService) mexer no
       # app do PWA sem revisão -- ver comentário no PR #16.
+      # Usa audit-ci (nao `npm audit` cru): o braces (GHSA-vfj7-8cjw-p6xm)
+      # nao tem fix upstream em nenhuma versao publicada -- ver .audit-ci.json
+      # na raiz pro porque do allowlist. audit-ci falha em QUALQUER outra
+      # vulnerabilidade high/critical nao listada la.
       - name: Audit de dependências de produção
-        run: npm audit --omit=dev --audit-level=high
+        run: npx audit-ci --config .audit-ci.json
 
       # INFORMATIVO: ferramentas de build (nao bloqueia)
       - name: Audit completo
