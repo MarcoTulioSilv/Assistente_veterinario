@@ -1,4 +1,4 @@
-import type { IStockService, RequestContext, UUID, Paginated, Product } from '@quironequine/shared-types';
+import type { IStockService, RequestContext, UUID, Paginated, Product, StockConsumptionSource } from '@quironequine/shared-types';
 import { AppError } from '@quironequine/shared-middlewares';
 import type { ProductRepository } from '../repositories/product.repository';
 import type { MovementRepository, StockMovementRecord } from '../repositories/movement.repository';
@@ -40,13 +40,17 @@ export class StockService implements IStockService {
     await this.products.softDelete(ctx, id);
   }
 
-  /** RN-003: baixa idempotente disparada por evento do broker (appointment.done) */
+  /**
+   * RN-003: baixa idempotente disparada por evento do broker
+   * (appointment.done, exam.collected). O motivo do movimento sai do tipo da
+   * origem — sem referência, é atendimento (contrato antigo).
+   */
   async deduct(
     ctx: RequestContext,
     productId: UUID,
     qty: number,
     idempotencyKey: UUID,
-    reference?: { referenceId: UUID; referenceType: string },
+    reference?: { referenceId: UUID; referenceType: StockConsumptionSource },
   ): Promise<void> {
     const existing = await this.products.findById(ctx, productId);
     if (!existing) throw AppError.notFound('Produto não encontrado');
@@ -54,7 +58,7 @@ export class StockService implements IStockService {
     await this.movements.record(ctx, productId, {
       type: 'out',
       quantity: qty,
-      reason: 'appointment',
+      reason: reference?.referenceType ?? 'appointment',
       idempotencyKey,
       referenceId: reference?.referenceId ?? null,
       referenceType: reference?.referenceType ?? null,

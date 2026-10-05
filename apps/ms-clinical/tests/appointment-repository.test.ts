@@ -13,7 +13,8 @@ import { randomUUID } from 'node:crypto';
 import type { RequestContext } from '@quironequine/shared-types';
 import { prisma, withTenant } from '../src/prisma';
 import { AppointmentRepository } from '../src/repositories/appointment.repository';
-import { AppointmentService, deriveEventIdempotencyKey } from '../src/services/appointment.service';
+import { AppointmentService } from '../src/services/appointment.service';
+import { deriveEventIdempotencyKey } from '../src/services/billing';
 import type { CreateAppointmentInput } from '../src/schemas/appointment.schema';
 
 const TENANT_A = '99999999-9999-9999-9999-999999999999';

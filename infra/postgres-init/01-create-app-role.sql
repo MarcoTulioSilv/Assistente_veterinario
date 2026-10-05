@@ -95,6 +95,16 @@ BEGIN
 END
 $$;
 
+-- ─── 4d. Lembrete de resultado de exame (SECURITY DEFINER) ────────
+-- Sprint 6 (padrao da ADR-006). So existe no banco do clinical.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'clinical_list_exams_result_due') THEN
+    GRANT EXECUTE ON FUNCTION clinical_list_exams_result_due(TIMESTAMPTZ, TIMESTAMPTZ) TO quironequine_app;
+  END IF;
+END
+$$;
+
 -- ─── 5. Confirmacao ───────────────────────────────────────────────
 -- As duas colunas devem ser 'f' na linha do quironequine_app.
 -- Se 'ignora_rls' for 't', as policies seriam decorativas.

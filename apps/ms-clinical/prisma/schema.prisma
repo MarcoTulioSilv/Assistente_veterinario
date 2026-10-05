@@ -166,6 +166,159 @@ model AppointmentItem {
   @@map("appointment_items")
 }
 
+// ═══ Exames (RF-EXM-001 a 006, Sprint 6) ══════════════════════════
+// Status e laudo são do PEDIDO inteiro (decisão do Marco, 01/10/2026),
+// por isso não existe status por animal.
+
+/// RF-EXM-004, com a coleta opcional: draft → requested → [collected] →
+/// in_analysis → result_available. Só avança por ação real.
+enum ExamStatus {
+  draft
+  requested
+  collected
+  in_analysis
+  result_available
+}
+
+/// Catálogo da clínica. Começa VAZIO: nada é imposto, uma clínica pode
+/// prestar um serviço só. As sugestões (Mormo, AIE) vivem em shared-types e
+/// só entram aqui quando o veterinário escolhe uma.
+model ExamType {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  name String @db.VarChar(255)
+
+  /// Preço do procedimento POR ANIMAL, sugerido no pedido (RF-EXM-006).
+  defaultPriceCents Int @default(0) @map("default_price_cents")
+
+  /// O "tempo previamente cadastrado" do RF-EXM-004. Nulo = sem data
+  /// prevista e sem lembrete.
+  expectedTurnaroundDays Int? @map("expected_turnaround_days")
+
+  /// RF-EXM-002: descritores dos campos do protocolo
+  /// ({key, label, type, required, options?}). Validados no service.
+  protocolFields Json @default("[]") @map("protocol_fields") @db.JsonB
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  requests ExamRequest[]
+
+  @@index([tenantId])
+  @@map("exam_types")
+}
+
+/// RF-EXM-001: o pedido de exame.
+model ExamRequest {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  // ─── Referências ao MS1 (sem FK — ver cabeçalho) ───────────────
+  ownerId        String @map("owner_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  veterinarianId String @map("veterinarian_id") @db.Uuid
+
+  /// FK local: o catálogo mora no mesmo banco. Restrict — tipo só sai por
+  /// soft delete, nunca fisicamente.
+  examTypeId String @map("exam_type_id") @db.Uuid
+
+  /// Cópias do tipo no momento do pedido. O veterinário pode renomear o tipo
+  /// ou mudar os campos do protocolo depois; o pedido (e o laudo, que tem
+  /// valor legal) precisa continuar se explicando sozinho.
+  examTypeName   String @map("exam_type_name") @db.VarChar(255)
+  protocolFields Json   @default("[]") @map("protocol_fields") @db.JsonB
+  protocolData   Json   @default("{}") @map("protocol_data") @db.JsonB
+
+  /// Só preenchidos se o VETERINÁRIO colheu — a coleta é opcional (outra
+  /// pessoa pode colher a amostra).
+  material    String?   @db.VarChar(255)
+  collectedAt DateTime? @map("collected_at") @db.Timestamptz
+
+  /// O "ou lote" do RF-EXM-001: grupo de animais sem identificação
+  /// individual. O pedido pode ter animais, lote, ou os dois.
+  lotDescription String? @map("lot_description") @db.VarChar(255)
+  lotSize        Int?    @map("lot_size")
+
+  status ExamStatus @default(draft)
+
+  /// collectedAt + prazo do tipo. Base do lembrete D-1/no dia.
+  expectedResultAt DateTime? @map("expected_result_at") @db.Timestamptz
+
+  /// RF-EXM-005 — só a URL; o arquivo sobe pelo endpoint de upload.
+  resultFileUrl    String?   @map("result_file_url") @db.Text
+  resultUploadedAt DateTime? @map("result_uploaded_at") @db.Timestamptz
+
+  // ─── RF-EXM-006: custo ─────────────────────────────────────────
+  // Centavos, INTEGER (ADR-001 §5.6). O que entra na conta depende de quem
+  // paga o laboratório e de quem coletou — regra no ExamService.
+  /// O cliente paga o laboratório direto (decisão dos stakeholders).
+  paidDirectlyByClient  Boolean   @default(false) @map("paid_directly_by_client")
+  unitPriceCents        Int       @default(0) @map("unit_price_cents")
+  laborCents            Int       @default(0) @map("labor_cents")
+  displacementKm        Decimal   @default(0) @map("displacement_km") @db.Decimal(10, 2)
+  displacementRateCents Int       @default(0) @map("displacement_rate_cents")
+  /// Congelado quando a cobrança fecha (primeira saída de `requested`).
+  totalCents            Int       @default(0) @map("total_cents")
+  /// Nulo = cobrança ainda aberta. Preenchido mesmo se o total for 0 —
+  /// marca que a decisão de cobrança já foi tomada.
+  chargedAt             DateTime? @map("charged_at") @db.Timestamptz
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  examType ExamType            @relation(fields: [examTypeId], references: [id], onDelete: Restrict)
+  animals  ExamRequestAnimal[]
+  items    ExamRequestItem[]
+
+  @@index([tenantId])
+  @@index([ownerId])
+  @@index([status])
+  @@index([expectedResultAt])
+  @@map("exam_requests")
+}
+
+/// RF-EXM-003: animais do pedido. Sem status próprio (decisão do Marco).
+model ExamRequestAnimal {
+  id            String @id @default(uuid()) @db.Uuid
+  tenantId      String @map("tenant_id") @db.Uuid
+  examRequestId String @map("exam_request_id") @db.Uuid
+
+  /// Animal no MS1 — sem FK.
+  animalId String @map("animal_id") @db.Uuid
+
+  examRequest ExamRequest @relation(fields: [examRequestId], references: [id], onDelete: Cascade)
+
+  @@unique([examRequestId, animalId])
+  @@index([tenantId])
+  @@index([animalId])
+  @@map("exam_request_animals")
+}
+
+/// RF-EXM-006: insumo da coleta — sempre dá baixa no estoque; só é cobrado
+/// quando o cliente paga o laboratório direto.
+model ExamRequestItem {
+  id            String @id @default(uuid()) @db.Uuid
+  tenantId      String @map("tenant_id") @db.Uuid
+  examRequestId String @map("exam_request_id") @db.Uuid
+
+  /// Produto no MS2 (sem FK). Vira `consumedItems` no exam.collected.
+  productId      String  @map("product_id") @db.Uuid
+  description    String  @db.VarChar(255)
+  quantity       Decimal @db.Decimal(10, 3)
+  /// Preço congelado, como nos itens do atendimento.
+  unitPriceCents Int     @map("unit_price_cents")
+  totalCents     Int     @map("total_cents")
+
+  examRequest ExamRequest @relation(fields: [examRequestId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([examRequestId])
+  @@map("exam_request_items")
+}
+
 /// Padrão Outbox (ADR-001 §6.2, ADR-002).
 ///
 /// O evento é gravado AQUI, na MESMA transação que a mudança de negócio
@@ -212,14 +365,14 @@ model Prescription {
 
   /// A "flag origem" do RF-ATD-005: preenchido = saiu do estoque (MS2);
   /// null = receita externa, o tutor compra por fora.
-  productId      String?             @map("product_id") @db.Uuid
-  medicationName String              @map("medication_name") @db.VarChar(255)
-  dose           String              @db.VarChar(100)
-  route          AdministrationRoute
+  productId       String?             @map("product_id") @db.Uuid
+  medicationName  String              @map("medication_name") @db.VarChar(255)
+  dose            String              @db.VarChar(100)
+  route           AdministrationRoute
   /// Texto livre — "a cada 12h por 5 dias".
-  schedule        String  @db.VarChar(255)
-  applicationSite String? @map("application_site") @db.VarChar(255)
-  notes           String? @db.Text
+  schedule        String              @db.VarChar(255)
+  applicationSite String?             @map("application_site") @db.VarChar(255)
+  notes           String?             @db.Text
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
