@@ -7,6 +7,8 @@ import {
 } from '@quironequine/shared-middlewares';
 import { healthRouter } from './controllers/health.controller';
 import { appointmentRouter } from './controllers/appointment.controller';
+import { examTypeRouter } from './controllers/exam-type.controller';
+import { examRouter } from './controllers/exam.controller';
 
 export function createApp(): Express {
   const app = express();
@@ -20,6 +22,8 @@ export function createApp(): Express {
   // Rotas protegidas — exigem JWT válido.
   app.use(authMiddleware);
   app.use('/appointments', appointmentRouter);
+  app.use('/exam-types', examTypeRouter);
+  app.use('/exams', examRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
