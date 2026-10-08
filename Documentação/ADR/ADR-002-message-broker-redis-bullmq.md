@@ -114,6 +114,18 @@ Os três primeiros saem pelo outbox, na mesma transação da mudança de status,
 
 O `exam.result_due` é publicado direto, sem outbox, como o `alert.triggered`: é uma varredura de leitura, sem commit com o qual ser atômico. A varredura cruza tenants pela função `SECURITY DEFINER` `clinical_list_exams_result_due` (padrão da ADR-006). A chave vem de (pedido, tipo de lembrete), então o job rodar duas vezes no mesmo dia não duplica o aviso. Até o MS5 existir, esses eventos acumulam na fila dele, como na ponta solta nº 3. O volume é baixo: no máximo dois por pedido.
 
+**7. Eventos de vacinação** (revisão 1.4, Sprint 7). Também ficam fora da tabela do ADR-001 §5.3. Aqui não existe a separação do exame, porque registrar a vacinação **é** aplicá-la (decisão do Marco, 08/10/2026): consumo e cobrança acontecem juntos. Por isso a vacinação volta ao padrão do atendimento, com um evento e dois destinos:
+
+| Evento | Publicado quando | Consumido por | Efeito |
+|---|---|---|---|
+| `vaccination.applied` | Vacinação registrada | **Inventory** + **Reporting** | Baixa das doses (motivo `vaccination`) e pendência, se o total for > 0 |
+| `vaccination.deleted` | Vacinação com custo excluída | **Reporting** | Cancela a pendência (mesma lógica de ordem do item 4) |
+| `vaccination.due` | Job diário, 07h de São Paulo: próxima dose daqui a 7 dias ou hoje | **Notification** (MS5) | Lembrete de re-vacinação para o veterinário |
+
+O `vaccination.applied` leva **doses**, não unidades. Quem converte é o MS2, que conhece o `dosesPerUnit` do produto: 3 doses de um frasco de 10 baixam 0,3 frasco. O MS3 não guarda esse dado e não deveria.
+
+O lembrete segue o padrão do `exam.result_due`: varredura sem outbox, função `SECURITY DEFINER` `clinical_list_vaccinations_due` e chave por (aplicação, tipo de lembrete). A diferença é o filtro de **re-vacinação**. A função devolve uma linha por animal e tira o animal que recebeu a mesma vacina depois daquela aplicação. Sem esse filtro, um cavalo vacinado de novo na semana passada receberia o aviso da dose antiga. Os dois lembretes diários do MS3 agora rodam no mesmo agendador (`clinical-reminders`).
+
 ## Consequências
 
 **Positivas.** O fan-out do §5.3 passa a funcionar de verdade antes de existir consumidor duplicado — o bug nasceria silencioso e só apareceria em produção com o MS6 no ar. Nenhuma infraestrutura nova: nada muda no `docker-compose`, no CI, nos scripts de deploy ou no custo mensal. A tabela `EVENT_SUBSCRIBERS` em `shared-types` dá uma fonte única para o roteamento, rastreável linha a linha contra a tabela do ADR-001 §5.3.
@@ -137,3 +149,4 @@ O `exam.result_due` é publicado direto, sem outbox, como o `alert.triggered`: �
 | 1.1 | Set/2026 | Padrão Outbox implementado no MS3 (era a ponta solta nº 1), fechando a mitigação prevista no ADR-001 §6.2. |
 | 1.2 | Out/2026 | Evento `appointment.deleted` (exclusão de atendimento finalizado cancela a pendência, independente da ordem de chegada); `performedAt` no `appointment.done`; MS2 aceita atendimento sem item de estoque; prefixo de fila próprio nos testes. |
 | 1.3 | Out/2026 | Eventos de exame (`exam.collected`, `exam.charged`, `exam.deleted`, `exam.result_due`): coleta e cobrança opcionais, cobrança fechada na saída de `requested`; MS2 baixa insumo de exame com motivo `exam`; MS6 abre e cancela pendência de exame. |
+| 1.4 | Out/2026 | Eventos de vacinação (`vaccination.applied` para MS2 + MS6, `vaccination.deleted`, `vaccination.due`): baixa em doses convertidas pelo MS2, lembrete de re-vacinação 7 dias antes e no dia, que ignora o animal já re-vacinado. |
