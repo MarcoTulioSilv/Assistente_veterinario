@@ -16,7 +16,10 @@ import { prisma, withTenant } from '../src/prisma';
 import { VaccinationRepository } from '../src/repositories/vaccination.repository';
 import { VaccinationService } from '../src/services/vaccination.service';
 import { deriveEventIdempotencyKey } from '../src/services/billing';
-import type { CreateVaccinationInput } from '../src/schemas/vaccination.schema';
+import type {
+  CreateClinicVaccinationInput,
+  CreateExternalVaccinationInput,
+} from '../src/schemas/vaccination.schema';
 
 const TENANT_A = '99999999-9999-9999-9999-999999999999';
 const TENANT_B = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
@@ -35,8 +38,9 @@ const service = new VaccinationService(repo, () => new Date('2026-10-08T12:00:00
 const INFLUENZA = randomUUID();
 const TETANO = randomUUID();
 
-function novoInput(overrides: Partial<CreateVaccinationInput> = {}): CreateVaccinationInput {
+function novoInput(overrides: Partial<CreateClinicVaccinationInput> = {}): CreateClinicVaccinationInput {
   return {
+    origin: 'clinic',
     ownerId: randomUUID(),
     propertyId: randomUUID(),
     veterinarianId: randomUUID(),
@@ -50,6 +54,22 @@ function novoInput(overrides: Partial<CreateVaccinationInput> = {}): CreateVacci
     laborCents: 5000,
     displacementKm: 20,
     displacementRateCents: 200,
+    ...overrides,
+  };
+}
+
+/** Vacina aplicada por outra pessoa — mesmo dia e intervalo da aplicação padrão acima. */
+function novoExterno(overrides: Partial<CreateExternalVaccinationInput> = {}): CreateExternalVaccinationInput {
+  return {
+    origin: 'external',
+    ownerId: randomUUID(),
+    propertyId: randomUUID(),
+    veterinarianId: randomUUID(),
+    vaccineName: 'Influenza Equina',
+    appliedBy: 'Dr. Fulano',
+    doseIntervalDays: 180,
+    animalIds: [randomUUID()],
+    appliedAt: '2026-04-08T12:00:00.000Z',
     ...overrides,
   };
 }
@@ -94,6 +114,44 @@ describe('VaccinationService.create — atomicidade (ADR-002)', () => {
     expect(eventos[0]!.idempotencyKey).toBe(deriveEventIdempotencyKey('vaccination.applied', criada.id));
     const envelope = eventos[0]!.payload as unknown as { payload: { totalDoses: number; totalCostCents: number } };
     expect(envelope.payload).toMatchObject({ totalDoses: 3, totalCostCents: criada.totalCents });
+  });
+});
+
+describe('registro externo (aplicada por outra pessoa)', () => {
+  it('grava sem produto e sem custo, e NÃO publica nada no outbox', async () => {
+    const externo = await service.create(ctxA, novoExterno());
+
+    expect(externo).toMatchObject({ origin: 'external', productId: null, appliedBy: 'Dr. Fulano', totalCents: 0 });
+    expect(externo.nextDoseAt).toBe('2026-10-05T12:00:00.000Z');
+    expect(await eventosDe(TENANT_A)).toEqual([]);
+  });
+
+  it('excluir registro externo também não publica nada', async () => {
+    const externo = await service.create(ctxA, novoExterno());
+    await service.softDelete(ctxA, externo.id);
+    expect(await eventosDe(TENANT_A)).toEqual([]);
+  });
+
+  it('o banco recusa aplicação da clínica sem produto e registro externo com custo (CHECK)', async () => {
+    const insert = (data: Record<string, unknown>) =>
+      withTenant(TENANT_A, (tx) =>
+        tx.vaccination.create({
+          data: {
+            tenantId: TENANT_A,
+            ownerId: randomUUID(),
+            propertyId: randomUUID(),
+            veterinarianId: randomUUID(),
+            vaccineName: 'X',
+            appliedAt: new Date(),
+            pricePerDoseCents: 0,
+            totalCents: 0,
+            ...data,
+          },
+        }),
+      );
+
+    await expect(insert({ origin: 'clinic', productId: null })).rejects.toThrow();
+    await expect(insert({ origin: 'external', totalCents: 100 })).rejects.toThrow();
   });
 });
 
@@ -185,6 +243,37 @@ describe('clinical_list_vaccinations_due (lembrete de re-vacinação)', () => {
     await service.create(
       ctxA,
       novoInput({ animalIds: [cavalo], productId: TETANO, appliedAt: '2026-09-01T12:00:00.000Z' }),
+    );
+
+    const due = await repo.listDueAcrossTenants(...JANELA);
+
+    expect(due.filter((r) => r.id === original.id).map((r) => r.animalId)).toEqual([cavalo]);
+  });
+
+  it('registro externo entra no lembrete como qualquer aplicação', async () => {
+    const externo = await service.create(ctxA, novoExterno());
+
+    const due = await repo.listDueAcrossTenants(...JANELA);
+
+    expect(due.filter((r) => r.id === externo.id).map((r) => r.animalId)).toEqual(externo.animalIds);
+  });
+
+  it('aplicação da clínica substitui o registro externo digitado da mesma vacina (pelo nome)', async () => {
+    const cavalo = randomUUID();
+    const externo = await service.create(ctxA, novoExterno({ animalIds: [cavalo], vaccineName: ' influenza EQUINA' }));
+    await service.create(ctxA, novoInput({ animalIds: [cavalo], appliedAt: '2026-09-01T12:00:00.000Z' }));
+
+    const due = await repo.listDueAcrossTenants(...JANELA);
+
+    expect(due.some((r) => r.id === externo.id)).toBe(false);
+  });
+
+  it('registro externo de OUTRA vacina digitada não substitui nada', async () => {
+    const cavalo = randomUUID();
+    const original = await service.create(ctxA, novoInput({ animalIds: [cavalo] }));
+    await service.create(
+      ctxA,
+      novoExterno({ animalIds: [cavalo], vaccineName: 'Raiva', appliedAt: '2026-09-01T12:00:00.000Z' }),
     );
 
     const due = await repo.listDueAcrossTenants(...JANELA);

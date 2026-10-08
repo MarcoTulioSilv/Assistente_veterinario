@@ -2,19 +2,25 @@
 -- MS3 — Vacinação (RF-VAC-001 a 005, Sprint 7)
 --
 -- Tabelas geradas por `prisma migrate diff` entre o schema anterior e o
--- atual. RLS e a função de leitura do lembrete escritas à mão, abaixo.
+-- atual. CHECKs, RLS e a função de leitura do lembrete escritos à mão,
+-- abaixo.
 -- ══════════════════════════════════════════════════════════════════
+
+-- CreateEnum
+CREATE TYPE "VaccinationOrigin" AS ENUM ('clinic', 'external');
 
 -- CreateTable
 CREATE TABLE "vaccinations" (
     "id" UUID NOT NULL,
     "tenant_id" UUID NOT NULL,
+    "origin" "VaccinationOrigin" NOT NULL DEFAULT 'clinic',
     "owner_id" UUID NOT NULL,
     "property_id" UUID NOT NULL,
     "veterinarian_id" UUID NOT NULL,
-    "product_id" UUID NOT NULL,
+    "product_id" UUID,
     "vaccine_name" VARCHAR(255) NOT NULL,
     "vaccine_batch" VARCHAR(100),
+    "applied_by" VARCHAR(255),
     "doses_per_animal" DECIMAL(10,3) NOT NULL DEFAULT 1,
     "applied_at" TIMESTAMPTZ NOT NULL,
     "dose_interval_days" INTEGER,
@@ -66,6 +72,17 @@ CREATE UNIQUE INDEX "vaccination_animals_vaccination_id_animal_id_key" ON "vacci
 -- AddForeignKey
 ALTER TABLE "vaccination_animals" ADD CONSTRAINT "vaccination_animals_vaccination_id_fkey" FOREIGN KEY ("vaccination_id") REFERENCES "vaccinations"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- ─── Invariantes de origem (o Prisma não modela CHECK) ──────────
+-- Aplicação da clínica dá baixa: precisa do produto. Registro externo é só
+-- controle: não cobra nada.
+ALTER TABLE vaccinations
+  ADD CONSTRAINT vaccinations_clinic_has_product
+  CHECK (origin = 'external' OR product_id IS NOT NULL);
+
+ALTER TABLE vaccinations
+  ADD CONSTRAINT vaccinations_external_is_free
+  CHECK (origin = 'clinic' OR total_cents = 0);
+
 -- ─── RLS — o isolamento entre tenants é do banco (ADR-001 §5.2) ──
 ALTER TABLE vaccinations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_vaccinations ON vaccinations
@@ -75,16 +92,35 @@ ALTER TABLE vaccination_animals ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_vaccination_animals ON vaccination_animals
   USING (tenant_id = current_tenant_id());
 
+-- ─── "Mesma vacina" ─────────────────────────────────────────────
+-- Mesmo produto; quando um dos registros não tem produto (externo digitado),
+-- mesmo nome, sem diferenciar maiúsculas e espaços nas pontas. É a regra do
+-- VaccineBooster (shared-types) — a função do lembrete e o service do
+-- indicador precisam concordar.
+CREATE OR REPLACE FUNCTION clinical_same_vaccine(
+  a_product_id UUID, a_name VARCHAR, b_product_id UUID, b_name VARCHAR
+)
+RETURNS BOOLEAN
+LANGUAGE sql
+IMMUTABLE
+AS $$
+  SELECT CASE
+    WHEN a_product_id IS NOT NULL AND b_product_id IS NOT NULL THEN a_product_id = b_product_id
+    ELSE lower(btrim(a_name)) = lower(btrim(b_name))
+  END;
+$$;
+
 -- ─── Leitura cross-tenant do lembrete de re-vacinação (ADR-006) ──
 -- Mesmo padrão de clinical_list_exams_result_due: job diário que varre
 -- todos os tenants, por função SECURITY DEFINER estreita (só leitura, só
 -- as colunas do lembrete). A janela vem do service, que decide o que é
 -- "dia" no fuso de America/Sao_Paulo.
 --
--- Uma linha por (aplicação, animal), e só para o animal que NÃO foi
--- re-vacinado com a mesma vacina depois daquela aplicação: re-vacinar
--- substitui o lembrete anterior. Sem esse filtro, o cavalo vacinado de novo
--- na semana passada receberia o aviso da dose antiga.
+-- Uma linha por (aplicação, animal), e só para o animal que NÃO recebeu a
+-- mesma vacina depois daquela aplicação — na clínica ou fora dela:
+-- re-vacinar substitui o lembrete anterior. Sem esse filtro, o cavalo
+-- vacinado de novo na semana passada receberia o aviso da dose antiga.
+-- Registro externo também gera lembrete: é o ponto de registrá-lo.
 CREATE OR REPLACE FUNCTION clinical_list_vaccinations_due(from_ts TIMESTAMPTZ, to_ts TIMESTAMPTZ)
 RETURNS TABLE (
   id UUID,
@@ -113,9 +149,9 @@ AS $$
       FROM vaccinations newer
       JOIN vaccination_animals nva ON nva.vaccination_id = newer.id
       WHERE newer.tenant_id = v.tenant_id
-        AND newer.product_id = v.product_id
         AND nva.animal_id = va.animal_id
         AND newer.deleted_at IS NULL
+        AND clinical_same_vaccine(newer.product_id, newer.vaccine_name, v.product_id, v.vaccine_name)
         AND (newer.applied_at, newer.created_at) > (v.applied_at, v.created_at)
     );
 $$;

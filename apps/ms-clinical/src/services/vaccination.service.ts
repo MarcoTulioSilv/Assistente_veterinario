@@ -11,8 +11,13 @@ import type {
   DomainEvent,
 } from '@quironequine/shared-types';
 import { AppError } from '@quironequine/shared-middlewares';
-import type { VaccinationRepository } from '../repositories/vaccination.repository';
-import type { CreateVaccinationInput, ListVaccinationsInput } from '../schemas/vaccination.schema';
+import type { VaccinationRepository, CreateVaccinationData } from '../repositories/vaccination.repository';
+import type {
+  CreateVaccinationInput,
+  CreateClinicVaccinationInput,
+  CreateExternalVaccinationInput,
+  ListVaccinationsInput,
+} from '../schemas/vaccination.schema';
 import { calculateTotalCents, deriveEventIdempotencyKey } from './billing';
 import { saoPauloDay, addDays } from './sao-paulo-day';
 
@@ -66,36 +71,56 @@ export function boosterStatus(nextDoseAt: Date, now: Date): VaccineBooster['stat
   return 'scheduled';
 }
 
+function normalizeName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+/**
+ * "Mesma vacina": mesmo produto; se um dos dois não tem produto (registro
+ * externo digitado), mesmo nome. Espelha clinical_same_vaccine (migration
+ * de vacinação) — o indicador e o lembrete precisam concordar.
+ */
+export function sameVaccine(
+  a: Pick<Vaccination, 'productId' | 'vaccineName'>,
+  b: Pick<Vaccination, 'productId' | 'vaccineName'>,
+): boolean {
+  if (a.productId !== null && b.productId !== null) return a.productId === b.productId;
+  return normalizeName(a.vaccineName) === normalizeName(b.vaccineName);
+}
+
 /**
  * Próxima dose de cada vacina, a partir das aplicações do animal (mais
- * recente primeiro). Só a aplicação mais recente de cada vacina conta:
- * re-vacinar substitui a data anterior — e, se a mais recente não tem
- * intervalo, a vacina não tem próxima dose.
+ * recente primeiro), da clínica ou externas. Só a aplicação mais recente de
+ * cada vacina conta: re-vacinar substitui a data anterior — e, se a mais
+ * recente não tem intervalo, a vacina não tem próxima dose.
  */
 export function toBoosters(newestFirst: Vaccination[], now: Date): VaccineBooster[] {
-  const latestByProduct = new Map<string, Vaccination>();
+  // Lista, não Map: "mesma vacina" não é igualdade de chave (produto OU
+  // nome). Volume pequeno por animal, então a busca linear não pesa.
+  const latest: Vaccination[] = [];
   for (const vaccination of newestFirst) {
-    if (!latestByProduct.has(vaccination.productId)) latestByProduct.set(vaccination.productId, vaccination);
+    if (!latest.some((picked) => sameVaccine(picked, vaccination))) latest.push(vaccination);
   }
 
   const boosters: VaccineBooster[] = [];
-  for (const latest of latestByProduct.values()) {
-    if (latest.nextDoseAt === null) continue;
+  for (const latestOfVaccine of latest) {
+    if (latestOfVaccine.nextDoseAt === null) continue;
     boosters.push({
-      productId: latest.productId,
-      vaccineName: latest.vaccineName,
-      lastVaccinationId: latest.id,
-      lastAppliedAt: latest.appliedAt,
-      nextDoseAt: latest.nextDoseAt,
-      status: boosterStatus(new Date(latest.nextDoseAt), now),
+      productId: latestOfVaccine.productId,
+      vaccineName: latestOfVaccine.vaccineName,
+      lastVaccinationId: latestOfVaccine.id,
+      lastAppliedAt: latestOfVaccine.appliedAt,
+      nextDoseAt: latestOfVaccine.nextDoseAt,
+      status: boosterStatus(new Date(latestOfVaccine.nextDoseAt), now),
     });
   }
   return boosters.sort((a, b) => a.nextDoseAt.localeCompare(b.nextDoseAt));
 }
 
+/** Só para aplicação da clínica — que sempre tem produto (CHECK no banco). */
 export function buildVaccinationAppliedEvent(
   ctx: RequestContext,
-  vaccination: Vaccination,
+  vaccination: Vaccination & { productId: UUID },
 ): DomainEvent<VaccinationAppliedPayload> {
   return {
     name: EVENTS.VACCINATION_APPLIED,
@@ -138,9 +163,12 @@ export function buildVaccinationDeletedEvent(
  * Lógica de negócio — Dev 1 é o dono.
  * Implementa a interface IVaccinationService publicada em shared-types.
  *
- * Registrar é aplicar (decisão do Marco): não há rascunho nem edição. O
- * registro grava a aplicação e o `vaccination.applied` juntos — o MS2 baixa
- * as doses (RN-007) e o MS6 abre a pendência (RN-002).
+ * Registrar é aplicar (decisão do Marco): não há rascunho nem edição. A
+ * aplicação da clínica grava a vacinação e o `vaccination.applied` juntos —
+ * o MS2 baixa as doses (RN-007) e o MS6 abre a pendência (RN-002).
+ *
+ * Vacina aplicada por outra pessoa entra como registro externo: só
+ * controle. Não publica nada, mas tem próxima dose e lembrete.
  */
 export class VaccinationService implements IVaccinationService {
   constructor(
@@ -177,9 +205,19 @@ export class VaccinationService implements IVaccinationService {
       ]);
     }
 
-    const animalIds = [...new Set(data.animalIds)];
-    const dosesPerAnimal = data.dosesPerAnimal ?? 1;
-    const doseIntervalDays = data.doseIntervalDays ?? null;
+    return data.origin === 'external'
+      ? this.createExternal(ctx, data, appliedAt)
+      : this.createClinic(ctx, data, appliedAt);
+  }
+
+  /** RF-VAC-001/002/003: aplicação da clínica — baixa no estoque e cobrança. */
+  private async createClinic(
+    ctx: RequestContext,
+    data: CreateClinicVaccinationInput,
+    appliedAt: Date,
+  ): Promise<Vaccination> {
+    const common = commonData(data, appliedAt);
+    const productId = data.productId;
     const laborCents = data.laborCents ?? 0;
     const displacementKm = data.displacementKm ?? 0;
     const displacementRateCents = data.displacementRateCents ?? 0;
@@ -187,37 +225,56 @@ export class VaccinationService implements IVaccinationService {
     return this.repo.create(
       ctx,
       {
-        ownerId: data.ownerId,
-        propertyId: data.propertyId,
-        veterinarianId: data.veterinarianId,
-        productId: data.productId,
-        vaccineName: data.vaccineName,
-        vaccineBatch: data.vaccineBatch ?? null,
-        animalIds,
-        dosesPerAnimal,
-        appliedAt,
-        doseIntervalDays,
-        nextDoseAt: calculateNextDoseAt(appliedAt, doseIntervalDays),
+        ...common,
+        origin: 'clinic',
+        productId,
+        appliedBy: null,
         pricePerDoseCents: data.pricePerDoseCents,
         laborCents,
         displacementKm,
         displacementRateCents,
         totalCents: calculateVaccinationTotalCents({
           pricePerDoseCents: data.pricePerDoseCents,
-          doses: totalDoses(dosesPerAnimal, animalIds.length),
+          doses: totalDoses(common.dosesPerAnimal, common.animalIds.length),
           laborCents,
           displacementKm,
           displacementRateCents,
         }),
-        notes: data.notes ?? null,
       },
-      (created) => buildVaccinationAppliedEvent(ctx, created),
+      (created) => buildVaccinationAppliedEvent(ctx, { ...created, productId }),
     );
   }
 
   /**
-   * Só a aplicação que gerou cobrança avisa o MS6. Estoque não volta: a
-   * vacina foi de fato aplicada.
+   * Vacina aplicada por outra pessoa — o vet pegou o animal no meio do
+   * caminho e lança o que já foi feito. Sem baixa nem cobrança, então sem
+   * evento; entra no histórico, na próxima dose e no lembrete.
+   */
+  private async createExternal(
+    ctx: RequestContext,
+    data: CreateExternalVaccinationInput,
+    appliedAt: Date,
+  ): Promise<Vaccination> {
+    return this.repo.create(
+      ctx,
+      {
+        ...commonData(data, appliedAt),
+        origin: 'external',
+        productId: data.productId ?? null,
+        appliedBy: data.appliedBy ?? null,
+        pricePerDoseCents: 0,
+        laborCents: 0,
+        displacementKm: 0,
+        displacementRateCents: 0,
+        totalCents: 0,
+      },
+      () => null,
+    );
+  }
+
+  /**
+   * Só a aplicação que gerou cobrança avisa o MS6 — registro externo nunca
+   * cobra. Estoque não volta: a vacina foi de fato aplicada.
    */
   async softDelete(ctx: RequestContext, id: UUID): Promise<void> {
     const existing = await this.repo.findById(ctx, id);
@@ -226,4 +283,37 @@ export class VaccinationService implements IVaccinationService {
     const event = existing.totalCents > 0 ? buildVaccinationDeletedEvent(ctx, existing) : null;
     await this.repo.softDelete(ctx, id, event);
   }
+}
+
+type CommonVaccinationData = Pick<
+  CreateVaccinationData,
+  | 'ownerId'
+  | 'propertyId'
+  | 'veterinarianId'
+  | 'vaccineName'
+  | 'vaccineBatch'
+  | 'animalIds'
+  | 'dosesPerAnimal'
+  | 'appliedAt'
+  | 'doseIntervalDays'
+  | 'nextDoseAt'
+  | 'notes'
+>;
+
+/** O que a aplicação da clínica e o registro externo têm em comum. */
+function commonData(data: CreateVaccinationInput, appliedAt: Date): CommonVaccinationData {
+  const doseIntervalDays = data.doseIntervalDays ?? null;
+  return {
+    ownerId: data.ownerId,
+    propertyId: data.propertyId,
+    veterinarianId: data.veterinarianId,
+    vaccineName: data.vaccineName,
+    vaccineBatch: data.vaccineBatch ?? null,
+    animalIds: [...new Set(data.animalIds)],
+    dosesPerAnimal: data.dosesPerAnimal ?? 1,
+    appliedAt,
+    doseIntervalDays,
+    nextDoseAt: calculateNextDoseAt(appliedAt, doseIntervalDays),
+    notes: data.notes ?? null,
+  };
 }

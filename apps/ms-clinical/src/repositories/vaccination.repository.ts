@@ -2,7 +2,14 @@ import type {
   Vaccination as PrismaVaccination,
   VaccinationAnimal as PrismaVaccinationAnimal,
 } from '../../node_modules/.prisma/client-clinical';
-import type { RequestContext, UUID, Paginated, Vaccination, DomainEvent } from '@quironequine/shared-types';
+import type {
+  RequestContext,
+  UUID,
+  Paginated,
+  Vaccination,
+  VaccinationOrigin,
+  DomainEvent,
+} from '@quironequine/shared-types';
 import { AppError } from '@quironequine/shared-middlewares';
 import { prisma, withTenant } from '../prisma';
 import { enqueueOutboxEvent } from './outbox.repository';
@@ -10,12 +17,14 @@ import type { ListVaccinationsInput } from '../schemas/vaccination.schema';
 
 /** Já com cópias e valores calculados pelo service. */
 export interface CreateVaccinationData {
+  origin: VaccinationOrigin;
   ownerId: string;
   propertyId: string;
   veterinarianId: string;
-  productId: string;
+  productId: string | null;
   vaccineName: string;
   vaccineBatch: string | null;
+  appliedBy: string | null;
   animalIds: string[];
   dosesPerAnimal: number;
   appliedAt: Date;
@@ -128,12 +137,13 @@ export class VaccinationRepository {
   /**
    * Aplicação e evento NA MESMA TRANSAÇÃO (ADR-002): ou a vacinação existe E
    * a baixa/cobrança vão sair, ou nada acontece. O evento depende do id
-   * gerado, por isso vem como função.
+   * gerado, por isso vem como função; `null` = não há o que publicar
+   * (registro externo).
    */
   async create(
     ctx: RequestContext,
     data: CreateVaccinationData,
-    buildEvent: (created: Vaccination) => DomainEvent<unknown>,
+    buildEvent: (created: Vaccination) => DomainEvent<unknown> | null,
   ): Promise<Vaccination> {
     return withTenant(ctx.tenantId, async (tx) => {
       const { animalIds, ...fields } = data;
@@ -146,7 +156,8 @@ export class VaccinationRepository {
         include: INCLUDE,
       });
       const created = toDomain(row);
-      await enqueueOutboxEvent(tx, ctx.tenantId, buildEvent(created));
+      const event = buildEvent(created);
+      if (event) await enqueueOutboxEvent(tx, ctx.tenantId, event);
       return created;
     });
   }
@@ -189,12 +200,14 @@ export class VaccinationRepository {
 function toDomain(row: VaccinationRow): Vaccination {
   return {
     id: row.id,
+    origin: row.origin,
     ownerId: row.ownerId,
     propertyId: row.propertyId,
     veterinarianId: row.veterinarianId,
     productId: row.productId,
     vaccineName: row.vaccineName,
     vaccineBatch: row.vaccineBatch,
+    appliedBy: row.appliedBy,
     animalIds: row.animals.map((a) => a.animalId),
     dosesPerAnimal: row.dosesPerAnimal.toNumber(),
     appliedAt: row.appliedAt.toISOString(),

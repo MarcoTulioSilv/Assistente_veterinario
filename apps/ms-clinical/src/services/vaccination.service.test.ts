@@ -7,6 +7,7 @@ import {
   calculateNextDoseAt,
   boosterStatus,
   toBoosters,
+  sameVaccine,
   buildVaccinationAppliedEvent,
 } from './vaccination.service';
 import { deriveEventIdempotencyKey } from './billing';
@@ -31,12 +32,14 @@ const NOW = new Date('2026-10-08T13:00:00.000Z');
 function vaccination(overrides: Partial<Vaccination> = {}): Vaccination {
   return {
     id: VACCINATION_ID,
+    origin: 'clinic',
     ownerId: '88888888-8888-8888-8888-888888888888',
     propertyId: '99999999-9999-9999-9999-999999999999',
     veterinarianId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
     productId: PRODUCT_ID,
     vaccineName: 'Influenza Equina',
     vaccineBatch: 'L123',
+    appliedBy: null,
     animalIds: [ANIMAL_A, ANIMAL_B],
     dosesPerAnimal: 1,
     appliedAt: '2026-10-08T12:00:00.000Z',
@@ -53,7 +56,21 @@ function vaccination(overrides: Partial<Vaccination> = {}): Vaccination {
   };
 }
 
+/** Vacina aplicada por outra pessoa, digitada (fora do catálogo). */
+const EXTERNAL_INPUT = {
+  origin: 'external' as const,
+  ownerId: '88888888-8888-8888-8888-888888888888',
+  propertyId: '99999999-9999-9999-9999-999999999999',
+  veterinarianId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  vaccineName: 'Raiva',
+  appliedBy: 'Dr. Fulano (CRMV-MG 1234)',
+  doseIntervalDays: 365,
+  animalIds: [ANIMAL_A],
+  appliedAt: '2026-03-01T12:00:00.000Z',
+};
+
 const INPUT = {
+  origin: 'clinic' as const,
   ownerId: '88888888-8888-8888-8888-888888888888',
   propertyId: '99999999-9999-9999-9999-999999999999',
   veterinarianId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
@@ -79,6 +96,9 @@ function setup(existing: Vaccination | null = vaccination()) {
     create: vi.fn(async (_ctx: RequestContext, data: CreateVaccinationData, build: (v: Vaccination) => DomainEvent<unknown>) => {
       captured.data = data;
       const created = vaccination({
+        origin: data.origin,
+        productId: data.productId,
+        appliedBy: data.appliedBy,
         animalIds: data.animalIds,
         dosesPerAnimal: data.dosesPerAnimal,
         totalCents: data.totalCents,
@@ -234,9 +254,92 @@ describe('VaccinationService.create', () => {
   });
 });
 
+describe('VaccinationService.create — registro externo (aplicada por outra pessoa)', () => {
+  it('só controle: sem custo, sem produto, sem evento — mas com próxima dose', async () => {
+    const { service, captured } = setup();
+
+    await service.create(ctx, EXTERNAL_INPUT);
+
+    expect(captured.data).toMatchObject({
+      origin: 'external',
+      productId: null,
+      appliedBy: 'Dr. Fulano (CRMV-MG 1234)',
+      pricePerDoseCents: 0,
+      laborCents: 0,
+      displacementKm: 0,
+      totalCents: 0,
+    });
+    expect(captured.data?.nextDoseAt?.toISOString()).toBe('2027-03-01T12:00:00.000Z');
+    expect(captured.event).toBeNull();
+  });
+
+  it('do catálogo: guarda o produto pra reconhecer a re-vacinação, ainda sem evento', async () => {
+    const { service, captured } = setup();
+
+    await service.create(ctx, { ...EXTERNAL_INPUT, productId: PRODUCT_ID, vaccineName: 'Influenza Equina' });
+
+    expect(captured.data?.productId).toBe(PRODUCT_ID);
+    expect(captured.event).toBeNull();
+  });
+
+  it('também não aceita data no futuro', async () => {
+    const { service } = setup();
+    await expect(
+      service.create(ctx, { ...EXTERNAL_INPUT, appliedAt: '2026-12-01T12:00:00.000Z' }),
+    ).rejects.toMatchObject({ statusCode: 422 });
+  });
+});
+
+describe('sameVaccine', () => {
+  const influenza = { productId: PRODUCT_ID, vaccineName: 'Influenza Equina' };
+
+  it('com produto dos dois lados, compara o produto — o nome não importa', () => {
+    expect(sameVaccine(influenza, { productId: PRODUCT_ID, vaccineName: 'Outro nome' })).toBe(true);
+    expect(sameVaccine(influenza, { productId: OTHER_PRODUCT_ID, vaccineName: 'Influenza Equina' })).toBe(false);
+  });
+
+  it('se um lado é texto livre, compara o nome sem maiúsculas nem espaços nas pontas', () => {
+    expect(sameVaccine(influenza, { productId: null, vaccineName: '  influenza equina ' })).toBe(true);
+    expect(sameVaccine({ productId: null, vaccineName: 'Raiva' }, { productId: null, vaccineName: 'RAIVA' })).toBe(true);
+    expect(sameVaccine(influenza, { productId: null, vaccineName: 'Raiva' })).toBe(false);
+  });
+});
+
+describe('toBoosters — registros externos', () => {
+  it('aplicação da clínica substitui o registro externo digitado da mesma vacina', () => {
+    const boosters = toBoosters(
+      [
+        vaccination({ id: 'clinica', appliedAt: '2026-10-01T12:00:00.000Z', nextDoseAt: '2027-03-30T12:00:00.000Z' }),
+        vaccination({
+          id: 'externo',
+          origin: 'external',
+          productId: null,
+          vaccineName: 'influenza equina',
+          appliedAt: '2026-04-01T12:00:00.000Z',
+          nextDoseAt: '2026-09-28T12:00:00.000Z',
+        }),
+      ],
+      NOW,
+    );
+
+    expect(boosters.map((b) => b.lastVaccinationId)).toEqual(['clinica']);
+  });
+
+  it('registro externo sozinho gera o indicador normalmente', () => {
+    const boosters = toBoosters(
+      [vaccination({ id: 'externo', origin: 'external', productId: null, vaccineName: 'Raiva', nextDoseAt: '2026-10-10T12:00:00.000Z' })],
+      NOW,
+    );
+
+    expect(boosters).toEqual([
+      expect.objectContaining({ lastVaccinationId: 'externo', productId: null, status: 'due_soon' }),
+    ]);
+  });
+});
+
 describe('buildVaccinationAppliedEvent', () => {
   it('chave derivada da vacinação', () => {
-    expect(buildVaccinationAppliedEvent(ctx, vaccination()).idempotencyKey).toBe(
+    expect(buildVaccinationAppliedEvent(ctx, { ...vaccination(), productId: PRODUCT_ID }).idempotencyKey).toBe(
       deriveEventIdempotencyKey('vaccination.applied', VACCINATION_ID),
     );
   });
@@ -247,6 +350,12 @@ describe('VaccinationService.softDelete', () => {
     const { service, repo } = setup();
     await service.softDelete(ctx, VACCINATION_ID);
     expect(repo.softDelete).toHaveBeenCalledWith(ctx, VACCINATION_ID, expect.objectContaining({ name: 'vaccination.deleted' }));
+  });
+
+  it('registro externo: não há pendência a cancelar', async () => {
+    const { service, repo } = setup(vaccination({ origin: 'external', productId: null, totalCents: 0 }));
+    await service.softDelete(ctx, VACCINATION_ID);
+    expect(repo.softDelete).toHaveBeenCalledWith(ctx, VACCINATION_ID, null);
   });
 
   it('sem custo: não há pendência a cancelar', async () => {

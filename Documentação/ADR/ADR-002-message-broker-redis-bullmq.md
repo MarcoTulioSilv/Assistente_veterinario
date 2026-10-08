@@ -126,6 +126,8 @@ O `vaccination.applied` leva **doses**, não unidades. Quem converte é o MS2, q
 
 O lembrete segue o padrão do `exam.result_due`: varredura sem outbox, função `SECURITY DEFINER` `clinical_list_vaccinations_due` e chave por (aplicação, tipo de lembrete). A diferença é o filtro de **re-vacinação**. A função devolve uma linha por animal e tira o animal que recebeu a mesma vacina depois daquela aplicação. Sem esse filtro, um cavalo vacinado de novo na semana passada receberia o aviso da dose antiga. Os dois lembretes diários do MS3 agora rodam no mesmo agendador (`clinical-reminders`).
 
+Vacina aplicada por **outra pessoa** (o veterinário assumiu o animal no meio do caminho) entra como registro de controle, com `origin: 'external'`: **não publica evento nenhum**, porque não há baixa nem cobrança. Ainda assim gera próxima dose e lembrete, e é esse o motivo de registrá-la. A vacina pode vir do catálogo ou ser digitada. Por isso "mesma vacina" é o mesmo produto ou, quando um dos registros é texto livre, o mesmo nome, regra que mora na função `clinical_same_vaccine`. Dois CHECKs no banco garantem as invariantes: aplicação da clínica sempre tem produto, e registro externo sempre custa zero.
+
 ## Consequências
 
 **Positivas.** O fan-out do §5.3 passa a funcionar de verdade antes de existir consumidor duplicado — o bug nasceria silencioso e só apareceria em produção com o MS6 no ar. Nenhuma infraestrutura nova: nada muda no `docker-compose`, no CI, nos scripts de deploy ou no custo mensal. A tabela `EVENT_SUBSCRIBERS` em `shared-types` dá uma fonte única para o roteamento, rastreável linha a linha contra a tabela do ADR-001 §5.3.
@@ -149,4 +151,4 @@ O lembrete segue o padrão do `exam.result_due`: varredura sem outbox, função 
 | 1.1 | Set/2026 | Padrão Outbox implementado no MS3 (era a ponta solta nº 1), fechando a mitigação prevista no ADR-001 §6.2. |
 | 1.2 | Out/2026 | Evento `appointment.deleted` (exclusão de atendimento finalizado cancela a pendência, independente da ordem de chegada); `performedAt` no `appointment.done`; MS2 aceita atendimento sem item de estoque; prefixo de fila próprio nos testes. |
 | 1.3 | Out/2026 | Eventos de exame (`exam.collected`, `exam.charged`, `exam.deleted`, `exam.result_due`): coleta e cobrança opcionais, cobrança fechada na saída de `requested`; MS2 baixa insumo de exame com motivo `exam`; MS6 abre e cancela pendência de exame. |
-| 1.4 | Out/2026 | Eventos de vacinação (`vaccination.applied` para MS2 + MS6, `vaccination.deleted`, `vaccination.due`): baixa em doses convertidas pelo MS2, lembrete de re-vacinação 7 dias antes e no dia, que ignora o animal já re-vacinado. |
+| 1.4 | Out/2026 | Eventos de vacinação (`vaccination.applied` para MS2 + MS6, `vaccination.deleted`, `vaccination.due`): baixa em doses convertidas pelo MS2, lembrete de re-vacinação 7 dias antes e no dia, que ignora o animal já re-vacinado; registro externo (aplicada por outra pessoa) sem evento. |

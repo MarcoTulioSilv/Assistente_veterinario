@@ -320,13 +320,21 @@ model ExamRequestItem {
 }
 
 // ─── MS3 — Vacinação (RF-VAC-001 a 005, Sprint 7) ─────────────────
-// Registrar é aplicar: não há status. A baixa (MS2) e a pendência (MS6)
-// saem pelo outbox na mesma transação do INSERT.
+// Registrar é aplicar: não há status. Na aplicação da clínica, a baixa
+// (MS2) e a pendência (MS6) saem pelo outbox na mesma transação do INSERT.
+// Vacina aplicada por outra pessoa entra como registro de controle
+// (`external`): sem baixa nem cobrança, mas com próxima dose e lembrete.
+
+enum VaccinationOrigin {
+  clinic
+  external
+}
 
 /// RF-VAC-001: uma aplicação de vacina em um ou vários animais.
 model Vaccination {
-  id       String @id @default(uuid()) @db.Uuid
-  tenantId String @map("tenant_id") @db.Uuid
+  id       String            @id @default(uuid()) @db.Uuid
+  tenantId String            @map("tenant_id") @db.Uuid
+  origin   VaccinationOrigin @default(clinic)
 
   /// Referências ao MS1 — sem FK (database-per-service, ADR-001 §5.1).
   ownerId        String @map("owner_id") @db.Uuid
@@ -335,20 +343,25 @@ model Vaccination {
 
   /// Produto do estoque (MS2) — sem FK. Nome e lote copiados: a carteira
   /// de vacinação precisa continuar legível se o produto mudar ou sumir.
-  productId    String  @map("product_id") @db.Uuid
+  /// Nulo só em registro externo de vacina que não está no catálogo.
+  productId    String? @map("product_id") @db.Uuid
   vaccineName  String  @map("vaccine_name") @db.VarChar(255)
   vaccineBatch String? @map("vaccine_batch") @db.VarChar(100)
+  /// Só em `external`: quem aplicou de fato (outro vet, o proprietário…).
+  appliedBy    String? @map("applied_by") @db.VarChar(255)
 
   dosesPerAnimal Decimal  @default(1) @map("doses_per_animal") @db.Decimal(10, 3)
   appliedAt      DateTime @map("applied_at") @db.Timestamptz
 
-  /// Cópia do intervalo do produto (RF-VAC-005). nextDoseAt = appliedAt +
+  /// Cópia do intervalo do produto (RF-VAC-005) — ou informado à mão no
+  /// registro externo de vacina fora do catálogo. nextDoseAt = appliedAt +
   /// intervalo; é a base do lembrete e do indicador de próxima dose.
   doseIntervalDays Int?      @map("dose_interval_days")
   nextDoseAt       DateTime? @map("next_dose_at") @db.Timestamptz
 
   // ─── RF-VAC-003: custo ─────────────────────────────────────────
-  // Centavos, INTEGER (ADR-001 §5.6). Congelado na aplicação.
+  // Centavos, INTEGER (ADR-001 §5.6). Congelado na aplicação. Tudo zero em
+  // registro externo.
   pricePerDoseCents     Int     @map("price_per_dose_cents")
   laborCents            Int     @default(0) @map("labor_cents")
   displacementKm        Decimal @default(0) @map("displacement_km") @db.Decimal(10, 2)

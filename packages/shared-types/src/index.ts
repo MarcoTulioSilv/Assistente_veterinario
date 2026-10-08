@@ -754,6 +754,11 @@ export interface IExamService {
 //  - registrar é APLICAR: o registro já dá baixa no estoque (RN-007, baixa
 //    imediata) e abre a pendência financeira. Não há rascunho; correção é
 //    excluir e registrar de novo;
+//  - exceção: vacina aplicada por OUTRA PESSOA (o vet pegou o animal no meio
+//    do caminho) entra como registro de controle — `origin: 'external'`, sem
+//    baixa nem cobrança, mas com próxima dose e lembrete como qualquer outra.
+//    A vacina vem do catálogo ou é digitada; sem produto, "mesma vacina" é
+//    reconhecida pelo nome (ver VaccineBooster);
 //  - 1 dose por animal por padrão, ajustável. A conversão de doses em
 //    unidades do estoque (frasco de 10 doses etc.) é do MS2, que conhece o
 //    `dosesPerUnit` do produto;
@@ -762,17 +767,31 @@ export interface IExamService {
 //    próxima dose de quem já foi vacinado;
 //  - lembrete de re-vacinação 7 dias antes e no dia, entregue pelo MS5.
 
+/**
+ * `clinic`: aplicada pela clínica — baixa no estoque e cobrança.
+ * `external`: aplicada por outra pessoa — só controle (histórico, próxima
+ * dose e lembrete), sem baixa nem cobrança.
+ */
+export type VaccinationOrigin = 'clinic' | 'external';
+
 /** RF-VAC-001: uma aplicação — uma vacina, um ou vários animais da mesma propriedade. */
 export interface Vaccination {
   id: UUID;
+  origin: VaccinationOrigin;
   /** Referências ao MS1 — sem FK (ADR-001 §5.1). */
   ownerId: UUID;
   propertyId: UUID;
+  /** Quem aplicou (`clinic`) ou quem registrou e acompanha o animal (`external`). */
   veterinarianId: UUID;
-  /** Produto do estoque (MS2) — sem FK. Nome e lote copiados na aplicação. */
-  productId: UUID;
+  /**
+   * Produto do estoque (MS2) — sem FK. Nome e lote copiados na aplicação.
+   * Nulo só em registro externo de vacina que a clínica não tem no catálogo.
+   */
+  productId: UUID | null;
   vaccineName: string;
   vaccineBatch: string | null;
+  /** Só em `external`: quem aplicou de fato (outro veterinário, o proprietário…). */
+  appliedBy: string | null;
   animalIds: UUID[];
   dosesPerAnimal: number;
   appliedAt: ISODateString;
@@ -781,6 +800,7 @@ export interface Vaccination {
   /** appliedAt + intervalo. Base do lembrete e do indicador de próxima dose. */
   nextDoseAt: ISODateString | null;
   // RF-VAC-003: valor da vacina + mão de obra + km rodado (RN-011).
+  // Tudo zero em `external`: a clínica não aplicou, não cobra.
   /** Preço de venda POR DOSE, congelado na aplicação. */
   pricePerDoseCents: Cents;
   laborCents: Cents;
@@ -791,42 +811,64 @@ export interface Vaccination {
   createdAt: ISODateString;
 }
 
-export interface CreateVaccinationDto {
+interface CreateVaccinationBaseDto {
   ownerId: UUID;
   propertyId: UUID;
   veterinarianId: UUID;
-  productId: UUID;
-  /**
-   * Os campos abaixo vêm do produto no MS2 — a tela já o carregou pra
-   * listar as vacinas. Mesmo padrão do preço dos itens do atendimento: o MS3
-   * não consulta o MS2, guarda a cópia.
-   */
   vaccineName: string;
   vaccineBatch?: string;
-  /**
-   * `salePriceCents / dosesPerUnit` do produto (sem `dosesPerUnit`, a unidade
-   * é a dose), arredondado para centavo.
-   */
-  pricePerDoseCents: Cents;
+  /** Sem intervalo, sem próxima dose nem lembrete. */
   doseIntervalDays?: number | null;
   /** Ao menos um. Repetidos são ignorados. */
   animalIds: UUID[];
   /** Padrão 1. */
   dosesPerAnimal?: number;
   appliedAt: ISODateString;
-  laborCents?: Cents;
-  displacementKm?: number;
-  displacementRateCents?: Cents;
   notes?: string;
 }
 
+/** Aplicação da clínica: baixa no estoque e cobrança. */
+export interface CreateClinicVaccinationDto extends CreateVaccinationBaseDto {
+  /** Padrão `clinic`. */
+  origin?: 'clinic';
+  productId: UUID;
+  /**
+   * Nome, lote, intervalo e preço vêm do produto no MS2 — a tela já o
+   * carregou pra listar as vacinas. Mesmo padrão do preço dos itens do
+   * atendimento: o MS3 não consulta o MS2, guarda a cópia.
+   *
+   * `salePriceCents / dosesPerUnit` do produto (sem `dosesPerUnit`, a unidade
+   * é a dose), arredondado para centavo.
+   */
+  pricePerDoseCents: Cents;
+  laborCents?: Cents;
+  displacementKm?: number;
+  displacementRateCents?: Cents;
+}
+
+/**
+ * Vacina aplicada por outra pessoa — só controle. Sem preço, mão de obra
+ * nem km: nada é cobrado nem baixado. Do catálogo (`productId`, e o
+ * intervalo vem do produto) ou digitada (intervalo informado à mão).
+ */
+export interface CreateExternalVaccinationDto extends CreateVaccinationBaseDto {
+  origin: 'external';
+  productId?: UUID;
+  appliedBy?: string;
+}
+
+export type CreateVaccinationDto = CreateClinicVaccinationDto | CreateExternalVaccinationDto;
+
 /**
  * Indicador de próxima dose (Sprint 7) — por vacina, para um animal. Vem da
- * aplicação MAIS RECENTE daquela vacina no animal: re-vacinar substitui o
- * lembrete anterior.
+ * aplicação MAIS RECENTE daquela vacina no animal (da clínica ou externa):
+ * re-vacinar substitui o lembrete anterior.
+ *
+ * "Mesma vacina" = mesmo produto; quando um dos registros não tem produto
+ * (externo digitado), mesmo nome, sem diferenciar maiúsculas e espaços.
  */
 export interface VaccineBooster {
-  productId: UUID;
+  productId: UUID | null;
   vaccineName: string;
   lastVaccinationId: UUID;
   lastAppliedAt: ISODateString;
@@ -843,8 +885,9 @@ export interface IVaccinationService {
   /** Próxima dose de cada vacina do animal — só vacinas com intervalo. */
   listBoostersByAnimal(ctx: RequestContext, animalId: UUID): Promise<VaccineBooster[]>;
   /**
-   * RF-VAC-001/002/003: registra a aplicação. Publica `vaccination.applied`
-   * na mesma transação: o MS2 dá baixa nas doses e o MS6 abre a pendência.
+   * RF-VAC-001/002/003: registra a aplicação. Na da clínica, publica
+   * `vaccination.applied` na mesma transação: o MS2 dá baixa nas doses e o
+   * MS6 abre a pendência. Registro externo não publica nada.
    */
   create(ctx: RequestContext, data: CreateVaccinationDto): Promise<Vaccination>;
   /**
@@ -853,8 +896,8 @@ export interface IVaccinationService {
    * vacina foi de fato aplicada.
    *
    * ATENÇÃO, João — mesmo pop-up BLOQUEANTE do atendimento antes de excluir
-   * (`IAppointmentService.softDelete`): toda vacinação registrada já foi
-   * aplicada, então o aviso vale sempre que `totalCents > 0`.
+   * (`IAppointmentService.softDelete`) quando `totalCents > 0`. Registro
+   * externo (`origin: 'external'`) não precisa: não cobrou nem baixou nada.
    */
   softDelete(ctx: RequestContext, id: UUID): Promise<void>;
 }
