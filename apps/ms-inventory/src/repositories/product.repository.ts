@@ -64,6 +64,7 @@ export class ProductRepository {
           alertDaysBefore: data.alertDaysBefore ?? 30,
           minStockQty: data.minStockQty ?? 0,
           category: data.category,
+          doseIntervalDays: data.doseIntervalDays ?? null,
         },
       });
 
@@ -153,6 +154,7 @@ function toDomain(row: PrismaProduct): Product {
     salePriceCents: row.salePriceCents ?? 0,
     expiryDate: expiryDate ? expiryDate.toISOString() : null,
     alertDaysBefore: row.alertDaysBefore,
+    doseIntervalDays: row.doseIntervalDays,
     minStockQty,
     category: row.category,
     isNearExpiry,

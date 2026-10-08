@@ -152,6 +152,27 @@ describe('ProductRepository + MovementRepository', () => {
     expect(updated.expiryDate).toBe('2027-01-01T00:00:00.000Z');
   });
 
+  it('doseIntervalDays (RF-VAC-005) grava, edita e volta a null', async () => {
+    const created = await products.create(ctx, {
+      name: 'Influenza Equina',
+      unit: 'frasco',
+      dosesPerUnit: 10,
+      costPriceCents: 30000,
+      category: 'vaccine',
+      doseIntervalDays: 180,
+    });
+    expect(created.doseIntervalDays).toBe(180);
+
+    expect((await products.update(ctx, created.id, { doseIntervalDays: 365 })).doseIntervalDays).toBe(365);
+    expect((await products.update(ctx, created.id, { doseIntervalDays: null })).doseIntervalDays).toBeNull();
+  });
+
+  it('o banco rejeita intervalo de dose zero ou negativo (CHECK)', async () => {
+    const created = await products.create(ctx, { name: 'Tétano', unit: 'frasco', costPriceCents: 100, category: 'vaccine' });
+
+    await expect(products.update(ctx, created.id, { doseIntervalDays: 0 })).rejects.toThrow();
+  });
+
   it('isLowStock e isNearExpiry são calculados na leitura, não são colunas', async () => {
     const daqui10Dias = new Date();
     daqui10Dias.setDate(daqui10Dias.getDate() + 10);
