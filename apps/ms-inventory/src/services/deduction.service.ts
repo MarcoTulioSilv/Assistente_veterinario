@@ -10,6 +10,7 @@ import type {
 import { createServiceLogger } from '@quironequine/shared-middlewares';
 import { appointmentDonePayloadSchema } from '../schemas/appointment-done.schema';
 import { examCollectedPayloadSchema } from '../schemas/exam-collected.schema';
+import { vaccinationAppliedPayloadSchema } from '../schemas/vaccination-applied.schema';
 
 const log = createServiceLogger('deduction-service');
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -48,33 +49,28 @@ export function deriveItemIdempotencyKey(envelopeIdempotencyKey: string, index: 
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
-/** O que dá baixa, venha de atendimento ou de exame. */
+/**
+ * RF-VAC-002: doses aplicadas → unidades do estoque. Frasco de 10 doses com
+ * 3 doses aplicadas baixa 0,3 frasco. Sem `dosesPerUnit`, a unidade É a
+ * dose. Arredonda em 3 casas, a precisão da coluna de quantidade — e nunca
+ * deixa uma aplicação real virar baixa zero.
+ */
+export function dosesToUnits(doses: number, dosesPerUnit: number | null): number {
+  const units = Math.round((doses / (dosesPerUnit ?? 1)) * 1000) / 1000;
+  return Math.max(units, 0.001);
+}
+
+/** O que dá baixa, venha de atendimento, exame ou vacinação. */
 interface Consumption {
   sourceId: UUID;
   sourceType: StockConsumptionSource;
   items: Array<{ productId: UUID; quantity: number }>;
 }
 
-/** Evento de outro tipo → `null`: não é assunto do estoque. */
-function toConsumption(jobName: string, payload: unknown): Consumption | null {
-  switch (jobName) {
-    case EVENTS.APPOINTMENT_DONE: {
-      const parsed = appointmentDonePayloadSchema.parse(payload);
-      return { sourceId: parsed.appointmentId, sourceType: 'appointment', items: parsed.consumedItems };
-    }
-    case EVENTS.EXAM_COLLECTED: {
-      const parsed = examCollectedPayloadSchema.parse(payload);
-      return { sourceId: parsed.examRequestId, sourceType: 'exam', items: parsed.consumedItems };
-    }
-    default:
-      return null;
-  }
-}
-
 /**
  * Lógica de negócio — Dev 1 é o dono.
- * RN-003: consome appointment.done e exam.collected do broker e baixa estoque via
- * IStockService.deduct(), um item por vez.
+ * RN-003: consome appointment.done, exam.collected e vaccination.applied do
+ * broker e baixa estoque via IStockService.deduct(), um item por vez.
  *
  * A fila `domain-events` é compartilhada (ver events/deduction-consumer.ts,
  * que só faz a parte de plumbing BullMQ) — jobs de outro tipo são
@@ -85,10 +81,9 @@ export class DeductionService {
   constructor(private readonly stock: IStockService) {}
 
   async handle(jobName: string, event: DomainEvent<unknown>): Promise<void> {
-    const consumption = toConsumption(jobName, event.payload);
-    if (!consumption) return;
-
     const ctx = systemCtx(event.tenantId, event.traceId);
+    const consumption = await this.toConsumption(ctx, jobName, event.payload);
+    if (!consumption) return;
 
     const errors: unknown[] = [];
     for (const [index, item] of consumption.items.entries()) {
@@ -118,6 +113,36 @@ export class DeductionService {
         errors,
         `Falha ao baixar ${errors.length} de ${consumption.items.length} item(ns) de ${consumption.sourceType} ${consumption.sourceId}`,
       );
+    }
+  }
+
+  /** Evento de outro tipo → `null`: não é assunto do estoque. */
+  private async toConsumption(ctx: RequestContext, jobName: string, payload: unknown): Promise<Consumption | null> {
+    switch (jobName) {
+      case EVENTS.APPOINTMENT_DONE: {
+        const parsed = appointmentDonePayloadSchema.parse(payload);
+        return { sourceId: parsed.appointmentId, sourceType: 'appointment', items: parsed.consumedItems };
+      }
+      case EVENTS.EXAM_COLLECTED: {
+        const parsed = examCollectedPayloadSchema.parse(payload);
+        return { sourceId: parsed.examRequestId, sourceType: 'exam', items: parsed.consumedItems };
+      }
+      case EVENTS.VACCINATION_APPLIED: {
+        const parsed = vaccinationAppliedPayloadSchema.parse(payload);
+        // Produto inexistente falha o job: o BullMQ tenta de novo e, se
+        // persistir, o job fica em `failed` à vista — baixa não some calada.
+        const product = await this.stock.findById(ctx, parsed.productId);
+        if (!product) {
+          throw new Error(`Vacina ${parsed.productId} não encontrada no estoque (vacinação ${parsed.vaccinationId})`);
+        }
+        return {
+          sourceId: parsed.vaccinationId,
+          sourceType: 'vaccination',
+          items: [{ productId: parsed.productId, quantity: dosesToUnits(parsed.totalDoses, product.dosesPerUnit) }],
+        };
+      }
+      default:
+        return null;
     }
   }
 }

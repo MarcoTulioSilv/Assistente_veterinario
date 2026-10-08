@@ -27,6 +27,7 @@ const product: Product = {
   alertDaysBefore: 30,
   minStockQty: 2,
   category: 'vaccine',
+  doseIntervalDays: 365,
   isNearExpiry: false,
   isLowStock: false,
 };
@@ -108,6 +109,54 @@ describe('StockService.update', () => {
 
     expect(update).toHaveBeenCalledWith(ctx, product.id, { name: 'Nome Atualizado' });
     expect(result.name).toBe('Nome Atualizado');
+  });
+});
+
+describe('StockService — intervalo de dose (RF-VAC-005)', () => {
+  const base = { name: 'Produto', unit: 'frasco' as const, costPriceCents: 1000 };
+
+  it('vacina aceita intervalo', async () => {
+    const create = vi.fn().mockResolvedValue(product);
+    const service = new StockService(fakeProducts({ create }), fakeMovements());
+
+    await service.create(ctx, { ...base, category: 'vaccine', doseIntervalDays: 365 });
+
+    expect(create).toHaveBeenCalled();
+  });
+
+  it('medicamento ou insumo com intervalo é 422', async () => {
+    const service = new StockService(fakeProducts(), fakeMovements());
+
+    for (const category of ['medication', 'supply'] as const) {
+      await expect(service.create(ctx, { ...base, category, doseIntervalDays: 30 })).rejects.toMatchObject({
+        statusCode: 422,
+      });
+    }
+  });
+
+  it('na edição, a regra olha a categoria que já está gravada', async () => {
+    const medicamento = { ...product, category: 'medication' as const, doseIntervalDays: null };
+    const service = new StockService(fakeProducts({ findById: vi.fn().mockResolvedValue(medicamento) }), fakeMovements());
+
+    await expect(service.update(ctx, product.id, { doseIntervalDays: 30 })).rejects.toMatchObject({ statusCode: 422 });
+  });
+
+  it('vacina que vira medicamento perde o intervalo junto', async () => {
+    const update = vi.fn().mockResolvedValue(product);
+    const service = new StockService(fakeProducts({ update }), fakeMovements());
+
+    await service.update(ctx, product.id, { category: 'medication' });
+
+    expect(update).toHaveBeenCalledWith(ctx, product.id, { category: 'medication', doseIntervalDays: null });
+  });
+
+  it('null tira o intervalo de qualquer produto', async () => {
+    const update = vi.fn().mockResolvedValue(product);
+    const service = new StockService(fakeProducts({ update }), fakeMovements());
+
+    await service.update(ctx, product.id, { doseIntervalDays: null });
+
+    expect(update).toHaveBeenCalledWith(ctx, product.id, { doseIntervalDays: null });
   });
 });
 

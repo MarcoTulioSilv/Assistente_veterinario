@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { DueExamRow } from '../repositories/exam.repository';
-import { ExamReminderService, reminderKind, saoPauloDay } from './exam-reminder.service';
+import { ExamReminderService, reminderKind } from './exam-reminder.service';
+import { saoPauloDay, addDays } from './sao-paulo-day';
 import { deriveEventIdempotencyKey } from './billing';
 
 // 07h de São Paulo (UTC-3) do dia 01/10/2026 — o horário do job.
@@ -17,10 +18,15 @@ function row(id: string, expectedResultAt: string): DueExamRow {
   };
 }
 
-describe('saoPauloDay', () => {
+describe('saoPauloDay / addDays', () => {
   it('usa o dia civil de São Paulo, não o do UTC', () => {
     // 01h UTC do dia 02 ainda é 22h do dia 01 em São Paulo.
     expect(saoPauloDay(new Date('2026-10-02T01:00:00.000Z'))).toBe('2026-10-01');
+  });
+
+  it('soma dias atravessando mês e ano', () => {
+    expect(addDays('2026-10-31', 1)).toBe('2026-11-01');
+    expect(addDays('2026-12-28', 7)).toBe('2027-01-04');
   });
 });
 

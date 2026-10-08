@@ -33,6 +33,7 @@ function product(overrides: Partial<Product> = {}): Product {
     alertDaysBefore: 30,
     minStockQty: 0,
     category: 'supply',
+    doseIntervalDays: null,
     isNearExpiry: false,
     isLowStock: false,
     ...overrides,
