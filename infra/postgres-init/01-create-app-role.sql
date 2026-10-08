@@ -105,6 +105,16 @@ BEGIN
 END
 $$;
 
+-- ─── 4e. Lembrete de re-vacinacao (SECURITY DEFINER) ──────────────
+-- Sprint 7 (padrao da ADR-006). So existe no banco do clinical.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'clinical_list_vaccinations_due') THEN
+    GRANT EXECUTE ON FUNCTION clinical_list_vaccinations_due(TIMESTAMPTZ, TIMESTAMPTZ) TO quironequine_app;
+  END IF;
+END
+$$;
+
 -- ─── 5. Confirmacao ───────────────────────────────────────────────
 -- As duas colunas devem ser 'f' na linha do quironequine_app.
 -- Se 'ignora_rls' for 't', as policies seriam decorativas.
