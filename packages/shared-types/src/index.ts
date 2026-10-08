@@ -268,6 +268,8 @@ export interface Product {
   alertDaysBefore: number | null;
   minStockQty: number;
   category: ProductCategory;
+  /** RF-VAC-005: dias entre doses (só vacina). Nulo = sem re-vacinação. */
+  doseIntervalDays: number | null;
   isNearExpiry: boolean;
   isLowStock: boolean;
 }
@@ -313,6 +315,8 @@ export interface CreateProductDto {
   alertDaysBefore?: number;
   minStockQty?: number;
   category: ProductCategory;
+  /** Só em `category: 'vaccine'`. `null` na edição tira o intervalo. */
+  doseIntervalDays?: number | null;
 }
 // `quantityInStock` de propósito fora daqui: mudar o estoque só via
 // StockMovement (RF-EST-007) — permitir no PATCH direto do produto
@@ -744,6 +748,117 @@ export interface IExamService {
   softDelete(ctx: RequestContext, id: UUID): Promise<void>;
 }
 
+// ─── MS3 — Vacinação (RF-VAC-001 a 005, Sprint 7) ─────────────────
+//
+// Decisões do Marco (08/10/2026):
+//  - registrar é APLICAR: o registro já dá baixa no estoque (RN-007, baixa
+//    imediata) e abre a pendência financeira. Não há rascunho; correção é
+//    excluir e registrar de novo;
+//  - 1 dose por animal por padrão, ajustável. A conversão de doses em
+//    unidades do estoque (frasco de 10 doses etc.) é do MS2, que conhece o
+//    `dosesPerUnit` do produto;
+//  - o intervalo de dose mora no PRODUTO (MS2, `doseIntervalDays`) e é
+//    copiado para a vacinação: mudar o produto depois não muda a data da
+//    próxima dose de quem já foi vacinado;
+//  - lembrete de re-vacinação 7 dias antes e no dia, entregue pelo MS5.
+
+/** RF-VAC-001: uma aplicação — uma vacina, um ou vários animais da mesma propriedade. */
+export interface Vaccination {
+  id: UUID;
+  /** Referências ao MS1 — sem FK (ADR-001 §5.1). */
+  ownerId: UUID;
+  propertyId: UUID;
+  veterinarianId: UUID;
+  /** Produto do estoque (MS2) — sem FK. Nome e lote copiados na aplicação. */
+  productId: UUID;
+  vaccineName: string;
+  vaccineBatch: string | null;
+  animalIds: UUID[];
+  dosesPerAnimal: number;
+  appliedAt: ISODateString;
+  /** Cópia do intervalo do produto na aplicação. Nulo = sem próxima dose. */
+  doseIntervalDays: number | null;
+  /** appliedAt + intervalo. Base do lembrete e do indicador de próxima dose. */
+  nextDoseAt: ISODateString | null;
+  // RF-VAC-003: valor da vacina + mão de obra + km rodado (RN-011).
+  /** Preço de venda POR DOSE, congelado na aplicação. */
+  pricePerDoseCents: Cents;
+  laborCents: Cents;
+  displacementKm: number;
+  displacementRateCents: Cents;
+  totalCents: Cents;
+  notes: string | null;
+  createdAt: ISODateString;
+}
+
+export interface CreateVaccinationDto {
+  ownerId: UUID;
+  propertyId: UUID;
+  veterinarianId: UUID;
+  productId: UUID;
+  /**
+   * Os campos abaixo vêm do produto no MS2 — a tela já o carregou pra
+   * listar as vacinas. Mesmo padrão do preço dos itens do atendimento: o MS3
+   * não consulta o MS2, guarda a cópia.
+   */
+  vaccineName: string;
+  vaccineBatch?: string;
+  /**
+   * `salePriceCents / dosesPerUnit` do produto (sem `dosesPerUnit`, a unidade
+   * é a dose), arredondado para centavo.
+   */
+  pricePerDoseCents: Cents;
+  doseIntervalDays?: number | null;
+  /** Ao menos um. Repetidos são ignorados. */
+  animalIds: UUID[];
+  /** Padrão 1. */
+  dosesPerAnimal?: number;
+  appliedAt: ISODateString;
+  laborCents?: Cents;
+  displacementKm?: number;
+  displacementRateCents?: Cents;
+  notes?: string;
+}
+
+/**
+ * Indicador de próxima dose (Sprint 7) — por vacina, para um animal. Vem da
+ * aplicação MAIS RECENTE daquela vacina no animal: re-vacinar substitui o
+ * lembrete anterior.
+ */
+export interface VaccineBooster {
+  productId: UUID;
+  vaccineName: string;
+  lastVaccinationId: UUID;
+  lastAppliedAt: ISODateString;
+  nextDoseAt: ISODateString;
+  /** `due_soon` = nos próximos 7 dias; `overdue` = data já passou. */
+  status: 'scheduled' | 'due_soon' | 'overdue';
+}
+
+export interface IVaccinationService {
+  list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<Vaccination>>;
+  findById(ctx: RequestContext, id: UUID): Promise<Vaccination | null>;
+  /** RF-VAC-004: histórico na tela do animal. */
+  listByAnimal(ctx: RequestContext, animalId: UUID, params: PaginationParams): Promise<Paginated<Vaccination>>;
+  /** Próxima dose de cada vacina do animal — só vacinas com intervalo. */
+  listBoostersByAnimal(ctx: RequestContext, animalId: UUID): Promise<VaccineBooster[]>;
+  /**
+   * RF-VAC-001/002/003: registra a aplicação. Publica `vaccination.applied`
+   * na mesma transação: o MS2 dá baixa nas doses e o MS6 abre a pendência.
+   */
+  create(ctx: RequestContext, data: CreateVaccinationDto): Promise<Vaccination>;
+  /**
+   * Soft delete (LGPD). Se a aplicação gerou cobrança, publica
+   * `vaccination.deleted` e o MS6 cancela a pendência. Estoque não volta: a
+   * vacina foi de fato aplicada.
+   *
+   * ATENÇÃO, João — mesmo pop-up BLOQUEANTE do atendimento antes de excluir
+   * (`IAppointmentService.softDelete`): toda vacinação registrada já foi
+   * aplicada, então o aviso vale sempre que `totalCents > 0`.
+   */
+  softDelete(ctx: RequestContext, id: UUID): Promise<void>;
+}
+
 // ═══ MS6 — Reporting (fatia financeira, antecipada para o M2) ═════
 //
 // ATENÇÃO, João: esta seção chegou antes da hora de propósito.
@@ -838,6 +953,9 @@ export const EVENTS = {
   EXAM_CHARGED: 'exam.charged',
   EXAM_DELETED: 'exam.deleted',
   EXAM_RESULT_DUE: 'exam.result_due',
+  VACCINATION_APPLIED: 'vaccination.applied',
+  VACCINATION_DELETED: 'vaccination.deleted',
+  VACCINATION_DUE: 'vaccination.due',
   STOCK_DEDUCTED: 'stock.deducted',
   ALERT_TRIGGERED: 'alert.triggered',
   PAYMENT_REGISTERED: 'payment.registered',
@@ -877,6 +995,12 @@ export const EVENT_SUBSCRIBERS: Record<EventName, readonly string[]> = {
   // Lembrete D-1 e no dia pra buscar o resultado. Quem entrega push e
   // notificação é o MS5 (dez/2026); até lá o evento espera na fila dele.
   [EVENTS.EXAM_RESULT_DUE]: ['notification'],
+  // Vacinação (ADR-002, revisão 1.4). Aplicar = consumir e cobrar ao mesmo
+  // tempo, então volta ao padrão do atendimento: um evento, dois destinos.
+  [EVENTS.VACCINATION_APPLIED]: ['inventory', 'reporting'],
+  [EVENTS.VACCINATION_DELETED]: ['reporting'],
+  // Re-vacinação 7 dias antes e no dia — entregue pelo MS5.
+  [EVENTS.VACCINATION_DUE]: ['notification'],
   [EVENTS.ALERT_TRIGGERED]: ['notification'],
   [EVENTS.PAYMENT_REGISTERED]: ['notification'],
   [EVENTS.SCHEDULE_REMINDER_DUE]: ['notification'],
@@ -955,6 +1079,46 @@ export interface ExamResultDuePayload {
   examTypeName: string;
   expectedResultAt: ISODateString;
   kind: 'day_before' | 'due_today';
+}
+
+/**
+ * Vacina aplicada. O MS2 baixa `totalDoses` convertido em unidades pelo
+ * `dosesPerUnit` do produto (RN-007); o MS6 abre a pendência se o total for
+ * maior que zero (RN-002).
+ */
+export interface VaccinationAppliedPayload {
+  vaccinationId: UUID;
+  ownerId: UUID;
+  productId: UUID;
+  /** dosesPerAnimal × nº de animais. */
+  totalDoses: number;
+  totalCostCents: Cents;
+  /** Data da aplicação — a data da pendência. */
+  performedAt: ISODateString;
+}
+
+/** Vacinação com cobrança excluída: o MS6 cancela a pendência. */
+export interface VaccinationDeletedPayload {
+  vaccinationId: UUID;
+  ownerId: UUID;
+  totalCostCents: Cents;
+  performedAt: ISODateString;
+}
+
+/**
+ * Lembrete de re-vacinação: 7 dias antes e no dia da próxima dose. Só leva
+ * os animais que ainda não foram re-vacinados com a mesma vacina.
+ */
+export interface VaccinationDuePayload {
+  vaccinationId: UUID;
+  ownerId: UUID;
+  propertyId: UUID;
+  /** Quem deve ser lembrado. */
+  veterinarianId: UUID;
+  vaccineName: string;
+  animalIds: UUID[];
+  nextDoseAt: ISODateString;
+  kind: 'week_before' | 'due_today';
 }
 
 /** RN-002 — publicado pelo ms-reporting ao registrar pagamento, notifica o proprietário (ADR-001 §5.3). */
