@@ -9,20 +9,7 @@ import { AppHeader } from '@/components/AppHeader';
 import { cn } from '@/lib/cn';
 import { formatCentsToBRL } from '@/lib/money';
 import { api, ApiClientError, hasSession } from '@/lib/api';
-
-const TYPE_LABELS: Record<Appointment['type'], string> = {
-  clinico_geral: 'Clínico geral',
-  reproducao: 'Reprodução',
-  odontologico: 'Odontológico',
-  locomotor: 'Locomotor',
-  cirurgia: 'Cirurgia',
-};
-
-const STATUS_LABELS: Record<Appointment['status'], string> = {
-  draft: 'Rascunho',
-  finished: 'Finalizado',
-  cancelled: 'Cancelado',
-};
+import { TYPE_LABELS, STATUS_LABELS } from './labels';
 
 export default function AppointmentsPage(): React.ReactElement {
   const router = useRouter();

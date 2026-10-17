@@ -8,20 +8,7 @@ import { Button, Spinner, useToast } from '@/components/ui';
 import { AppHeader } from '@/components/AppHeader';
 import { formatCentsToBRL } from '@/lib/money';
 import { api, ApiClientError, hasSession } from '@/lib/api';
-
-const TYPE_LABELS: Record<Appointment['type'], string> = {
-  clinico_geral: 'Clínico geral',
-  reproducao: 'Reprodução',
-  odontologico: 'Odontológico',
-  locomotor: 'Locomotor',
-  cirurgia: 'Cirurgia',
-};
-
-const STATUS_LABELS: Record<Appointment['status'], string> = {
-  draft: 'Rascunho',
-  finished: 'Finalizado',
-  cancelled: 'Cancelado',
-};
+import { TYPE_LABELS, STATUS_LABELS } from '../labels';
 
 /**
  * ATENÇÃO (shared-types `IAppointmentService.softDelete`, decisão do Marco):
@@ -29,13 +16,21 @@ const STATUS_LABELS: Record<Appointment['status'], string> = {
  * que a pendência financeira é cancelada, que pagamento já recebido é
  * mantido, e que o estoque consumido não volta. Rascunho (e o status
  * `cancelled`, que nunca chega a gerar cobrança) não precisa do aviso.
+ *
+ * O findBySource só converte 404 (sem pendência) em `null` — qualquer outro
+ * erro (MS6 fora do ar, 5xx, falha de rede) propaga pra cima de propósito:
+ * sem saber o estado real da pendência não dá pra montar o aviso correto, e
+ * é mais seguro bloquear a exclusão do que arriscar mostrar "será cancelada"
+ * quando na verdade ninguém sabe (apontado pelo Marco na review da PR #31 —
+ * um .catch(() => null) aqui engolia esse erro e deixava a exclusão passar
+ * sem o aviso).
  */
 async function buildDeleteWarning(appointment: Appointment): Promise<string> {
   if (appointment.status !== 'finished') {
     return `Remover este atendimento (${STATUS_LABELS[appointment.status].toLowerCase()})? Esta ação não pode ser desfeita por aqui.`;
   }
 
-  const record = await api.financial.findBySource('appointment', appointment.id).catch(() => null);
+  const record = await api.financial.findBySource('appointment', appointment.id);
 
   const paymentLine =
     record?.status === 'received'
@@ -101,16 +96,26 @@ export default function AppointmentDetailPage(): React.ReactElement | null {
     if (!appointment) return;
 
     setDeleting(true);
-    const warning = await buildDeleteWarning(appointment).catch(() => {
-      // Se nem o aviso carregou (ex.: MS6 fora do ar), é mais seguro bloquear
-      // a exclusão do que deixar passar sem o alerta exigido.
-      toast({
-        title: 'Não foi possível preparar o aviso de exclusão',
-        description: 'Tente novamente em alguns instantes.',
-        variant: 'error',
+    // Recarrega antes de decidir o aviso: o status carregado quando a página
+    // abriu pode estar desatualizado (ex.: o atendimento foi finalizado em
+    // outra aba depois disso) — decidir com o status velho deixaria passar
+    // sem o pop-up um atendimento que já é finalizado agora.
+    const warning = await api.appointments
+      .get(id)
+      .then((fresh) => {
+        setAppointment(fresh);
+        return buildDeleteWarning(fresh);
+      })
+      .catch(() => {
+        // Se nem o aviso carregou (ex.: MS6 fora do ar), é mais seguro bloquear
+        // a exclusão do que deixar passar sem o alerta exigido.
+        toast({
+          title: 'Não foi possível preparar o aviso de exclusão',
+          description: 'Tente novamente em alguns instantes.',
+          variant: 'error',
+        });
+        return null;
       });
-      return null;
-    });
     setDeleting(false);
     if (warning === null) return;
 
