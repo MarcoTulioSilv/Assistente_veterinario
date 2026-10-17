@@ -3,9 +3,11 @@ import { createApp } from './app';
 import { disconnectPrisma } from './prisma';
 import { closeEventsQueue } from './events/publisher';
 import { startOutboxRelay } from './events/outbox-relay';
-import { startExamReminders } from './events/exam-reminder-scheduler';
+import { startDailyReminders } from './events/reminder-scheduler';
 import { ExamReminderService } from './services/exam-reminder.service';
+import { VaccinationReminderService } from './services/vaccination-reminder.service';
 import { ExamRepository } from './repositories/exam.repository';
+import { VaccinationRepository } from './repositories/vaccination.repository';
 
 const log = createServiceLogger('ms-clinical');
 const PORT = Number(process.env['PORT_MS_CLINICAL'] ?? 3003);
@@ -19,21 +21,26 @@ const server = createApp().listen(PORT, () => {
 // pendência financeira não nasce.
 const stopOutboxRelay = startOutboxRelay();
 
-// Lembrete D-1/no dia pra buscar o resultado do exame. Falha ao agendar
-// (Redis fora no boot) não derruba a API: o lembrete fica sem rodar até o
-// próximo boot, e o log diz isso.
-let stopExamReminders: (() => Promise<void>) | null = null;
-startExamReminders(new ExamReminderService(new ExamRepository()))
+// Lembretes diários: resultado de exame (D-1 e no dia) e re-vacinação (7
+// dias antes e no dia). Falha ao agendar (Redis fora no boot) não derruba a
+// API: os lembretes ficam sem rodar até o próximo boot, e o log diz isso.
+const examReminders = new ExamReminderService(new ExamRepository());
+const vaccinationReminders = new VaccinationReminderService(new VaccinationRepository());
+let stopReminders: (() => Promise<void>) | null = null;
+startDailyReminders([
+  { name: 'exam-result-due', run: (): Promise<number> => examReminders.run() },
+  { name: 'vaccination-due', run: (): Promise<number> => vaccinationReminders.run() },
+])
   .then((stop) => {
-    stopExamReminders = stop;
+    stopReminders = stop;
   })
-  .catch((err: unknown) => log.error({ err }, 'Lembrete de exame não agendado'));
+  .catch((err: unknown) => log.error({ err }, 'Lembretes diários não agendados'));
 
 async function shutdown(signal: string): Promise<void> {
   log.info({ signal }, 'Encerrando graciosamente...');
   server.close(async () => {
     stopOutboxRelay();
-    await stopExamReminders?.();
+    await stopReminders?.();
     await closeEventsQueue();
     await disconnectPrisma();
     process.exit(0);

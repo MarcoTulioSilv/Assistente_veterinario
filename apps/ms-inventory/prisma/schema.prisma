@@ -77,6 +77,9 @@ model Product {
   alertDaysBefore Int             @default(30) @map("alert_days_before")
   minStockQty     Decimal         @default(0) @map("min_stock_qty") @db.Decimal(10, 3)
   category        ProductCategory
+  /// RF-VAC-005: dias entre doses de uma vacina. Nulo = sem re-vacinação.
+  /// Só preenchido em produto de categoria `vaccine` (regra no StockService).
+  doseIntervalDays Int?           @map("dose_interval_days")
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz

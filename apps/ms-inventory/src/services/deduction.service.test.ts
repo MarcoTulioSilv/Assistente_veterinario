@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
-import { DeductionService, deriveItemIdempotencyKey } from './deduction.service';
+import { DeductionService, deriveItemIdempotencyKey, dosesToUnits } from './deduction.service';
 import type { IStockService } from '@quironequine/shared-types';
 import type { DomainEvent } from '@quironequine/shared-types';
 
@@ -208,5 +208,75 @@ describe('DeductionService.handle — exam.collected (RF-EXM-006)', () => {
     const event = { ...examCollectedEvent([]), payload: { consumedItems: [] } };
 
     await expect(service.handle('exam.collected', event)).rejects.toThrow();
+  });
+});
+
+describe('dosesToUnits (RF-VAC-002)', () => {
+  it('converte doses em unidades pelo dosesPerUnit do produto', () => {
+    expect(dosesToUnits(3, 10)).toBe(0.3);
+    expect(dosesToUnits(20, 10)).toBe(2);
+  });
+
+  it('sem dosesPerUnit, a unidade é a dose', () => {
+    expect(dosesToUnits(3, null)).toBe(3);
+  });
+
+  it('arredonda em 3 casas e nunca vira baixa zero', () => {
+    expect(dosesToUnits(1, 3)).toBe(0.333);
+    expect(dosesToUnits(1, 100000)).toBe(0.001);
+  });
+});
+
+describe('DeductionService.handle — vaccination.applied (RF-VAC-002)', () => {
+  const VACCINATION_ID = '66666666-6666-6666-6666-666666666666';
+
+  function vaccinationAppliedEvent(totalDoses: number): DomainEvent<unknown> {
+    return {
+      name: 'vaccination.applied',
+      tenantId: TENANT_ID,
+      traceId: 'test-trace',
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      payload: {
+        vaccinationId: VACCINATION_ID,
+        ownerId: randomUUID(),
+        productId: PRODUCT_A,
+        totalDoses,
+        totalCostCents: 18000,
+        performedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  it('baixa as doses convertidas em unidades, com motivo de vacinação', async () => {
+    const deduct = vi.fn().mockResolvedValue(undefined);
+    const findById = vi.fn().mockResolvedValue({ id: PRODUCT_A, dosesPerUnit: 10 });
+    const service = new DeductionService(fakeStock({ deduct, findById }));
+    const event = vaccinationAppliedEvent(3);
+
+    await service.handle('vaccination.applied', event);
+
+    expect(deduct).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT_ID }),
+      PRODUCT_A,
+      0.3,
+      deriveItemIdempotencyKey(event.idempotencyKey, 0),
+      { referenceId: VACCINATION_ID, referenceType: 'vaccination' },
+    );
+  });
+
+  it('vacina que não existe mais falha o job — baixa não some calada', async () => {
+    const deduct = vi.fn();
+    const service = new DeductionService(fakeStock({ deduct, findById: vi.fn().mockResolvedValue(null) }));
+
+    await expect(service.handle('vaccination.applied', vaccinationAppliedEvent(1))).rejects.toThrow(/não encontrada/);
+    expect(deduct).not.toHaveBeenCalled();
+  });
+
+  it('rejeita payload malformado', async () => {
+    const service = new DeductionService(fakeStock());
+    const event = { ...vaccinationAppliedEvent(1), payload: { vaccinationId: VACCINATION_ID } };
+
+    await expect(service.handle('vaccination.applied', event)).rejects.toThrow();
   });
 });

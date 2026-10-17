@@ -362,3 +362,71 @@ describe('FinancialService.handle — exame', () => {
     await expect(service.handle('exam.charged', event)).rejects.toThrow();
   });
 });
+
+describe('FinancialService.handle — vacinação', () => {
+  const VACCINATION_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+
+  function vaccinationEvent(name: 'vaccination.applied' | 'vaccination.deleted', totalCostCents = 18000): DomainEvent<unknown> {
+    return {
+      name,
+      tenantId: ctx.tenantId,
+      traceId: ctx.traceId,
+      idempotencyKey: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+      occurredAt: '2026-10-09T09:00:00.000Z',
+      payload: {
+        vaccinationId: VACCINATION_ID,
+        ownerId: OWNER_ID,
+        // Campos que só o MS2 usa — o schema do MS6 ignora.
+        productId: '77777777-7777-7777-7777-777777777777',
+        totalDoses: 2,
+        totalCostCents,
+        performedAt: '2026-10-08T12:00:00.000Z',
+      },
+    };
+  }
+
+  const expected = {
+    ownerId: OWNER_ID,
+    sourceType: 'vaccination',
+    sourceId: VACCINATION_ID,
+    amountCents: 18000,
+    occurredAt: '2026-10-08T12:00:00.000Z',
+  };
+
+  it('vaccination.applied abre a pendência com a data da aplicação', async () => {
+    const repo = fakeRepo();
+    await new FinancialService(repo, vi.fn()).handle('vaccination.applied', vaccinationEvent('vaccination.applied'));
+
+    expect(repo.recordPending).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: ctx.tenantId }),
+      expected,
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    );
+  });
+
+  it('aplicação sem custo não abre pendência', async () => {
+    const repo = fakeRepo();
+    await new FinancialService(repo, vi.fn()).handle('vaccination.applied', vaccinationEvent('vaccination.applied', 0));
+
+    expect(repo.recordPending).not.toHaveBeenCalled();
+  });
+
+  it('vaccination.deleted cancela a pendência da vacinação', async () => {
+    const repo = fakeRepo();
+    await new FinancialService(repo, vi.fn()).handle('vaccination.deleted', vaccinationEvent('vaccination.deleted'));
+
+    expect(repo.cancelBySource).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: ctx.tenantId }),
+      expected,
+      'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    );
+    expect(repo.recordPending).not.toHaveBeenCalled();
+  });
+
+  it('rejeita payload de vacinação malformado', async () => {
+    const service = new FinancialService(fakeRepo(), vi.fn());
+    const event = { ...vaccinationEvent('vaccination.applied'), payload: { vaccinationId: VACCINATION_ID } };
+
+    await expect(service.handle('vaccination.applied', event)).rejects.toThrow();
+  });
+});

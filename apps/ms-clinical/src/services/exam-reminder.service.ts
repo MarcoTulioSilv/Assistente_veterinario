@@ -4,33 +4,16 @@ import type { DomainEvent, ExamResultDuePayload } from '@quironequine/shared-typ
 import type { ExamRepository, DueExamRow } from '../repositories/exam.repository';
 import { publishDomainEvent } from '../events/publisher';
 import { deriveEventIdempotencyKey } from './billing';
+import { saoPauloDay, addDays } from './sao-paulo-day';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const TIME_ZONE = 'America/Sao_Paulo';
-
-/** 'AAAA-MM-DD' no fuso de São Paulo — o "dia" do veterinário, não o do servidor. */
-const dayFormatter = new Intl.DateTimeFormat('en-CA', {
-  timeZone: TIME_ZONE,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-});
-
-export function saoPauloDay(date: Date): string {
-  return dayFormatter.format(date);
-}
-
-function nextDay(day: string): string {
-  // Meio-dia UTC fica no mesmo dia civil em qualquer fuso do Brasil.
-  return new Date(new Date(`${day}T12:00:00Z`).getTime() + DAY_MS).toISOString().slice(0, 10);
-}
 
 /** Qual lembrete o pedido recebe hoje, se algum. */
 export function reminderKind(expectedResultAt: Date, now: Date): ExamResultDuePayload['kind'] | null {
   const today = saoPauloDay(now);
   const due = saoPauloDay(expectedResultAt);
   if (due === today) return 'due_today';
-  if (due === nextDay(today)) return 'day_before';
+  if (due === addDays(today, 1)) return 'day_before';
   return null;
 }
 

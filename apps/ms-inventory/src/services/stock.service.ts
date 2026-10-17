@@ -25,13 +25,24 @@ export class StockService implements IStockService {
   }
 
   async create(ctx: RequestContext, data: CreateProductInput): Promise<Product> {
+    requireVaccineForInterval(data.category, data.doseIntervalDays);
     return this.products.create(ctx, data);
   }
 
   async update(ctx: RequestContext, id: UUID, data: UpdateProductInput): Promise<Product> {
     const existing = await this.products.findById(ctx, id);
     if (!existing) throw AppError.notFound('Produto não encontrado');
-    return this.products.update(ctx, id, data);
+
+    const category = data.category ?? existing.category;
+    // Produto que deixa de ser vacina perde o intervalo junto — senão ficaria
+    // um intervalo órfão que o PATCH seguinte rejeitaria sem motivo aparente.
+    const changes =
+      category !== 'vaccine' && data.doseIntervalDays === undefined && existing.doseIntervalDays !== null
+        ? { ...data, doseIntervalDays: null }
+        : data;
+    requireVaccineForInterval(category, changes.doseIntervalDays);
+
+    return this.products.update(ctx, id, changes);
   }
 
   async softDelete(ctx: RequestContext, id: UUID): Promise<void> {
@@ -84,5 +95,14 @@ export class StockService implements IStockService {
     params: ListMovementsInput,
   ): Promise<{ data: StockMovementRecord[]; total: number }> {
     return this.movements.list(ctx, productId, params);
+  }
+}
+
+/** RF-VAC-005: intervalo de dose é de vacina — em medicamento ou insumo não tem significado. */
+function requireVaccineForInterval(category: string, doseIntervalDays: number | null | undefined): void {
+  if (category !== 'vaccine' && doseIntervalDays !== undefined && doseIntervalDays !== null) {
+    throw AppError.validation('Intervalo de dose só se aplica a vacina', [
+      { field: 'doseIntervalDays', message: 'Informe o intervalo apenas em produto da categoria vacina' },
+    ]);
   }
 }

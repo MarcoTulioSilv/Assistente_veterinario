@@ -18,6 +18,8 @@ import {
   appointmentDeletedPayloadSchema,
   examChargedPayloadSchema,
   examDeletedPayloadSchema,
+  vaccinationAppliedPayloadSchema,
+  vaccinationDeletedPayloadSchema,
   type ListFinancialRecordsInput,
 } from '../schemas/financial.schema';
 
@@ -114,7 +116,7 @@ export class FinancialService implements IFinancialService {
       const existing = await this.repo.findById(ctx, id);
       if (!existing) throw AppError.notFound('Registro financeiro não encontrado');
       if (existing.status === 'cancelled') {
-        throw AppError.conflict('Pendência cancelada — o atendimento ou exame de origem foi excluído');
+        throw AppError.conflict('Pendência cancelada — o atendimento, exame ou vacinação de origem foi excluído');
       }
       throw AppError.conflict('Pagamento já registrado');
     }
@@ -176,6 +178,8 @@ export class FinancialService implements IFinancialService {
     if (jobName === EVENTS.APPOINTMENT_DELETED) return this.onAppointmentDeleted(event);
     if (jobName === EVENTS.EXAM_CHARGED) return this.onExamCharged(event);
     if (jobName === EVENTS.EXAM_DELETED) return this.onExamDeleted(event);
+    if (jobName === EVENTS.VACCINATION_APPLIED) return this.onVaccinationApplied(event);
+    if (jobName === EVENTS.VACCINATION_DELETED) return this.onVaccinationDeleted(event);
   }
 
   /** RN-002: abre a pendência financeira (ADR-001 §5.3). */
@@ -257,6 +261,55 @@ export class FinancialService implements IFinancialService {
         ownerId: payload.ownerId,
         sourceType: 'exam',
         sourceId: payload.examRequestId,
+        amountCents: payload.totalCostCents,
+        occurredAt: payload.performedAt,
+      },
+      event.idempotencyKey,
+    );
+  }
+
+  /**
+   * RN-002 para vacinação. O evento é o mesmo que o MS2 usa pra baixar o
+   * estoque, então chega mesmo quando a aplicação não custou nada — e aí
+   * não há pendência a abrir (o MS3 também não publica a exclusão dela).
+   */
+  private async onVaccinationApplied(event: DomainEvent<unknown>): Promise<void> {
+    const payload = vaccinationAppliedPayloadSchema.parse(event.payload);
+    if (payload.totalCostCents === 0) {
+      log.info({ vaccinationId: payload.vaccinationId }, 'Vacinação sem custo — nenhuma pendência aberta');
+      return;
+    }
+    const ctx = systemCtx(event.tenantId, event.traceId);
+
+    await this.recordPending(
+      ctx,
+      {
+        ownerId: payload.ownerId,
+        sourceType: 'vaccination',
+        sourceId: payload.vaccinationId,
+        amountCents: payload.totalCostCents,
+        occurredAt: payload.performedAt,
+      },
+      event.idempotencyKey,
+    );
+
+    log.info(
+      { vaccinationId: payload.vaccinationId, amountCents: payload.totalCostCents },
+      'Pendência financeira aberta a partir da vacinação',
+    );
+  }
+
+  /** Vacinação com cobrança excluída → cancela a pendência dela. */
+  private async onVaccinationDeleted(event: DomainEvent<unknown>): Promise<void> {
+    const payload = vaccinationDeletedPayloadSchema.parse(event.payload);
+    const ctx = systemCtx(event.tenantId, event.traceId);
+
+    await this.cancelBySource(
+      ctx,
+      {
+        ownerId: payload.ownerId,
+        sourceType: 'vaccination',
+        sourceId: payload.vaccinationId,
         amountCents: payload.totalCostCents,
         occurredAt: payload.performedAt,
       },

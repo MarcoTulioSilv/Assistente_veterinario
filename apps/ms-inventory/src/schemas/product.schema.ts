@@ -24,6 +24,12 @@ export const createProductSchema = z.object({
   alertDaysBefore: z.coerce.number().int().min(0).optional(),
   minStockQty: z.coerce.number().min(0).optional(),
   category: z.enum(PRODUCT_CATEGORIES),
+  /**
+   * RF-VAC-005: intervalo entre doses, em dias — base do alerta de
+   * re-vacinação. Só faz sentido em vacina (regra no StockService); `null`
+   * na edição tira o intervalo. Até 10 anos: além disso é erro de digitação.
+   */
+  doseIntervalDays: z.coerce.number().int().min(1).max(3650).nullable().optional(),
 });
 
 // `quantityInStock` de propósito fora do update: mudar o estoque só via

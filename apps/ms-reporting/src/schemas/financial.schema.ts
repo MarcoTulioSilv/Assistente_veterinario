@@ -59,6 +59,19 @@ export const findBySourceParamsSchema = z.object({
   sourceId: z.string().uuid(),
 });
 
+/**
+ * `vaccination.applied` também vai pro MS2 (baixa); aqui só interessa o que
+ * vira pendência. Campos extras do payload são ignorados pelo Zod.
+ */
+export const vaccinationAppliedPayloadSchema = z.object({
+  vaccinationId: z.string().uuid(),
+  ownerId: z.string().uuid(),
+  totalCostCents: z.number().int().min(0),
+  performedAt: z.string().datetime(),
+});
+
+export const vaccinationDeletedPayloadSchema = vaccinationAppliedPayloadSchema;
+
 export type ListFinancialRecordsInput = z.infer<typeof listFinancialRecordsSchema>;
 export type AppointmentDonePayloadInput = z.infer<typeof appointmentDonePayloadSchema>;
 export type FindBySourceParamsInput = z.infer<typeof findBySourceParamsSchema>;
