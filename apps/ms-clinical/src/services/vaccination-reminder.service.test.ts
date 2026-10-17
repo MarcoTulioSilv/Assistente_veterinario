@@ -4,6 +4,7 @@ import {
   VaccinationReminderService,
   vaccinationReminderKind,
   groupByVaccination,
+  dayWindow,
 } from './vaccination-reminder.service';
 import { deriveEventIdempotencyKey } from './billing';
 
@@ -47,6 +48,15 @@ describe('vaccinationReminderKind', () => {
   });
 });
 
+describe('dayWindow', () => {
+  it('cobre o dia civil inteiro de São Paulo (UTC-3), com folga', () => {
+    const [from, to] = dayWindow('2026-10-08');
+    // 08/10 em São Paulo vai de 03h UTC do dia 08 a 03h UTC do dia 09.
+    expect(from.getTime()).toBeLessThanOrEqual(new Date('2026-10-08T03:00:00.000Z').getTime());
+    expect(to.getTime()).toBeGreaterThanOrEqual(new Date('2026-10-09T03:00:00.000Z').getTime());
+  });
+});
+
 describe('groupByVaccination', () => {
   it('uma entrada por aplicação, com todos os animais que faltam', () => {
     const groups = groupByVaccination([
@@ -61,10 +71,17 @@ describe('groupByVaccination', () => {
   });
 });
 
+/** Repo falso que devolve só as linhas da janela pedida — como a função SQL. */
+function inWindow(rows: DueVaccinationRow[]) {
+  return vi.fn(async (from: Date, to: Date) =>
+    rows.filter((r) => r.nextDoseAt.getTime() >= from.getTime() && r.nextDoseAt.getTime() < to.getTime()),
+  );
+}
+
 describe('VaccinationReminderService.run', () => {
   it('publica um aviso por aplicação, com o tipo certo e chave por (aplicação, tipo)', async () => {
     const repo = {
-      listDueAcrossTenants: vi.fn().mockResolvedValue([
+      listDueAcrossTenants: inWindow([
         row(V1, '2026-10-08T20:00:00.000Z', 'animal-1'),
         row(V1, '2026-10-08T20:00:00.000Z', 'animal-2'),
         row(V2, '2026-10-15T15:00:00.000Z', 'animal-3', '99999999-9999-9999-9999-999999999999'),
@@ -87,20 +104,26 @@ describe('VaccinationReminderService.run', () => {
     expect(publish.mock.calls[1]?.[0].tenantId).toBe('99999999-9999-9999-9999-999999999999');
   });
 
-  it('busca numa janela folgada em volta de hoje e de hoje + 7', async () => {
+  it('busca só em volta de hoje e de hoje + 7, no dia de São Paulo', async () => {
     const repo = { listDueAcrossTenants: vi.fn().mockResolvedValue([]) };
 
     await new VaccinationReminderService(repo, vi.fn(), () => NOW).run();
 
-    expect(repo.listDueAcrossTenants).toHaveBeenCalledWith(
-      new Date('2026-10-06T10:00:00.000Z'),
-      new Date('2026-10-17T10:00:00.000Z'),
-    );
+    expect(repo.listDueAcrossTenants.mock.calls).toEqual([dayWindow('2026-10-08'), dayWindow('2026-10-15')]);
+  });
+
+  it('às 22h de São Paulo "hoje" ainda é o dia de São Paulo, não o do UTC', async () => {
+    const repo = { listDueAcrossTenants: vi.fn().mockResolvedValue([]) };
+
+    // 01h UTC do dia 09 = 22h do dia 08 em São Paulo.
+    await new VaccinationReminderService(repo, vi.fn(), () => new Date('2026-10-09T01:00:00.000Z')).run();
+
+    expect(repo.listDueAcrossTenants.mock.calls[0]).toEqual(dayWindow('2026-10-08'));
   });
 
   it('uma falha não segura os outros avisos, mas falha o job', async () => {
     const repo = {
-      listDueAcrossTenants: vi.fn().mockResolvedValue([
+      listDueAcrossTenants: inWindow([
         row(V1, '2026-10-08T20:00:00.000Z', 'animal-1'),
         row(V2, '2026-10-08T21:00:00.000Z', 'animal-2'),
       ]),

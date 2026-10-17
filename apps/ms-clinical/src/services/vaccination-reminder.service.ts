@@ -7,7 +7,18 @@ import { deriveEventIdempotencyKey } from './billing';
 import { saoPauloDay, addDays } from './sao-paulo-day';
 import { BOOSTER_DUE_SOON_DAYS } from './vaccination.service';
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Janela de busca em volta de um dia civil ('AAAA-MM-DD'): de 12h antes da
+ * meia-noite UTC até 36h depois. Cobre o dia inteiro em qualquer fuso entre
+ * UTC-12 e UTC+12 sem depender do offset de São Paulo; o que sobra é
+ * descartado pela classificação exata (vaccinationReminderKind).
+ */
+export function dayWindow(day: string): [Date, Date] {
+  const midnightUtc = new Date(`${day}T00:00:00Z`).getTime();
+  return [new Date(midnightUtc - 12 * HOUR_MS), new Date(midnightUtc + 36 * HOUR_MS)];
+}
 
 /** Qual lembrete a dose recebe hoje, se algum: 7 dias antes ou no dia. */
 export function vaccinationReminderKind(nextDoseAt: Date, now: Date): VaccinationDuePayload['kind'] | null {
@@ -74,12 +85,15 @@ export class VaccinationReminderService {
   /** Devolve quantos avisos publicou. */
   async run(): Promise<number> {
     const now = this.now();
-    // Janela folgada em volta de hoje e de hoje+7: a classificação exata é
-    // feita aqui, no fuso de São Paulo, e não no SQL.
-    const rows = await this.repo.listDueAcrossTenants(
-      new Date(now.getTime() - 2 * DAY_MS),
-      new Date(now.getTime() + (BOOSTER_DUE_SOON_DAYS + 2) * DAY_MS),
-    );
+    const today = saoPauloDay(now);
+    // Só dois dias interessam: hoje e daqui a 7. Duas janelas estreitas em
+    // vez de 11 dias corridos — o custo da consulta acompanha o número de
+    // candidatos (Sprint 8, ver migration ms3_performance). A classificação
+    // exata é feita aqui, no fuso de São Paulo, e não no SQL.
+    const rows: DueVaccinationRow[] = [];
+    for (const day of [today, addDays(today, BOOSTER_DUE_SOON_DAYS)]) {
+      rows.push(...(await this.repo.listDueAcrossTenants(...dayWindow(day))));
+    }
 
     const errors: unknown[] = [];
     let published = 0;
