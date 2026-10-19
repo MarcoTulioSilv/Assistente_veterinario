@@ -58,6 +58,7 @@ export default function AppointmentDetailPage(): React.ReactElement | null {
   const [appointment, setAppointment] = useState<Appointment | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [finishing, setFinishing] = useState(false);
 
   useEffect(() => {
     if (!hasSession()) {
@@ -134,6 +135,35 @@ export default function AppointmentDetailPage(): React.ReactElement | null {
     }
   }
 
+  /**
+   * RF-ATD-008: congela o orçamento e publica appointment.done — o MS2 baixa
+   * o estoque e o MS6 abre a pendência financeira. Irreversível (não tem
+   * "voltar pra rascunho"), por isso o aviso explícito antes de confirmar.
+   */
+  async function handleFinish(): Promise<void> {
+    if (!appointment) return;
+    if (
+      !window.confirm(
+        'Finalizar este atendimento? O orçamento fica congelado, o estoque usado é baixado e uma pendência financeira é aberta para o proprietário. Não é possível desfazer.',
+      )
+    ) {
+      return;
+    }
+
+    setFinishing(true);
+    try {
+      const updated = await api.appointments.finish(id);
+      setAppointment(updated);
+      toast({ title: 'Atendimento finalizado', variant: 'success' });
+    } catch (err) {
+      const message =
+        err instanceof ApiClientError ? err.body.message : 'Não foi possível conectar ao servidor';
+      toast({ title: 'Falha ao finalizar', description: message, variant: 'error' });
+    } finally {
+      setFinishing(false);
+    }
+  }
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50">
@@ -160,17 +190,27 @@ export default function AppointmentDetailPage(): React.ReactElement | null {
       <AppHeader />
       <main className="flex min-h-screen items-start justify-center bg-slate-50 p-4 py-10">
         <div className="w-full max-w-sm rounded-lg border border-slate-200 bg-white p-8 shadow-sm">
-          <div className="mb-6">
-            <Link href="/appointments" className="text-sm text-primary-700 hover:underline">
-              &larr; Atendimentos
-            </Link>
-            <h1 className="mt-2 text-xl font-bold text-primary-800">
-              {TYPE_LABELS[appointment.type]}
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">
-              {new Date(appointment.performedAt).toLocaleDateString('pt-BR')} · Status:{' '}
-              <strong>{STATUS_LABELS[appointment.status]}</strong>
-            </p>
+          <div className="mb-6 flex items-start justify-between gap-3">
+            <div>
+              <Link href="/appointments" className="text-sm text-primary-700 hover:underline">
+                &larr; Atendimentos
+              </Link>
+              <h1 className="mt-2 text-xl font-bold text-primary-800">
+                {TYPE_LABELS[appointment.type]}
+              </h1>
+              <p className="mt-1 text-sm text-slate-500">
+                {new Date(appointment.performedAt).toLocaleDateString('pt-BR')} · Status:{' '}
+                <strong>{STATUS_LABELS[appointment.status]}</strong>
+              </p>
+            </div>
+            {appointment.status === 'draft' && (
+              <Link
+                href={`/appointments/${id}/edit`}
+                className="shrink-0 text-sm text-primary-700 hover:underline"
+              >
+                Editar
+              </Link>
+            )}
           </div>
 
           <dl className="space-y-3 text-sm">
@@ -205,12 +245,24 @@ export default function AppointmentDetailPage(): React.ReactElement | null {
             </div>
           </dl>
 
+          {appointment.status === 'draft' && (
+            <Button
+              type="button"
+              variant="primary"
+              loading={finishing}
+              onClick={handleFinish}
+              className="mt-6 w-full"
+            >
+              {finishing ? 'Finalizando' : 'Finalizar atendimento'}
+            </Button>
+          )}
+
           <Button
             type="button"
             variant="danger"
             loading={deleting}
             onClick={handleDelete}
-            className="mt-6 w-full"
+            className="mt-3 w-full"
           >
             {deleting ? 'Removendo' : 'Remover atendimento'}
           </Button>

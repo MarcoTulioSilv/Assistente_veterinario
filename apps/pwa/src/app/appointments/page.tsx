@@ -60,6 +60,7 @@ export default function AppointmentsPage(): React.ReactElement {
         <div className="mx-auto w-full max-w-2xl">
           <div className="mb-6 flex items-center justify-between">
             <h1 className="text-xl font-bold text-primary-800">Atendimentos</h1>
+            <Button onClick={() => router.push('/appointments/new')}>Novo atendimento</Button>
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
