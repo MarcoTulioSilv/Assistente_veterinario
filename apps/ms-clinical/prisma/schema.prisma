@@ -48,10 +48,6 @@ enum AdministrationRoute {
 }
 
 /// RF-ATD-006
-enum AppointmentItemKind {
-  product
-  procedure
-}
 
 model Appointment {
   id       String @id @default(uuid()) @db.Uuid
@@ -60,15 +56,26 @@ model Appointment {
   // ─── Referências ao MS1 (sem FK — ver cabeçalho) ───────────────
   ownerId        String @map("owner_id") @db.Uuid
   propertyId     String @map("property_id") @db.Uuid
-  animalId       String @map("animal_id") @db.Uuid
   veterinarianId String @map("veterinarian_id") @db.Uuid
+
+  /// Nome do orçamento (reunião de 20/10/2026). A tela pré-preenche "Data
+  /// Especialidade Propriedade"; sem nome, o service usa data + especialidade.
+  title String @db.VarChar(255)
 
   type   AppointmentType
   status AppointmentStatus @default(draft)
 
-  /// RF-ATD-004: animal temporariamente em local diferente da propriedade de registro
-  animalLocation String?  @map("animal_location") @db.Text
-  performedAt    DateTime @map("performed_at") @db.Timestamptz
+  /// RF-ATD-004: descrição livre do local (piquete, evento, outra fazenda)
+  animalLocation    String?  @map("animal_location") @db.Text
+  /// Ponto do atendimento no mapa — destino do cálculo de km. Os dois ou
+  /// nenhum (CHECK na migration).
+  locationLatitude  Decimal? @map("location_latitude") @db.Decimal(9, 6)
+  locationLongitude Decimal? @map("location_longitude") @db.Decimal(9, 6)
+  performedAt       DateTime @map("performed_at") @db.Timestamptz
+
+  /// O que foi feito. O procedimento saiu dos itens (reunião de 20/10/2026):
+  /// é texto, e o valor do serviço entra na mão de obra.
+  procedureDescription String? @map("procedure_description") @db.Text
 
   // ─── RF-ATD-006: orçamento ─────────────────────────────────────
   // Centavos, INTEGER (ADR-001 §5.6). A taxa de km fica gravada na linha
@@ -94,23 +101,45 @@ model Appointment {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  medicalRecord MedicalRecord?
-  items         AppointmentItem[]
-  prescriptions Prescription[]
+  animals AppointmentAnimal[]
+  items   AppointmentItem[]
 
   @@index([tenantId])
-  @@index([animalId])
   @@index([ownerId])
   @@index([performedAt])
   @@index([status])
   @@map("appointments")
 }
 
-/// RF-ATD-001: ficha clínica.
+/// Animais do orçamento (reunião de 20/10/2026: vários animais por visita).
+/// A ficha e a receita penduram AQUI, não no orçamento: cada animal tem as
+/// suas, e o histórico de um cavalo não mostra o diagnóstico de outro.
+model AppointmentAnimal {
+  id            String @id @default(uuid()) @db.Uuid
+  tenantId      String @map("tenant_id") @db.Uuid
+  appointmentId String @map("appointment_id") @db.Uuid
+
+  /// Animal no MS1 — sem FK.
+  animalId String @map("animal_id") @db.Uuid
+
+  appointment   Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  medicalRecord MedicalRecord?
+  prescriptions Prescription[]
+
+  @@unique([appointmentId, animalId])
+  @@index([tenantId])
+  @@index([animalId])
+  @@map("appointment_animals")
+}
+
+/// RF-ATD-001: ficha clínica de UM animal no orçamento. A chave estrangeira
+/// composta (orçamento, animal) garante no banco que a ficha é de um animal
+/// que está no orçamento — e tirar o animal do orçamento leva a ficha junto.
 model MedicalRecord {
   id            String @id @default(uuid()) @db.Uuid
   tenantId      String @map("tenant_id") @db.Uuid
-  appointmentId String @unique @map("appointment_id") @db.Uuid
+  appointmentId String @map("appointment_id") @db.Uuid
+  animalId      String @map("animal_id") @db.Uuid
 
   /// Campos narrativos nomeados no RF-ATD-001 ficam em coluna — são os
   /// mesmos em todo tipo de atendimento e aparecem no histórico do animal
@@ -131,8 +160,9 @@ model MedicalRecord {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  appointmentAnimal AppointmentAnimal @relation(fields: [appointmentId, animalId], references: [appointmentId, animalId], onDelete: Cascade)
 
+  @@unique([appointmentId, animalId])
   @@index([tenantId])
   @@map("medical_records")
 }
@@ -143,11 +173,10 @@ model AppointmentItem {
   tenantId      String @map("tenant_id") @db.Uuid
   appointmentId String @map("appointment_id") @db.Uuid
 
-  kind AppointmentItemKind
-
-  /// Só em `product`: produto no MS2 (sem FK — ver cabeçalho). É este campo
-  /// que vira `consumedItems` no evento de baixa de estoque (RN-003).
-  productId String? @map("product_id") @db.Uuid
+  /// Produto no MS2 (sem FK — ver cabeçalho). É este campo que vira
+  /// `consumedItems` no evento de baixa de estoque (RN-003). Item é sempre
+  /// produto: o procedimento saiu dos itens (reunião de 20/10/2026).
+  productId String @map("product_id") @db.Uuid
 
   /// Nome e preço congelados no atendimento: o produto pode ser renomeado,
   /// ter o preço alterado ou ser removido depois, e a ficha tem valor legal.
@@ -439,10 +468,12 @@ model OutboxEvent {
 }
 
 /// RF-ATD-005: prescrição / protocolo de tratamento.
+/// RF-ATD-005: receita de UM animal no orçamento (mesma chave composta da ficha).
 model Prescription {
   id            String @id @default(uuid()) @db.Uuid
   tenantId      String @map("tenant_id") @db.Uuid
   appointmentId String @map("appointment_id") @db.Uuid
+  animalId      String @map("animal_id") @db.Uuid
 
   /// A "flag origem" do RF-ATD-005: preenchido = saiu do estoque (MS2);
   /// null = receita externa, o tutor compra por fora.
@@ -457,9 +488,9 @@ model Prescription {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  appointmentAnimal AppointmentAnimal @relation(fields: [appointmentId, animalId], references: [appointmentId, animalId], onDelete: Cascade)
 
   @@index([tenantId])
-  @@index([appointmentId])
+  @@index([appointmentId, animalId])
   @@map("prescriptions")
 }

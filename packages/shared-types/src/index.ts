@@ -97,7 +97,41 @@ export interface TenantProfile {
     phone: string;
     email: string;
     logoUrl: string | null;
+    /**
+     * Valor por km rodado (RN-011), em centavos. A tela de orçamento
+     * pré-preenche `displacementRateCents` com ele — o orçamento guarda a
+     * própria cópia e pode mudar lá. Nulo = ainda não configurado.
+     */
+    displacementRateCents: Cents | null;
   };
+}
+
+/** Ponto no mapa (graus decimais, WGS84). */
+export interface GeoPoint {
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * Km automático do orçamento (reunião com os stakeholders de 20/10/2026):
+ * distância de carro entre o ponto de onde o veterinário saiu (informado no
+ * orçamento) e o ponto do atendimento no mapa — só a ida. A tela preenche
+ * `displacementKm` com `distanceKm`, e o vet pode corrigir.
+ *
+ * Calculado no MS1 (RouteService), nunca no navegador: a chave do Google
+ * Maps não pode ir para o cliente. Custo da API é dos stakeholders
+ * (contrato, Cláusula 2ª).
+ */
+export interface RouteDistance {
+  /** Arredondado em 0,1 km. */
+  distanceKm: number;
+  /** Arredondado em minutos. */
+  durationMinutes: number;
+}
+
+export interface IRouteService {
+  /** `null` = rota indisponível agora (API fora, sem rota de carro): a tela pede o km à mão. */
+  distance(origin: GeoPoint, destination: GeoPoint): Promise<RouteDistance | null>;
 }
 
 export interface Owner {
@@ -177,7 +211,10 @@ export interface RegisterTenantDto {
   /** Nome do tenant/clínica; default = fullName se omitido (RF-CAD-030 não define campo próprio). */
   tenantName?: string;
 }
-export type UpdateVeterinarianDto = Partial<Pick<RegisterTenantDto, 'fullName' | 'phone' | 'email' | 'logoUrl'>>;
+export type UpdateVeterinarianDto = Partial<Pick<RegisterTenantDto, 'fullName' | 'phone' | 'email' | 'logoUrl'>> & {
+  /** `null` apaga o valor configurado. */
+  displacementRateCents?: Cents | null;
+};
 
 export interface IOwnerService {
   list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<Owner>>;
@@ -368,14 +405,25 @@ export type AdministrationRoute =
   | 'intrauterina'
   | 'outra';
 
-/** RF-ATD-006: item de estoque (gera baixa) ou procedimento (só cobra). */
-export type AppointmentItemKind = 'product' | 'procedure';
+// Reunião de alinhamento com os stakeholders (20/10/2026) — o atendimento
+// virou um ORÇAMENTO de visita:
+//  - vários animais por orçamento, com ficha clínica e receita POR ANIMAL
+//    (o histórico de cada cavalo continua só dele); um total e uma pendência
+//    financeira por orçamento;
+//  - o procedimento saiu dos itens: é um texto (`procedureDescription`) e o
+//    valor do serviço entra na mão de obra (`laborCents`). Itens são só
+//    produtos do estoque;
+//  - nome do orçamento (`title`) — a tela pré-preenche "Data Especialidade
+//    Propriedade";
+//  - ponto do atendimento no mapa (pré-marcado na propriedade) — é o destino
+//    do cálculo de km;
+//  - valor por km vem do perfil do veterinário, editável no orçamento.
 
+/** RF-ATD-006: produto do estoque usado no orçamento — gera baixa (RN-003). */
 export interface AppointmentItem {
   id: UUID;
-  kind: AppointmentItemKind;
-  /** Só em `kind: 'product'` — referência ao MS2, sem FK (database-per-service). */
-  productId: UUID | null;
+  /** Referência ao MS2, sem FK (database-per-service). */
+  productId: UUID;
   /** Nome congelado no atendimento: o produto pode ser renomeado ou removido depois. */
   description: string;
   quantity: number;
@@ -383,7 +431,7 @@ export interface AppointmentItem {
   totalCents: Cents;
 }
 
-/** RF-ATD-005: prescrição / protocolo de tratamento. */
+/** RF-ATD-005: prescrição / protocolo de tratamento — de UM animal. */
 export interface Prescription {
   id: UUID;
   /** A "flag origem" do RF-ATD-005: do estoque (MS2) quando preenchido, receita externa quando null. */
@@ -398,14 +446,13 @@ export interface Prescription {
 }
 
 /**
- * RF-ATD-001: ficha clínica. Os campos narrativos nomeados no requisito são
- * colunas; `generalExam` e `specialExams` são JSONB porque a forma muda por
- * tipo de atendimento (os exames especiais de reprodução não são os mesmos de
- * locomotor) — ADR-001 §4 já previa JSONB pra ficha clínica.
+ * RF-ATD-001: ficha clínica de UM animal no orçamento. Os campos narrativos
+ * nomeados no requisito são colunas; `generalExam` e `specialExams` são
+ * JSONB porque a forma muda por tipo de atendimento (os exames especiais de
+ * reprodução não são os mesmos de locomotor) — ADR-001 §4.
  */
 export interface MedicalRecord {
   id: UUID;
-  appointmentId: UUID;
   anamnesis: string | null;
   generalExam: Record<string, unknown> | null;
   specialExams: Record<string, unknown> | null;
@@ -415,20 +462,37 @@ export interface MedicalRecord {
   referral: string | null;
 }
 
+/** Um animal do orçamento, com a ficha e a receita dele. */
+export interface AppointmentAnimal {
+  /** Animal no MS1 — sem FK. */
+  animalId: UUID;
+  medicalRecord: MedicalRecord | null;
+  prescriptions: Prescription[];
+}
+
 export interface Appointment {
   id: UUID;
+  /** Nome do orçamento. Sem nome informado: data + especialidade. */
+  title: string;
   /** Referências ao MS1 — sem FK, sem join (ADR-001 §5.1). */
   ownerId: UUID;
   propertyId: UUID;
-  animalId: UUID;
   veterinarianId: UUID;
+  /** A especialidade do orçamento. */
   type: AppointmentType;
   status: AppointmentStatus;
-  /** RF-ATD-004: animal temporariamente fora da propriedade de registro. */
+  /** Ao menos um. RF-CAD-026 / RF-ATD-011: aparece no histórico de cada um. */
+  animals: AppointmentAnimal[];
+  /** RF-ATD-004: descrição livre do local (ex.: "piquete 2", "evento em Rio Verde"). */
   animalLocation: string | null;
+  /** Ponto do atendimento no mapa — destino do cálculo de km. Os dois ou nenhum. */
+  locationLatitude: number | null;
+  locationLongitude: number | null;
   performedAt: ISODateString;
-  // RF-ATD-006 — orçamento. A taxa de km fica gravada aqui (e não lida de uma
-  // config global na exibição) pra que o orçamento antigo não mude quando ela mudar.
+  /** O que foi feito. O valor do serviço está em `laborCents`. */
+  procedureDescription: string | null;
+  // RF-ATD-006 — orçamento. A taxa de km fica gravada aqui (e não lida do
+  // perfil na exibição) pra que o orçamento antigo não mude quando ela mudar.
   laborCents: Cents;
   displacementKm: number;
   displacementRateCents: Cents;
@@ -439,13 +503,10 @@ export interface Appointment {
   finishedAt: ISODateString | null;
   createdAt: ISODateString;
   items: AppointmentItem[];
-  prescriptions: Prescription[];
-  medicalRecord: MedicalRecord | null;
 }
 
 export interface CreateAppointmentItemDto {
-  kind: AppointmentItemKind;
-  productId?: UUID;
+  productId: UUID;
   description: string;
   quantity: number;
   unitPriceCents: Cents;
@@ -456,30 +517,54 @@ export type CreatePrescriptionDto = Omit<Prescription, 'id' | 'applicationSite' 
   notes?: string;
 };
 
-export type CreateMedicalRecordDto = Partial<Omit<MedicalRecord, 'id' | 'appointmentId'>>;
+export type CreateMedicalRecordDto = Partial<Omit<MedicalRecord, 'id'>>;
+
+/** Ficha e receita de um animal — o animal precisa estar em `animalIds`. */
+export interface AppointmentAnimalClinicalDto {
+  animalId: UUID;
+  medicalRecord?: CreateMedicalRecordDto;
+  prescriptions?: CreatePrescriptionDto[];
+}
 
 export interface CreateAppointmentDto {
   ownerId: UUID;
   propertyId: UUID;
-  animalId: UUID;
   veterinarianId: UUID;
   type: AppointmentType;
+  /** Ao menos um; repetidos são ignorados. */
+  animalIds: UUID[];
+  /** A tela pré-preenche "Data Especialidade Propriedade". */
+  title?: string;
   animalLocation?: string;
+  locationLatitude?: number;
+  locationLongitude?: number;
   performedAt: ISODateString;
+  procedureDescription?: string;
   laborCents?: Cents;
   displacementKm?: number;
+  /** Pré-preenchido pela tela com o valor por km do perfil do veterinário. */
   displacementRateCents?: Cents;
   items?: CreateAppointmentItemDto[];
-  prescriptions?: CreatePrescriptionDto[];
-  medicalRecord?: CreateMedicalRecordDto;
+  /** Fichas e receitas, por animal. Animal sem entrada aqui fica sem ficha. */
+  clinical?: AppointmentAnimalClinicalDto[];
 }
 
-export type UpdateAppointmentDto = Partial<Omit<CreateAppointmentDto, 'animalId' | 'ownerId'>>;
+/**
+ * Só enquanto rascunho. `animalIds` substitui a lista inteira — animal que
+ * sai leva junto a ficha e a receita dele. `clinical` substitui só as fichas
+ * dos animais citados.
+ */
+export type UpdateAppointmentDto = Partial<Omit<CreateAppointmentDto, 'ownerId'>>;
+
+/** Filtro da lista: "em aberto" = `draft`, "finalizados" = `finished`. */
+export interface ListAppointmentsParams extends PaginationParams {
+  status?: AppointmentStatus;
+}
 
 export interface IAppointmentService {
-  list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<Appointment>>;
+  list(ctx: RequestContext, params: ListAppointmentsParams): Promise<Paginated<Appointment>>;
   findById(ctx: RequestContext, id: UUID): Promise<Appointment | null>;
-  /** RF-ATD-011: histórico completo por animal, acessível pela tela do animal. */
+  /** RF-ATD-011: histórico completo por animal — orçamentos em que o animal está. */
   listByAnimal(ctx: RequestContext, animalId: UUID, params: PaginationParams): Promise<Paginated<Appointment>>;
   create(ctx: RequestContext, data: CreateAppointmentDto): Promise<Appointment>;
   /** Só enquanto `status: 'draft'` — depois de finalizado o orçamento está congelado. */

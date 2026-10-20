@@ -9,6 +9,7 @@ import { parseBRLToCents, parseOptionalNumber } from '@/lib/money';
 import { api, ApiClientError, hasSession } from '@/lib/api';
 import { AppointmentForm } from '../../AppointmentForm';
 import type { AppointmentFormValues, AppointmentItemFormValues } from '../../schema';
+import { splitItems } from '../../contract-bridge';
 
 /** 2026-10-05T12:00:00.000Z -> "2026-10-05T09:00" no fuso local, pro <input type="datetime-local">. */
 function toDatetimeLocal(iso: string): string {
@@ -33,9 +34,10 @@ function toDefaultValues(appointment: Appointment): Partial<AppointmentFormValue
 }
 
 function toDefaultItems(appointment: Appointment): AppointmentItemFormValues[] {
+  // Itens agora são sempre produtos (o procedimento virou texto + mão de obra).
   return appointment.items.map((item) => ({
-    kind: item.kind,
-    productId: item.productId ?? '',
+    kind: 'product',
+    productId: item.productId,
     description: item.description,
     quantity: String(item.quantity),
     unitPriceCents: centsToBRLInput(item.unitPriceCents),
@@ -46,20 +48,17 @@ function toUpdateDto(
   values: AppointmentFormValues,
   items: AppointmentItemFormValues[],
 ): UpdateAppointmentDto {
+  // Ver contract-bridge.ts: procedimento vira texto, valor vai na mão de obra.
+  const { products, procedureDescription, procedureCents } = splitItems(items);
   return {
     type: values.type,
     animalLocation: values.animalLocation || undefined,
     performedAt: new Date(values.performedAt).toISOString(),
-    laborCents: parseBRLToCents(values.laborCents ?? '') ?? 0,
+    laborCents: (parseBRLToCents(values.laborCents ?? '') ?? 0) + procedureCents,
     displacementKm: parseOptionalNumber(values.displacementKm ?? '') ?? 0,
     displacementRateCents: parseBRLToCents(values.displacementRateCents ?? '') ?? 0,
-    items: items.map((item) => ({
-      kind: item.kind,
-      productId: item.kind === 'product' ? item.productId || undefined : undefined,
-      description: item.description,
-      quantity: parseOptionalNumber(item.quantity) ?? 1,
-      unitPriceCents: parseBRLToCents(item.unitPriceCents) ?? 0,
-    })),
+    ...(procedureDescription !== undefined ? { procedureDescription } : {}),
+    items: products,
   };
 }
 
@@ -98,7 +97,8 @@ export default function EditAppointmentPage(): React.ReactElement | null {
           return;
         }
         const [animalResult, productsResult] = await Promise.all([
-          api.animals.get(data.animalId),
+          // Ponte: o form ainda edita um animal só — o primeiro do orçamento.
+          api.animals.get(data.animals[0]!.animalId),
           api.products.list({ limit: 100 }),
         ]);
         if (cancelled) return;

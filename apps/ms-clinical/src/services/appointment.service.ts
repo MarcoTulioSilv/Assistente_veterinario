@@ -16,6 +16,7 @@ import type {
   UpdateAppointmentData,
   AppointmentItemData,
   PrescriptionData,
+  AnimalClinicalData,
 } from '../repositories/appointment.repository';
 import type {
   CreateAppointmentInput,
@@ -23,17 +24,54 @@ import type {
   ListAppointmentsInput,
   AppointmentItemInput,
   PrescriptionInput,
+  AppointmentAnimalClinicalInput,
 } from '../schemas/appointment.schema';
 import { calculateTotalCents, calculateItemTotalCents, deriveEventIdempotencyKey } from './billing';
+import { saoPauloDay } from './sao-paulo-day';
+
+/** RN-003: todo item é produto do estoque e vira baixa (o procedimento saiu dos itens). */
+export function toConsumedItems(appointment: Appointment): AppointmentDonePayload['consumedItems'] {
+  return appointment.items.map((item) => ({ productId: item.productId, quantity: item.quantity }));
+}
+
+const TYPE_LABELS: Record<Appointment['type'], string> = {
+  clinico_geral: 'Clínico geral',
+  reproducao: 'Reprodução',
+  odontologico: 'Odontológico',
+  locomotor: 'Locomotor',
+  cirurgia: 'Cirurgia',
+};
 
 /**
- * RN-003: só item de estoque vira baixa. Procedimento não tem produto e não
- * pode entrar no evento — o MS2 tentaria dar baixa num produto inexistente.
+ * Nome padrão quando a tela não manda um: data (dia de São Paulo) +
+ * especialidade — "20/10/2026 - Locomotor". A tela pré-preenche a versão
+ * completa com a propriedade (o MS3 não conhece o nome dela, ADR-001 §5.1).
+ * A migration do orçamento usa a mesma regra nos atendimentos antigos.
  */
-export function toConsumedItems(appointment: Appointment): AppointmentDonePayload['consumedItems'] {
-  return appointment.items
-    .filter((item) => item.kind === 'product' && item.productId !== null)
-    .map((item) => ({ productId: item.productId as UUID, quantity: item.quantity }));
+export function defaultTitle(performedAt: Date, type: Appointment['type']): string {
+  const [year, month, day] = saoPauloDay(performedAt).split('-');
+  return `${day}/${month}/${year} - ${TYPE_LABELS[type]}`;
+}
+
+/**
+ * Ficha e receita só de animal que está no orçamento, e uma entrada por
+ * animal — sem isso, a ficha ficaria órfã (e o banco recusaria pela FK
+ * composta, com um erro bem menos útil que este).
+ */
+function requireClinicalForListedAnimals(clinical: AppointmentAnimalClinicalInput[], animalIds: string[]): void {
+  const listed = new Set(animalIds);
+  const seen = new Set<string>();
+  const details: Array<{ field: string; message: string }> = [];
+  clinical.forEach((entry, index) => {
+    if (!listed.has(entry.animalId)) {
+      details.push({ field: `clinical.${index}.animalId`, message: 'Animal não está no orçamento' });
+    }
+    if (seen.has(entry.animalId)) {
+      details.push({ field: `clinical.${index}.animalId`, message: 'Ficha do animal informada mais de uma vez' });
+    }
+    seen.add(entry.animalId);
+  });
+  if (details.length > 0) throw AppError.validation('Fichas clínicas inválidas', details);
 }
 
 export function buildAppointmentDoneEvent(
@@ -109,26 +147,38 @@ export class AppointmentService implements IAppointmentService {
   /**
    * Orçamento só muda enquanto rascunho. Depois de finalizado ele virou
    * pendência financeira no MS6 e evento de baixa no MS2 — mexer no valor
-   * aqui deixaria os três fora de sincronia, sem nada no banco impedindo.
+   * aqui deixaria os três fora de sincronia. A trava definitiva é no
+   * repositório (UPDATE condicionado ao rascunho); esta checagem só dá a
+   * mensagem certa no caso comum.
+   *
+   * O nome não muda sozinho quando data ou especialidade mudam: pode ter
+   * sido escrito pelo vet.
    */
   async update(ctx: RequestContext, id: UUID, data: UpdateAppointmentInput): Promise<Appointment> {
     const existing = await this.requireDraft(ctx, id);
 
+    const animalIds = data.animalIds ? dedupe(data.animalIds) : existing.animals.map((a) => a.animalId);
+    if (data.clinical) requireClinicalForListedAnimals(data.clinical, animalIds);
+
     const items = data.items ? data.items.map(toItemData) : existing.items;
     const changes: UpdateAppointmentData = {
+      ...(data.animalIds ? { animalIds } : {}),
       ...(data.propertyId !== undefined ? { propertyId: data.propertyId } : {}),
       ...(data.veterinarianId !== undefined ? { veterinarianId: data.veterinarianId } : {}),
+      ...(data.title !== undefined ? { title: data.title } : {}),
       ...(data.type !== undefined ? { type: data.type } : {}),
       ...(data.animalLocation !== undefined ? { animalLocation: data.animalLocation } : {}),
+      ...(data.locationLatitude !== undefined ? { locationLatitude: data.locationLatitude } : {}),
+      ...(data.locationLongitude !== undefined ? { locationLongitude: data.locationLongitude } : {}),
       ...(data.performedAt !== undefined ? { performedAt: new Date(data.performedAt) } : {}),
+      ...(data.procedureDescription !== undefined ? { procedureDescription: data.procedureDescription } : {}),
       ...(data.laborCents !== undefined ? { laborCents: data.laborCents } : {}),
       ...(data.displacementKm !== undefined ? { displacementKm: data.displacementKm } : {}),
       ...(data.displacementRateCents !== undefined
         ? { displacementRateCents: data.displacementRateCents }
         : {}),
       ...(data.items ? { items: data.items.map(toItemData) } : {}),
-      ...(data.prescriptions ? { prescriptions: data.prescriptions.map(toPrescriptionData) } : {}),
-      ...(data.medicalRecord ? { medicalRecord: data.medicalRecord } : {}),
+      ...(data.clinical ? { clinical: data.clinical.map(toClinicalData) } : {}),
       totalCents: calculateTotalCents({
         items,
         laborCents: data.laborCents ?? existing.laborCents,
@@ -188,15 +238,22 @@ export class AppointmentService implements IAppointmentService {
 
   private toCreateData(data: CreateAppointmentInput): CreateAppointmentData {
     const items = (data.items ?? []).map(toItemData);
+    const animalIds = dedupe(data.animalIds);
+    requireClinicalForListedAnimals(data.clinical ?? [], animalIds);
+    const performedAt = new Date(data.performedAt);
 
     return {
       ownerId: data.ownerId,
       propertyId: data.propertyId,
-      animalId: data.animalId,
       veterinarianId: data.veterinarianId,
+      title: data.title ?? defaultTitle(performedAt, data.type),
       type: data.type,
+      animalIds,
       animalLocation: data.animalLocation ?? null,
-      performedAt: new Date(data.performedAt),
+      locationLatitude: data.locationLatitude ?? null,
+      locationLongitude: data.locationLongitude ?? null,
+      performedAt,
+      procedureDescription: data.procedureDescription ?? null,
       laborCents: data.laborCents ?? 0,
       displacementKm: data.displacementKm ?? 0,
       displacementRateCents: data.displacementRateCents ?? 0,
@@ -207,16 +264,26 @@ export class AppointmentService implements IAppointmentService {
         displacementRateCents: data.displacementRateCents ?? 0,
       }),
       items,
-      prescriptions: (data.prescriptions ?? []).map(toPrescriptionData),
-      medicalRecord: data.medicalRecord ?? null,
+      clinical: (data.clinical ?? []).map(toClinicalData),
     };
   }
 }
 
+function dedupe(ids: string[]): string[] {
+  return [...new Set(ids)];
+}
+
+function toClinicalData(entry: AppointmentAnimalClinicalInput): AnimalClinicalData {
+  return {
+    animalId: entry.animalId,
+    ...(entry.medicalRecord ? { medicalRecord: entry.medicalRecord } : {}),
+    ...(entry.prescriptions ? { prescriptions: entry.prescriptions.map(toPrescriptionData) } : {}),
+  };
+}
+
 function toItemData(item: AppointmentItemInput): AppointmentItemData {
   return {
-    kind: item.kind,
-    productId: item.productId ?? null,
+    productId: item.productId,
     description: item.description,
     quantity: item.quantity,
     unitPriceCents: item.unitPriceCents,
