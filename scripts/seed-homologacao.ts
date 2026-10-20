@@ -156,6 +156,8 @@ async function seedIdentity(): Promise<Herd> {
         cpfCnpj,
         phone: u.phone ?? '',
         email: u.email,
+        // Valor por km do perfil (R$ 2,50): a tela de orçamento já vem preenchida.
+        displacementRateCents: 250,
       },
     });
     return { id: created.id, name: u.fullName };
