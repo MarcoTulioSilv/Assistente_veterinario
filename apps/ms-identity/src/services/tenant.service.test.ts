@@ -32,6 +32,7 @@ const profile: TenantProfile = {
     phone: registerInput.phone,
     email: registerInput.email,
     logoUrl: null,
+    displacementRateCents: null,
   },
 };
 

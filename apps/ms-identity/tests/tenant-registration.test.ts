@@ -99,6 +99,31 @@ describe('TenantRepository.register — transação atômica (Tenant+User+Veteri
     const profile = await repo.findProfile(tenantId);
     expect(profile?.veterinarian.email).toBe(data.email);
     expect(profile?.plan).toBe('basic');
+    expect(profile?.veterinarian.displacementRateCents).toBeNull();
+  });
+
+  it('valor por km no perfil (RN-011): grava, troca e apaga com null', async () => {
+    const { tenantId, userId } = await repo.register(input(), HASH);
+    createdTenantIds.push(tenantId);
+
+    const comValor = await repo.updateVeterinarian(tenantId, userId, { displacementRateCents: 250 });
+    expect(comValor.veterinarian.displacementRateCents).toBe(250);
+
+    // Editar outro campo não mexe no valor por km.
+    const outroCampo = await repo.updateVeterinarian(tenantId, userId, { phone: '(64) 91111-1111' });
+    expect(outroCampo.veterinarian.displacementRateCents).toBe(250);
+
+    const apagado = await repo.updateVeterinarian(tenantId, userId, { displacementRateCents: null });
+    expect(apagado.veterinarian.displacementRateCents).toBeNull();
+  });
+
+  it('o banco recusa valor por km negativo (CHECK)', async () => {
+    const { tenantId, userId } = await repo.register(input(), HASH);
+    createdTenantIds.push(tenantId);
+
+    await expect(
+      repo.updateVeterinarian(tenantId, userId, { displacementRateCents: -1 }),
+    ).rejects.toThrow();
   });
 });
 

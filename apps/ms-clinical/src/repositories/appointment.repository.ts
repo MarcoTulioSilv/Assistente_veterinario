@@ -1,6 +1,7 @@
 import { Prisma } from '../../node_modules/.prisma/client-clinical';
 import type {
   Appointment as PrismaAppointment,
+  AppointmentAnimal as PrismaAppointmentAnimal,
   AppointmentItem as PrismaItem,
   Prescription as PrismaPrescription,
   MedicalRecord as PrismaMedicalRecord,
@@ -10,6 +11,7 @@ import type {
   UUID,
   Paginated,
   Appointment,
+  AppointmentAnimal,
   AppointmentItem,
   Prescription,
   MedicalRecord,
@@ -22,8 +24,7 @@ import type { ListAppointmentsInput, MedicalRecordInput } from '../schemas/appoi
 
 /** Item já com o total calculado pelo service — o repo não faz aritmética de negócio. */
 export interface AppointmentItemData {
-  kind: 'product' | 'procedure';
-  productId: string | null;
+  productId: string;
   description: string;
   quantity: number;
   unitPriceCents: number;
@@ -40,31 +41,46 @@ export interface PrescriptionData {
   notes: string | null;
 }
 
+/**
+ * Ficha e receita de UM animal. `undefined` = não mexe; na receita, uma
+ * lista substitui a anterior inteira (a tela reenvia a receita toda).
+ */
+export interface AnimalClinicalData {
+  animalId: string;
+  medicalRecord?: MedicalRecordInput;
+  prescriptions?: PrescriptionData[];
+}
+
 export interface CreateAppointmentData {
   ownerId: string;
   propertyId: string;
-  animalId: string;
   veterinarianId: string;
+  title: string;
   type: Appointment['type'];
+  animalIds: string[];
   animalLocation: string | null;
+  locationLatitude: number | null;
+  locationLongitude: number | null;
   performedAt: Date;
+  procedureDescription: string | null;
   laborCents: number;
   displacementKm: number;
   displacementRateCents: number;
   totalCents: number;
   items: AppointmentItemData[];
-  prescriptions: PrescriptionData[];
-  medicalRecord: MedicalRecordInput | null;
+  clinical: AnimalClinicalData[];
 }
 
-export type UpdateAppointmentData = Partial<CreateAppointmentData>;
+export type UpdateAppointmentData = Partial<Omit<CreateAppointmentData, 'ownerId'>>;
 
-const INCLUDE = { items: true, prescriptions: true, medicalRecord: true } as const;
+const INCLUDE = {
+  items: true,
+  animals: { include: { medicalRecord: true, prescriptions: true } },
+} as const;
 
 type AppointmentRow = PrismaAppointment & {
   items: PrismaItem[];
-  prescriptions: PrismaPrescription[];
-  medicalRecord: PrismaMedicalRecord | null;
+  animals: Array<PrismaAppointmentAnimal & { medicalRecord: PrismaMedicalRecord | null; prescriptions: PrismaPrescription[] }>;
 };
 
 /**
@@ -83,7 +99,7 @@ export class AppointmentRepository {
     animalId: UUID,
     params: ListAppointmentsInput,
   ): Promise<Paginated<Appointment>> {
-    return this.paginate(ctx, params, { animalId });
+    return this.paginate(ctx, params, { animals: { some: { animalId } } });
   }
 
   private async paginate(
@@ -95,7 +111,7 @@ export class AppointmentRepository {
     const skip = (page - 1) * limit;
 
     return withTenant(ctx.tenantId, async (tx) => {
-      const where = { deletedAt: null, ...filter };
+      const where = { deletedAt: null, ...(params.status ? { status: params.status } : {}), ...filter };
 
       const [rows, total] = await Promise.all([
         tx.appointment.findMany({
@@ -123,28 +139,42 @@ export class AppointmentRepository {
   }
 
   async create(ctx: RequestContext, data: CreateAppointmentData): Promise<Appointment> {
+    const clinicalByAnimal = new Map(data.clinical.map((c) => [c.animalId, c]));
+
     return withTenant(ctx.tenantId, async (tx) => {
       const row = await tx.appointment.create({
         data: {
           tenantId: ctx.tenantId,
           ownerId: data.ownerId,
           propertyId: data.propertyId,
-          animalId: data.animalId,
           veterinarianId: data.veterinarianId,
+          title: data.title,
           type: data.type,
           animalLocation: data.animalLocation,
+          locationLatitude: data.locationLatitude,
+          locationLongitude: data.locationLongitude,
           performedAt: data.performedAt,
+          procedureDescription: data.procedureDescription,
           laborCents: data.laborCents,
           displacementKm: data.displacementKm,
           displacementRateCents: data.displacementRateCents,
           totalCents: data.totalCents,
           items: { create: data.items.map((item) => ({ ...item, tenantId: ctx.tenantId })) },
-          prescriptions: {
-            create: data.prescriptions.map((p) => ({ ...p, tenantId: ctx.tenantId })),
+          animals: {
+            create: data.animalIds.map((animalId) => {
+              const clinical = clinicalByAnimal.get(animalId);
+              return {
+                tenantId: ctx.tenantId,
+                animalId,
+                ...(clinical?.medicalRecord
+                  ? { medicalRecord: { create: toMedicalRecordData(ctx.tenantId, clinical.medicalRecord) } }
+                  : {}),
+                ...(clinical?.prescriptions?.length
+                  ? { prescriptions: { create: clinical.prescriptions.map((p) => ({ ...p, tenantId: ctx.tenantId })) } }
+                  : {}),
+              };
+            }),
           },
-          ...(data.medicalRecord
-            ? { medicalRecord: { create: toMedicalRecordData(ctx.tenantId, data.medicalRecord) } }
-            : {}),
         },
         include: INCLUDE,
       });
@@ -154,17 +184,53 @@ export class AppointmentRepository {
   }
 
   /**
-   * Itens e prescrições são substituídos por inteiro quando vêm no update —
-   * editar linha a linha exigiria que o cliente carregasse os ids, e o
-   * orçamento é sempre reenviado inteiro pela tela.
+   * Só enquanto rascunho. O primeiro UPDATE é a trava: confere o status E
+   * segura a linha. Antes o service checava o rascunho e o repositório
+   * gravava sem condição — uma finalização concorrente entre os dois
+   * deixava editar um orçamento já congelado (mesmo defeito que o exame já
+   * evitava).
+   *
+   * Itens são substituídos por inteiro quando vêm no update — a tela
+   * reenvia o orçamento todo. `animalIds` substitui a lista: animal que sai
+   * leva a ficha e a receita dele (cascata da FK composta); o que fica
+   * mantém as suas.
    */
   async update(ctx: RequestContext, id: UUID, data: UpdateAppointmentData): Promise<Appointment> {
     return withTenant(ctx.tenantId, async (tx) => {
+      const { count } = await tx.appointment.updateMany({
+        where: { id, status: 'draft', deletedAt: null },
+        data: { updatedAt: new Date() },
+      });
+      if (count === 0) throw AppError.conflict('Atendimento já finalizado ou inexistente — orçamento congelado');
+
+      if (data.animalIds) {
+        await tx.appointmentAnimal.deleteMany({ where: { appointmentId: id, animalId: { notIn: data.animalIds } } });
+        await tx.appointmentAnimal.createMany({
+          data: data.animalIds.map((animalId) => ({ tenantId: ctx.tenantId, appointmentId: id, animalId })),
+          skipDuplicates: true,
+        });
+      }
+
       if (data.items) {
         await tx.appointmentItem.deleteMany({ where: { appointmentId: id } });
       }
-      if (data.prescriptions) {
-        await tx.prescription.deleteMany({ where: { appointmentId: id } });
+
+      for (const clinical of data.clinical ?? []) {
+        const key = { appointmentId: id, animalId: clinical.animalId };
+        if (clinical.medicalRecord) {
+          const record = toMedicalRecordData(ctx.tenantId, clinical.medicalRecord);
+          await tx.medicalRecord.upsert({
+            where: { appointmentId_animalId: key },
+            create: { ...record, ...key },
+            update: record,
+          });
+        }
+        if (clinical.prescriptions) {
+          await tx.prescription.deleteMany({ where: key });
+          await tx.prescription.createMany({
+            data: clinical.prescriptions.map((p) => ({ ...p, ...key, tenantId: ctx.tenantId })),
+          });
+        }
       }
 
       const row = await tx.appointment.update({
@@ -172,9 +238,13 @@ export class AppointmentRepository {
         data: {
           ...(data.propertyId !== undefined ? { propertyId: data.propertyId } : {}),
           ...(data.veterinarianId !== undefined ? { veterinarianId: data.veterinarianId } : {}),
+          ...(data.title !== undefined ? { title: data.title } : {}),
           ...(data.type !== undefined ? { type: data.type } : {}),
           ...(data.animalLocation !== undefined ? { animalLocation: data.animalLocation } : {}),
+          ...(data.locationLatitude !== undefined ? { locationLatitude: data.locationLatitude } : {}),
+          ...(data.locationLongitude !== undefined ? { locationLongitude: data.locationLongitude } : {}),
           ...(data.performedAt !== undefined ? { performedAt: data.performedAt } : {}),
+          ...(data.procedureDescription !== undefined ? { procedureDescription: data.procedureDescription } : {}),
           ...(data.laborCents !== undefined ? { laborCents: data.laborCents } : {}),
           ...(data.displacementKm !== undefined ? { displacementKm: data.displacementKm } : {}),
           ...(data.displacementRateCents !== undefined
@@ -183,23 +253,6 @@ export class AppointmentRepository {
           ...(data.totalCents !== undefined ? { totalCents: data.totalCents } : {}),
           ...(data.items
             ? { items: { create: data.items.map((item) => ({ ...item, tenantId: ctx.tenantId })) } }
-            : {}),
-          ...(data.prescriptions
-            ? {
-                prescriptions: {
-                  create: data.prescriptions.map((p) => ({ ...p, tenantId: ctx.tenantId })),
-                },
-              }
-            : {}),
-          ...(data.medicalRecord
-            ? {
-                medicalRecord: {
-                  upsert: {
-                    create: toMedicalRecordData(ctx.tenantId, data.medicalRecord),
-                    update: toMedicalRecordData(ctx.tenantId, data.medicalRecord),
-                  },
-                },
-              }
             : {}),
         },
         include: INCLUDE,
@@ -305,7 +358,6 @@ function toMedicalRecordData(tenantId: string, record: MedicalRecordInput): Medi
 function toItemDomain(row: PrismaItem): AppointmentItem {
   return {
     id: row.id,
-    kind: row.kind,
     productId: row.productId,
     description: row.description,
     quantity: row.quantity.toNumber(),
@@ -330,7 +382,6 @@ function toPrescriptionDomain(row: PrismaPrescription): Prescription {
 function toMedicalRecordDomain(row: PrismaMedicalRecord): MedicalRecord {
   return {
     id: row.id,
-    appointmentId: row.appointmentId,
     anamnesis: row.anamnesis,
     generalExam: row.generalExam as Record<string, unknown> | null,
     specialExams: row.specialExams as Record<string, unknown> | null,
@@ -341,17 +392,30 @@ function toMedicalRecordDomain(row: PrismaMedicalRecord): MedicalRecord {
   };
 }
 
+function toAnimalDomain(row: AppointmentRow['animals'][number]): AppointmentAnimal {
+  return {
+    animalId: row.animalId,
+    medicalRecord: row.medicalRecord ? toMedicalRecordDomain(row.medicalRecord) : null,
+    prescriptions: row.prescriptions.map(toPrescriptionDomain),
+  };
+}
+
 function toDomain(row: AppointmentRow): Appointment {
   return {
     id: row.id,
+    title: row.title,
     ownerId: row.ownerId,
     propertyId: row.propertyId,
-    animalId: row.animalId,
     veterinarianId: row.veterinarianId,
     type: row.type,
     status: row.status,
+    // Ordem estável na tela: a do animalId (a tabela não guarda posição).
+    animals: [...row.animals].sort((a, b) => a.animalId.localeCompare(b.animalId)).map(toAnimalDomain),
     animalLocation: row.animalLocation,
+    locationLatitude: row.locationLatitude ? row.locationLatitude.toNumber() : null,
+    locationLongitude: row.locationLongitude ? row.locationLongitude.toNumber() : null,
     performedAt: row.performedAt.toISOString(),
+    procedureDescription: row.procedureDescription,
     laborCents: row.laborCents,
     displacementKm: row.displacementKm.toNumber(),
     displacementRateCents: row.displacementRateCents,
@@ -359,7 +423,5 @@ function toDomain(row: AppointmentRow): Appointment {
     finishedAt: row.finishedAt ? row.finishedAt.toISOString() : null,
     createdAt: row.createdAt.toISOString(),
     items: row.items.map(toItemDomain),
-    prescriptions: row.prescriptions.map(toPrescriptionDomain),
-    medicalRecord: row.medicalRecord ? toMedicalRecordDomain(row.medicalRecord) : null,
   };
 }

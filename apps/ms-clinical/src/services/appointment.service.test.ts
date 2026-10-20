@@ -4,6 +4,7 @@ import type { AppointmentRepository } from '../repositories/appointment.reposito
 import {
   AppointmentService,
   toConsumedItems,
+  defaultTitle,
   buildAppointmentDoneEvent,
   buildAppointmentDeletedEvent,
 } from './appointment.service';
@@ -19,18 +20,24 @@ const ctx: RequestContext = {
 
 const APPOINTMENT_ID = '33333333-3333-3333-3333-333333333333';
 const PRODUCT_ID = '44444444-4444-4444-4444-444444444444';
+const ANIMAL_ID = '77777777-7777-7777-7777-777777777777';
+const OTHER_ANIMAL_ID = '99999999-9999-9999-9999-999999999999';
 
 function appointment(overrides: Partial<Appointment> = {}): Appointment {
   return {
     id: APPOINTMENT_ID,
+    title: '24/09/2026 - Clínico geral',
     ownerId: '55555555-5555-5555-5555-555555555555',
     propertyId: '66666666-6666-6666-6666-666666666666',
-    animalId: '77777777-7777-7777-7777-777777777777',
     veterinarianId: '88888888-8888-8888-8888-888888888888',
     type: 'clinico_geral',
     status: 'draft',
+    animals: [{ animalId: ANIMAL_ID, medicalRecord: null, prescriptions: [] }],
     animalLocation: null,
+    locationLatitude: null,
+    locationLongitude: null,
     performedAt: '2026-09-24T12:00:00.000Z',
+    procedureDescription: null,
     laborCents: 0,
     displacementKm: 0,
     displacementRateCents: 0,
@@ -38,8 +45,6 @@ function appointment(overrides: Partial<Appointment> = {}): Appointment {
     finishedAt: null,
     createdAt: '2026-09-24T12:00:00.000Z',
     items: [],
-    prescriptions: [],
-    medicalRecord: null,
     ...overrides,
   };
 }
@@ -58,12 +63,11 @@ function fakeRepo(overrides: Partial<AppointmentRepository> = {}): AppointmentRe
 }
 
 describe('toConsumedItems (RN-003)', () => {
-  it('só itens de estoque viram baixa — procedimento fica de fora', () => {
+  it('todo item é produto do estoque e vira baixa', () => {
     const consumidos = toConsumedItems(
       appointment({
         items: [
-          { id: 'i1', kind: 'product', productId: PRODUCT_ID, description: 'Vacina', quantity: 2, unitPriceCents: 100, totalCents: 200 },
-          { id: 'i2', kind: 'procedure', productId: null, description: 'Consulta', quantity: 1, unitPriceCents: 9000, totalCents: 9000 },
+          { id: 'i1', productId: PRODUCT_ID, description: 'Vacina', quantity: 2, unitPriceCents: 100, totalCents: 200 },
         ],
       }),
     );
@@ -71,16 +75,15 @@ describe('toConsumedItems (RN-003)', () => {
     expect(consumidos).toEqual([{ productId: PRODUCT_ID, quantity: 2 }]);
   });
 
-  it('atendimento só com procedimento não consome nada', () => {
-    const consumidos = toConsumedItems(
-      appointment({
-        items: [
-          { id: 'i1', kind: 'procedure', productId: null, description: 'Consulta', quantity: 1, unitPriceCents: 9000, totalCents: 9000 },
-        ],
-      }),
-    );
+  it('orçamento sem produto (só serviço, na mão de obra) não consome nada', () => {
+    expect(toConsumedItems(appointment({ items: [], laborCents: 18000 }))).toEqual([]);
+  });
+});
 
-    expect(consumidos).toEqual([]);
+describe('defaultTitle', () => {
+  it('data no dia de São Paulo + especialidade', () => {
+    // 01h UTC do dia 21 ainda é dia 20 em São Paulo.
+    expect(defaultTitle(new Date('2026-10-21T01:00:00.000Z'), 'reproducao')).toBe('20/10/2026 - Reprodução');
   });
 });
 
@@ -105,19 +108,44 @@ describe('AppointmentService.create', () => {
     await service.create(ctx, {
       ownerId: '55555555-5555-5555-5555-555555555555',
       propertyId: '66666666-6666-6666-6666-666666666666',
-      animalId: '77777777-7777-7777-7777-777777777777',
+      animalIds: [ANIMAL_ID],
       veterinarianId: '88888888-8888-8888-8888-888888888888',
       type: 'clinico_geral',
       performedAt: '2026-09-24T12:00:00.000Z',
       laborCents: 10000,
       displacementKm: 10,
       displacementRateCents: 200,
-      items: [{ kind: 'product', productId: PRODUCT_ID, description: 'Vacina', quantity: 2, unitPriceCents: 1500 }],
+      items: [{ productId: PRODUCT_ID, description: 'Vacina', quantity: 2, unitPriceCents: 1500 }],
     });
 
     const data = create.mock.calls[0]![1];
     expect(data.items[0].totalCents).toBe(3000);
     expect(data.totalCents).toBe(3000 + 10000 + 2000);
+    expect(data.title).toBe('24/09/2026 - Clínico geral');
+  });
+
+  it('animal repetido conta uma vez; ficha de animal fora do orçamento ou duplicada é 422', async () => {
+    const create = vi.fn().mockResolvedValue(appointment());
+    const service = new AppointmentService(fakeRepo({ create }));
+    const base = {
+      ownerId: '55555555-5555-5555-5555-555555555555',
+      propertyId: '66666666-6666-6666-6666-666666666666',
+      veterinarianId: '88888888-8888-8888-8888-888888888888',
+      type: 'clinico_geral' as const,
+      performedAt: '2026-09-24T12:00:00.000Z',
+    };
+
+    await service.create(ctx, { ...base, animalIds: [ANIMAL_ID, ANIMAL_ID] });
+    expect(create.mock.calls[0]![1].animalIds).toEqual([ANIMAL_ID]);
+
+    for (const clinical of [
+      [{ animalId: OTHER_ANIMAL_ID, medicalRecord: { diagnosis: 'x' } }],
+      [{ animalId: ANIMAL_ID }, { animalId: ANIMAL_ID }],
+    ]) {
+      await expect(service.create(ctx, { ...base, animalIds: [ANIMAL_ID], clinical })).rejects.toMatchObject({
+        statusCode: 422,
+      });
+    }
   });
 });
 
@@ -146,7 +174,7 @@ describe('AppointmentService.update', () => {
             displacementKm: 10,
             displacementRateCents: 100,
             items: [
-              { id: 'i1', kind: 'procedure', productId: null, description: 'Consulta', quantity: 1, unitPriceCents: 2000, totalCents: 2000 },
+              { id: 'i1', productId: PRODUCT_ID, description: 'Seringa', quantity: 1, unitPriceCents: 2000, totalCents: 2000 },
             ],
           }),
         ),
@@ -158,6 +186,26 @@ describe('AppointmentService.update', () => {
     await service.update(ctx, APPOINTMENT_ID, { laborCents: 7000 });
 
     expect(update.mock.calls[0]![2].totalCents).toBe(2000 + 7000 + 1000);
+  });
+
+  it('ficha do update vale contra a lista de animais que vai ficar (nova ou a atual)', async () => {
+    const update = vi.fn().mockResolvedValue(appointment());
+    const service = new AppointmentService(fakeRepo({ update }));
+
+    // Sem trocar os animais: vale a lista gravada.
+    await expect(
+      service.update(ctx, APPOINTMENT_ID, { clinical: [{ animalId: OTHER_ANIMAL_ID }] }),
+    ).rejects.toMatchObject({ statusCode: 422 });
+
+    // Trocando: vale a lista nova.
+    await service.update(ctx, APPOINTMENT_ID, {
+      animalIds: [OTHER_ANIMAL_ID],
+      clinical: [{ animalId: OTHER_ANIMAL_ID, medicalRecord: { diagnosis: 'ok' } }],
+    });
+    expect(update.mock.calls[0]![2]).toMatchObject({
+      animalIds: [OTHER_ANIMAL_ID],
+      clinical: [{ animalId: OTHER_ANIMAL_ID, medicalRecord: { diagnosis: 'ok' } }],
+    });
   });
 });
 
@@ -192,7 +240,7 @@ describe('AppointmentService.finish (RF-ATD-008 + RN-003)', () => {
           appointment({
             laborCents: 10000,
             items: [
-              { id: 'i1', kind: 'product', productId: PRODUCT_ID, description: 'Vacina', quantity: 2, unitPriceCents: 1500, totalCents: 3000 },
+              { id: 'i1', productId: PRODUCT_ID, description: 'Vacina', quantity: 2, unitPriceCents: 1500, totalCents: 3000 },
             ],
           }),
         ),
