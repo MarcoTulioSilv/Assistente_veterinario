@@ -20,6 +20,8 @@ import type {
   UpdateProductDto,
   CreateMovementDto,
   Appointment,
+  CreateAppointmentDto,
+  UpdateAppointmentDto,
   FinancialRecord,
   FinancialSourceType,
 } from '@quironequine/shared-types';
@@ -186,6 +188,13 @@ export const api = {
     list: (params?: { page?: number; limit?: number; animalId?: string }) =>
       request<Paginated<Appointment>>(`/appointments?${buildQuery(params)}`),
     get: (id: string) => request<Appointment>(`/appointments/${id}`),
+    create: (data: CreateAppointmentDto) =>
+      request<Appointment>('/appointments', { method: 'POST', body: JSON.stringify(data) }),
+    /** Só vale em status: 'draft' (RF-ATD-006) — o orçamento congela ao finalizar. */
+    update: (id: string, data: UpdateAppointmentDto) =>
+      request<Appointment>(`/appointments/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+    /** RF-ATD-008: congela o orçamento, publica appointment.done. Irreversível. */
+    finish: (id: string) => request<Appointment>(`/appointments/${id}/finish`, { method: 'POST' }),
     remove: (id: string) => request<void>(`/appointments/${id}`, { method: 'DELETE' }),
   },
   financial: {
