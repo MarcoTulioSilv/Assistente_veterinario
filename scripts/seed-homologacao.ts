@@ -92,6 +92,7 @@ async function reset(): Promise<void> {
     'appointment_items',
     'prescriptions',
     'medical_records',
+    'appointment_animals',
     'appointments',
   ]);
   await wipe(inventory, ['stock_movements', 'alert_configs', 'products']);
@@ -117,7 +118,10 @@ interface Vet {
 interface Herd {
   vets: { helena: Vet; ricardo: Vet };
   owners: Record<'jose' | 'marina' | 'antonio' | 'harasSaoBento', string>;
-  properties: Record<'boaVista' | 'santaLuzia' | 'recanto' | 'saoBento', { id: string; ownerKey: keyof Herd['owners'] }>;
+  properties: Record<
+    'boaVista' | 'santaLuzia' | 'recanto' | 'saoBento',
+    { id: string; name: string; latitude: number; longitude: number; ownerKey: keyof Herd['owners'] }
+  >;
   animals: Record<string, { id: string; propertyKey: keyof Herd['properties'] }>;
 }
 
@@ -189,7 +193,7 @@ async function seedIdentity(): Promise<Herd> {
     await identity.propertyOwner.create({
       data: { tenantId: CLINICA, propertyId: created.id, ownerId: owners[ownerKey], isPrimary: true },
     });
-    return { id: created.id, ownerKey };
+    return { id: created.id, name, latitude: lat, longitude: lng, ownerKey };
   };
   const properties = {
     boaVista: await property('Fazenda Boa Vista', 'Rodovia GO-184, km 12', 'Jataí', -17.8815, -51.7141, 'jose'),
@@ -378,177 +382,233 @@ async function charge(
   });
 }
 
-// ─── 5. MS3 — atendimentos ────────────────────────────────────────
+// ─── 5. MS3 — atendimentos (orçamentos de visita) ────────────────
+const TYPE_LABELS = {
+  clinico_geral: 'Clínico geral',
+  reproducao: 'Reprodução',
+  odontologico: 'Odontológico',
+  locomotor: 'Locomotor',
+  cirurgia: 'Cirurgia',
+} as const;
+
 async function seedAppointments(h: Herd, p: Record<string, StockItem>): Promise<number> {
-  type Item = { product?: StockItem; description?: string; quantity: number; unitPriceCents?: number };
+  type Route = 'oral' | 'intravenosa' | 'intramuscular' | 'subcutanea' | 'topica';
+  type Clinical = {
+    record?: { anamnesis: string; diagnosis?: string; treatment?: string; prognosis?: string; generalExam?: object };
+    prescriptions?: Array<{ product?: StockItem; medicationName: string; dose: string; route: Route; schedule: string }>;
+  };
   type AppointmentSeed = {
-    animal: string;
+    /** Animais da visita — todos da mesma propriedade. Ficha por animal em `clinical`. */
+    animals: string[];
     vet: Vet;
-    type: 'clinico_geral' | 'reproducao' | 'odontologico' | 'locomotor' | 'cirurgia';
+    type: keyof typeof TYPE_LABELS;
     daysAgo: number;
     finished: boolean;
     km: number;
+    /** Procedimento em texto; o valor do serviço vai na mão de obra (reunião de 20/10/2026). */
+    procedure: string;
     laborCents: number;
-    items: Item[];
-    record?: { anamnesis: string; diagnosis: string; treatment: string; prognosis?: string; generalExam?: object };
-    prescriptions?: Array<{ product?: StockItem; medicationName: string; dose: string; route: 'oral' | 'intravenosa' | 'intramuscular' | 'subcutanea' | 'topica'; schedule: string }>;
+    products: Array<[StockItem, number]>;
+    clinical?: Record<string, Clinical>;
     paidDaysAfter?: number;
     location?: string;
   };
 
-  const consulta = (cents: number): Item => ({ description: 'Consulta clínica', quantity: 1, unitPriceCents: cents });
   const seeds: AppointmentSeed[] = [
     {
-      animal: 'Relâmpago', vet: h.vets.helena, type: 'locomotor', daysAgo: 62, finished: true, km: 24, laborCents: 8000,
-      items: [consulta(18000), { product: p['fenil'], quantity: 1 }, { product: p['seringa'], quantity: 2 }],
-      record: {
-        anamnesis: 'Claudicação no membro anterior esquerdo há 5 dias, após treino em piso duro.',
-        diagnosis: 'Tendinite do tendão flexor digital superficial (grau 2).',
-        treatment: 'Anti-inflamatório por 5 dias, ducha fria 2x ao dia, repouso em baia por 30 dias.',
-        prognosis: 'Favorável com repouso adequado.',
-        generalExam: { temperatura: 38.1, frequenciaCardiaca: 40, frequenciaRespiratoria: 14, mucosas: 'normocoradas' },
+      animals: ['Relâmpago'], vet: h.vets.helena, type: 'locomotor', daysAgo: 62, finished: true, km: 24,
+      procedure: 'Consulta clínica e exame de claudicação', laborCents: 26000,
+      products: [[p['fenil']!, 1], [p['seringa']!, 2]],
+      clinical: {
+        'Relâmpago': {
+          record: {
+            anamnesis: 'Claudicação no membro anterior esquerdo há 5 dias, após treino em piso duro.',
+            diagnosis: 'Tendinite do tendão flexor digital superficial (grau 2).',
+            treatment: 'Anti-inflamatório por 5 dias, ducha fria 2x ao dia, repouso em baia por 30 dias.',
+            prognosis: 'Favorável com repouso adequado.',
+            generalExam: { temperatura: 38.1, frequenciaCardiaca: 40, frequenciaRespiratoria: 14, mucosas: 'normocoradas' },
+          },
+          prescriptions: [{ product: p['fenil'], medicationName: 'Fenilbutazona 20%', dose: '4,4 mg/kg', route: 'intravenosa', schedule: '1x ao dia por 5 dias' }],
+        },
       },
-      prescriptions: [{ product: p['fenil'], medicationName: 'Fenilbutazona 20%', dose: '4,4 mg/kg', route: 'intravenosa', schedule: '1x ao dia por 5 dias' }],
       paidDaysAfter: 10,
     },
     {
-      animal: 'Estrela', vet: h.vets.ricardo, type: 'reproducao', daysAgo: 45, finished: true, km: 24, laborCents: 6000,
-      items: [{ description: 'Ultrassonografia reprodutiva', quantity: 1, unitPriceCents: 25000 }],
-      record: {
-        anamnesis: 'Égua em estação de monta, controle folicular.',
-        diagnosis: 'Folículo dominante de 38 mm no ovário direito; útero sem alterações.',
-        treatment: 'Indicada cobertura nas próximas 24 a 48 horas.',
+      animals: ['Estrela'], vet: h.vets.ricardo, type: 'reproducao', daysAgo: 45, finished: true, km: 24,
+      procedure: 'Ultrassonografia reprodutiva (controle folicular)', laborCents: 31000, products: [],
+      clinical: {
+        'Estrela': {
+          record: {
+            anamnesis: 'Égua em estação de monta, controle folicular.',
+            diagnosis: 'Folículo dominante de 38 mm no ovário direito; útero sem alterações.',
+            treatment: 'Indicada cobertura nas próximas 24 a 48 horas.',
+          },
+        },
       },
       paidDaysAfter: 3,
     },
     {
-      animal: 'Pérola', vet: h.vets.helena, type: 'clinico_geral', daysAgo: 30, finished: true, km: 38, laborCents: 8000,
-      items: [consulta(18000), { product: p['flunixin'], quantity: 1 }, { product: p['seringa'], quantity: 1 }, { product: p['agulha'], quantity: 2 }],
-      record: {
-        anamnesis: 'Desconforto abdominal leve desde a madrugada, olhando para o flanco.',
-        diagnosis: 'Cólica espasmódica, sem sinais de obstrução.',
-        treatment: 'Analgesia e jejum de 12 horas, com reintrodução gradual de volumoso.',
-        prognosis: 'Bom.',
-        generalExam: { temperatura: 37.9, frequenciaCardiaca: 52, motilidade: 'aumentada' },
+      animals: ['Pérola'], vet: h.vets.helena, type: 'clinico_geral', daysAgo: 30, finished: true, km: 38,
+      procedure: 'Atendimento de cólica', laborCents: 26000,
+      products: [[p['flunixin']!, 1], [p['seringa']!, 1], [p['agulha']!, 2]],
+      clinical: {
+        'Pérola': {
+          record: {
+            anamnesis: 'Desconforto abdominal leve desde a madrugada, olhando para o flanco.',
+            diagnosis: 'Cólica espasmódica, sem sinais de obstrução.',
+            treatment: 'Analgesia e jejum de 12 horas, com reintrodução gradual de volumoso.',
+            prognosis: 'Bom.',
+            generalExam: { temperatura: 37.9, frequenciaCardiaca: 52, motilidade: 'aumentada' },
+          },
+          prescriptions: [{ product: p['flunixin'], medicationName: 'Flunixin Meglumine 5%', dose: '1,1 mg/kg', route: 'intravenosa', schedule: 'Dose única' }],
+        },
       },
-      prescriptions: [{ product: p['flunixin'], medicationName: 'Flunixin Meglumine 5%', dose: '1,1 mg/kg', route: 'intravenosa', schedule: 'Dose única' }],
     },
+    // Visita com VÁRIOS animais (pedido da reunião de 20/10/2026): uma ficha por animal.
     {
-      animal: 'Bandido', vet: h.vets.ricardo, type: 'odontologico', daysAgo: 21, finished: true, km: 52, laborCents: 10000,
-      items: [{ description: 'Desgaste dentário (grosamento)', quantity: 1, unitPriceCents: 30000 }],
-      record: {
-        anamnesis: 'Dificuldade de mastigação e perda de peso.',
-        diagnosis: 'Pontas dentárias excessivas nos pré-molares superiores.',
-        treatment: 'Grosamento realizado; revisão em 12 meses.',
+      animals: ['Bandido', 'Princesa'], vet: h.vets.ricardo, type: 'odontologico', daysAgo: 21, finished: true, km: 52,
+      procedure: 'Desgaste dentário (grosamento) em 2 animais', laborCents: 70000, products: [],
+      clinical: {
+        'Bandido': {
+          record: {
+            anamnesis: 'Dificuldade de mastigação e perda de peso.',
+            diagnosis: 'Pontas dentárias excessivas nos pré-molares superiores.',
+            treatment: 'Grosamento realizado; revisão em 12 meses.',
+          },
+        },
+        'Princesa': {
+          record: { anamnesis: 'Avaliação odontológica de rotina.', diagnosis: 'Pontas leves.', treatment: 'Grosamento de manutenção.' },
+        },
       },
       paidDaysAfter: 7,
     },
     {
-      animal: 'Imperador', vet: h.vets.helena, type: 'cirurgia', daysAgo: 14, finished: true, km: 10, laborCents: 45000,
-      items: [
-        { description: 'Sutura de ferida lacerante', quantity: 1, unitPriceCents: 60000 },
-        { product: p['penicilina'], quantity: 1 },
-        { product: p['seringa'], quantity: 3 },
-        { product: p['agulha'], quantity: 3 },
-      ],
-      record: {
-        anamnesis: 'Ferida no peitoral após contato com cerca de arame.',
-        diagnosis: 'Laceração de 12 cm com exposição muscular, sem lesão de estruturas nobres.',
-        treatment: 'Debridamento e sutura em dois planos; curativo diário e antibioticoterapia.',
-        prognosis: 'Favorável.',
+      animals: ['Imperador'], vet: h.vets.helena, type: 'cirurgia', daysAgo: 14, finished: true, km: 10,
+      procedure: 'Debridamento e sutura de ferida lacerante no peitoral', laborCents: 105000,
+      products: [[p['penicilina']!, 1], [p['seringa']!, 3], [p['agulha']!, 3]],
+      clinical: {
+        'Imperador': {
+          record: {
+            anamnesis: 'Ferida no peitoral após contato com cerca de arame.',
+            diagnosis: 'Laceração de 12 cm com exposição muscular, sem lesão de estruturas nobres.',
+            treatment: 'Debridamento e sutura em dois planos; curativo diário e antibioticoterapia.',
+            prognosis: 'Favorável.',
+          },
+          prescriptions: [
+            { product: p['penicilina'], medicationName: 'Penicilina Benzatina', dose: '20.000 UI/kg', route: 'intramuscular', schedule: 'A cada 48h, 3 aplicações' },
+            { medicationName: 'Pomada cicatrizante', dose: 'Camada fina', route: 'topica', schedule: '2x ao dia até cicatrizar' },
+          ],
+        },
       },
-      prescriptions: [
-        { product: p['penicilina'], medicationName: 'Penicilina Benzatina', dose: '20.000 UI/kg', route: 'intramuscular', schedule: 'A cada 48h, 3 aplicações' },
-        { medicationName: 'Pomada cicatrizante', dose: 'Camada fina', route: 'topica', schedule: '2x ao dia até cicatrizar' },
-      ],
     },
+    // Vermifugação do plantel do Haras São Bento: 3 animais, uma visita.
     {
-      animal: 'Princesa', vet: h.vets.ricardo, type: 'clinico_geral', daysAgo: 6, finished: true, km: 52, laborCents: 8000,
-      items: [consulta(18000), { product: p['ivermectina'], quantity: 1 }],
-      record: {
-        anamnesis: 'Consulta de rotina e vermifugação.',
-        diagnosis: 'Animal hígido.',
-        treatment: 'Vermifugação com ivermectina; próxima em 90 dias.',
+      animals: ['Duquesa', 'Safira', 'Cometa'], vet: h.vets.ricardo, type: 'clinico_geral', daysAgo: 6, finished: true, km: 10,
+      procedure: 'Avaliação clínica e vermifugação do plantel', laborCents: 24000,
+      products: [[p['ivermectina']!, 3]],
+      clinical: {
+        'Duquesa': { prescriptions: [{ product: p['ivermectina'], medicationName: 'Ivermectina pasta oral', dose: '200 mcg/kg', route: 'oral', schedule: 'Dose única' }] },
+        'Safira': { prescriptions: [{ product: p['ivermectina'], medicationName: 'Ivermectina pasta oral', dose: '200 mcg/kg', route: 'oral', schedule: 'Dose única' }] },
+        'Cometa': {
+          record: { anamnesis: 'Potro com pelagem opaca.', diagnosis: 'Verminose provável.', treatment: 'Vermifugação; repetir em 30 dias.' },
+          prescriptions: [{ product: p['ivermectina'], medicationName: 'Ivermectina pasta oral', dose: '200 mcg/kg', route: 'oral', schedule: 'Dose única; repetir em 30 dias' }],
+        },
       },
-      prescriptions: [{ product: p['ivermectina'], medicationName: 'Ivermectina pasta oral', dose: '200 mcg/kg', route: 'oral', schedule: 'Dose única' }],
+      paidDaysAfter: 2,
     },
+    // Em aberto (rascunhos): aparecem no filtro "em aberto" da tela inicial.
     {
-      animal: 'Faísca', vet: h.vets.helena, type: 'locomotor', daysAgo: 1, finished: false, km: 38, laborCents: 8000,
-      items: [consulta(18000)],
-      record: { anamnesis: 'Rigidez ao sair da baia pela manhã.', diagnosis: '', treatment: '' },
+      animals: ['Faísca'], vet: h.vets.helena, type: 'locomotor', daysAgo: 1, finished: false, km: 38,
+      procedure: 'Consulta clínica', laborCents: 18000, products: [],
+      clinical: { 'Faísca': { record: { anamnesis: 'Rigidez ao sair da baia pela manhã.' } } },
       location: 'Piquete 2',
     },
     {
-      animal: 'Duquesa', vet: h.vets.ricardo, type: 'reproducao', daysAgo: 0, finished: false, km: 10, laborCents: 6000,
-      items: [{ description: 'Ultrassonografia reprodutiva', quantity: 1, unitPriceCents: 25000 }],
+      animals: ['Duquesa', 'Imperador'], vet: h.vets.ricardo, type: 'reproducao', daysAgo: 0, finished: false, km: 10,
+      procedure: 'Ultrassonografia reprodutiva e avaliação do garanhão', laborCents: 31000, products: [],
     },
   ];
 
   for (const s of seeds) {
-    const animal = h.animals[s.animal]!;
-    const property = h.properties[animal.propertyKey];
+    const property = h.properties[h.animals[s.animals[0]!]!.propertyKey];
     const ownerId = h.owners[property.ownerKey];
     const performedAt = on(-s.daysAgo, 9);
-    const items = s.items.map((i) => {
-      const unitPriceCents = i.unitPriceCents ?? i.product!.salePriceCents;
-      return {
-        kind: i.product ? ('product' as const) : ('procedure' as const),
-        productId: i.product?.id ?? null,
-        description: i.description ?? i.product!.name,
-        quantity: i.quantity,
-        unitPriceCents,
-        totalCents: calculateItemTotalCents(i.quantity, unitPriceCents),
-      };
-    });
+    const items = s.products.map(([product, quantity]) => ({
+      productId: product.id,
+      description: product.name,
+      quantity,
+      unitPriceCents: product.salePriceCents,
+      totalCents: calculateItemTotalCents(quantity, product.salePriceCents),
+    }));
     const displacementRateCents = 250;
     const totalCents = calculateTotalCents({ items, laborCents: s.laborCents, displacementKm: s.km, displacementRateCents });
+    // O nome que a tela pré-preenche: Data Especialidade Propriedade.
+    const [year, month, day] = saoPauloDay(performedAt).split('-');
+    const title = `${day}/${month}/${year} ${TYPE_LABELS[s.type]} ${property.name}`;
 
     const created = await clinical.appointment.create({
       data: {
         tenantId: CLINICA,
         ownerId,
         propertyId: property.id,
-        animalId: animal.id,
         veterinarianId: s.vet.id,
+        title,
         type: s.type,
         status: s.finished ? 'finished' : 'draft',
         animalLocation: s.location ?? null,
+        // Ponto no mapa pré-marcado na propriedade, como a tela faz.
+        locationLatitude: property.latitude,
+        locationLongitude: property.longitude,
         performedAt,
+        procedureDescription: s.procedure,
         laborCents: s.laborCents,
         displacementKm: s.km,
         displacementRateCents,
         totalCents,
         finishedAt: s.finished ? performedAt : null,
         items: { create: items.map((i) => ({ ...i, tenantId: CLINICA })) },
-        prescriptions: {
-          create: (s.prescriptions ?? []).map((r) => ({
-            tenantId: CLINICA,
-            productId: r.product?.id ?? null,
-            medicationName: r.medicationName,
-            dose: r.dose,
-            route: r.route,
-            schedule: r.schedule,
-          })),
+        animals: {
+          create: s.animals.map((name) => {
+            const c = s.clinical?.[name];
+            return {
+              tenantId: CLINICA,
+              animalId: h.animals[name]!.id,
+              ...(c?.record
+                ? {
+                    medicalRecord: {
+                      create: {
+                        tenantId: CLINICA,
+                        anamnesis: c.record.anamnesis,
+                        diagnosis: c.record.diagnosis ?? null,
+                        treatment: c.record.treatment ?? null,
+                        prognosis: c.record.prognosis ?? null,
+                        generalExam: c.record.generalExam ?? undefined,
+                      },
+                    },
+                  }
+                : {}),
+              ...(c?.prescriptions
+                ? {
+                    prescriptions: {
+                      create: c.prescriptions.map((r) => ({
+                        tenantId: CLINICA,
+                        productId: r.product?.id ?? null,
+                        medicationName: r.medicationName,
+                        dose: r.dose,
+                        route: r.route,
+                        schedule: r.schedule,
+                      })),
+                    },
+                  }
+                : {}),
+            };
+          }),
         },
-        ...(s.record
-          ? {
-              medicalRecord: {
-                create: {
-                  tenantId: CLINICA,
-                  anamnesis: s.record.anamnesis,
-                  diagnosis: s.record.diagnosis || null,
-                  treatment: s.record.treatment || null,
-                  prognosis: s.record.prognosis ?? null,
-                  generalExam: s.record.generalExam ?? undefined,
-                },
-              },
-            }
-          : {}),
       },
     });
 
     if (s.finished) {
-      for (const i of s.items) if (i.product) await consume(i.product, i.quantity, 'appointment', created.id, performedAt);
+      for (const [product, quantity] of s.products) await consume(product, quantity, 'appointment', created.id, performedAt);
       await charge('appointment', created.id, ownerId, totalCents, performedAt, s.paidDaysAfter);
     }
   }
@@ -804,9 +864,15 @@ async function seedNeighbor(): Promise<void> {
   });
   await clinical.appointment.create({
     data: {
-      tenantId: VIZINHA, ownerId: owner.id, propertyId: property.id, animalId: animal.id, veterinarianId: vet.id,
+      tenantId: VIZINHA, ownerId: owner.id, propertyId: property.id, veterinarianId: vet.id, title: 'Atendimento do vizinho',
       type: 'clinico_geral', status: 'draft', performedAt: on(-2), totalCents: 0,
-      medicalRecord: { create: { tenantId: VIZINHA, anamnesis: 'Este atendimento NÃO pode aparecer para a Clínica Equina Modelo.' } },
+      animals: {
+        create: {
+          tenantId: VIZINHA,
+          animalId: animal.id,
+          medicalRecord: { create: { tenantId: VIZINHA, anamnesis: 'Este atendimento NÃO pode aparecer para a Clínica Equina Modelo.' } },
+        },
+      },
     },
   });
 }

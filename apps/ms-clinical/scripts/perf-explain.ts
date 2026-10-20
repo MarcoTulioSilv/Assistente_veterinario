@@ -43,6 +43,7 @@ async function cleanup(): Promise<void> {
     'appointment_items',
     'prescriptions',
     'medical_records',
+    'appointment_animals',
     'appointments',
     'exam_request_items',
     'exam_request_animals',
@@ -70,18 +71,23 @@ function animalExpr(t: number, seriesExpr: string): string {
 async function seed(): Promise<void> {
   for (const [t, tenant] of TENANTS.entries()) {
     const n = PER_TENANT;
-    // Atendimentos: ~1 ano de datas, 2 itens cada. Animal sorteado entre 200.
+    // Atendimentos: ~1 ano de datas, 1 a 2 animais e 2 produtos cada.
     await admin.$executeRawUnsafe(`
-      INSERT INTO appointments (id, tenant_id, owner_id, property_id, animal_id, veterinarian_id, type, status,
+      INSERT INTO appointments (id, tenant_id, owner_id, property_id, veterinarian_id, title, type, status,
         performed_at, labor_cents, displacement_km, displacement_rate_cents, total_cents, created_at, updated_at)
-      SELECT gen_random_uuid(), '${tenant}', gen_random_uuid(), gen_random_uuid(),
-        ${animalExpr(t, 'g')}, gen_random_uuid(),
+      SELECT gen_random_uuid(), '${tenant}', gen_random_uuid(), gen_random_uuid(), gen_random_uuid(), 'Orçamento ' || g,
         'clinico_geral'::"AppointmentType", (CASE WHEN g % 3 = 0 THEN 'draft' ELSE 'finished' END)::"AppointmentStatus",
         now() - (g % 365) * interval '1 day', 5000, 10, 200, 12000, now(), now()
       FROM generate_series(1, ${n}) g`);
     await admin.$executeRawUnsafe(`
-      INSERT INTO appointment_items (id, tenant_id, appointment_id, kind, description, quantity, unit_price_cents, total_cents)
-      SELECT gen_random_uuid(), a.tenant_id, a.id, 'procedure'::"AppointmentItemKind", 'Consulta', 1, 9000, 9000
+      INSERT INTO appointment_animals (id, tenant_id, appointment_id, animal_id)
+      SELECT gen_random_uuid(), a.tenant_id, a.id, ${animalExpr(t, 'abs(hashtext(a.id::text)) + k')}
+      FROM appointments a, generate_series(0, 1) k
+      WHERE a.tenant_id = '${tenant}' AND (k = 0 OR abs(hashtext(a.id::text)) % 4 = 0)
+      ON CONFLICT DO NOTHING`);
+    await admin.$executeRawUnsafe(`
+      INSERT INTO appointment_items (id, tenant_id, appointment_id, product_id, description, quantity, unit_price_cents, total_cents)
+      SELECT gen_random_uuid(), a.tenant_id, a.id, gen_random_uuid(), 'Seringa', 1, 300, 300
       FROM appointments a, generate_series(1, 2) WHERE a.tenant_id = '${tenant}'`);
 
     const typeId = (
