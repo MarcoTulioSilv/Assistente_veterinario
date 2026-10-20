@@ -3,12 +3,13 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { Animal, Product, CreateAppointmentItemDto } from '@quironequine/shared-types';
+import type { Animal, Product } from '@quironequine/shared-types';
 import { Spinner, useToast } from '@/components/ui';
 import { parseBRLToCents, parseOptionalNumber } from '@/lib/money';
 import { api, ApiClientError, hasSession } from '@/lib/api';
 import { AppointmentForm } from '../AppointmentForm';
 import type { AppointmentFormValues, AppointmentItemFormValues } from '../schema';
+import { splitItems } from '../contract-bridge';
 
 function toCreateDto(
   values: AppointmentFormValues,
@@ -16,27 +17,23 @@ function toCreateDto(
   animal: Animal,
   veterinarianId: string,
 ) {
-  const dtoItems: CreateAppointmentItemDto[] = items.map((item) => ({
-    kind: item.kind,
-    productId: item.kind === 'product' ? item.productId || undefined : undefined,
-    description: item.description,
-    quantity: parseOptionalNumber(item.quantity) ?? 1,
-    unitPriceCents: parseBRLToCents(item.unitPriceCents) ?? 0,
-  }));
+  // Ver contract-bridge.ts: procedimento vira texto, valor vai na mão de obra.
+  const { products, procedureDescription, procedureCents } = splitItems(items);
 
   return {
     // Não nulos garantidos: a lista só oferece animais com status 'active'.
     ownerId: animal.ownerId as string,
     propertyId: animal.propertyId as string,
-    animalId: animal.id,
+    animalIds: [animal.id],
     veterinarianId,
     type: values.type,
     animalLocation: values.animalLocation || undefined,
     performedAt: new Date(values.performedAt).toISOString(),
-    laborCents: parseBRLToCents(values.laborCents ?? ''),
+    laborCents: (parseBRLToCents(values.laborCents ?? '') ?? 0) + procedureCents,
+    procedureDescription,
     displacementKm: parseOptionalNumber(values.displacementKm ?? ''),
     displacementRateCents: parseBRLToCents(values.displacementRateCents ?? ''),
-    items: dtoItems,
+    items: products,
   };
 }
 

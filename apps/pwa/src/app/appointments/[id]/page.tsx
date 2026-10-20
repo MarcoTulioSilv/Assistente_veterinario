@@ -220,6 +220,16 @@ export default function AppointmentDetailPage(): React.ReactElement | null {
                 <dd className="font-medium text-slate-900">{appointment.animalLocation}</dd>
               </div>
             )}
+            {appointment.procedureDescription && (
+              <div>
+                <dt className="text-slate-500">Procedimento</dt>
+                <dd className="font-medium text-slate-900">{appointment.procedureDescription}</dd>
+              </div>
+            )}
+            <div className="flex justify-between gap-2">
+              <dt className="text-slate-500">Mão de obra</dt>
+              <dd className="font-medium text-slate-900">{formatCentsToBRL(appointment.laborCents)}</dd>
+            </div>
             <div>
               <dt className="text-slate-500">Itens do orçamento</dt>
               <dd>

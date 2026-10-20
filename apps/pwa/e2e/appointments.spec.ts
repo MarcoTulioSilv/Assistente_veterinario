@@ -85,8 +85,10 @@ test.describe('Atendimentos', () => {
     await page.waitForURL(/\/appointments\/[0-9a-f-]{36}$/);
     await expect(page.getByRole('heading', { name: 'Clínico geral' })).toBeVisible();
     await expect(page.getByText('Rascunho')).toBeVisible();
-    await expect(page.getByText('1× Consulta de rotina')).toBeVisible();
-    await expect(page.getByText('R$ 200,00')).toBeVisible(); // 150 + 50 mão de obra
+    // Contrato do orçamento (reunião de 20/10/2026): o procedimento vira a
+    // descrição do orçamento e o valor dele soma na mão de obra — total igual.
+    await expect(page.getByText('Consulta de rotina')).toBeVisible();
+    await expect(page.getByText('R$ 200,00').first()).toBeVisible(); // 150 + 50 mão de obra
 
     // ─── Aparece na lista ────────────────────────────────────────────
     await page.goto('/appointments');
@@ -100,11 +102,13 @@ test.describe('Atendimentos', () => {
 
     // Animal trancado na edição (RF-ATD-006: vínculo não muda mais).
     await expect(page.getByLabel('Animal', { exact: true })).toBeDisabled();
-    await page.getByLabel('Mão de obra (R$)').fill('80,00');
+    // A mão de obra já vem com o valor do procedimento (200); passa a 230.
+    await expect(page.getByLabel('Mão de obra (R$)')).toHaveValue('200,00');
+    await page.getByLabel('Mão de obra (R$)').fill('230,00');
     await page.getByRole('button', { name: 'Salvar alterações' }).click();
 
     await page.waitForURL(/\/appointments\/[0-9a-f-]{36}$/);
-    await expect(page.getByText('R$ 230,00')).toBeVisible(); // 150 + 80 mão de obra
+    await expect(page.getByText('R$ 230,00').first()).toBeVisible();
 
     // ─── Finalizar (irreversível — congela orçamento, abre pendência) ──
     page.once('dialog', (dialog) => {
