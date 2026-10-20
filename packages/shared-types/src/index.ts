@@ -97,7 +97,41 @@ export interface TenantProfile {
     phone: string;
     email: string;
     logoUrl: string | null;
+    /**
+     * Valor por km rodado (RN-011), em centavos. A tela de orçamento
+     * pré-preenche `displacementRateCents` com ele — o orçamento guarda a
+     * própria cópia e pode mudar lá. Nulo = ainda não configurado.
+     */
+    displacementRateCents: Cents | null;
   };
+}
+
+/** Ponto no mapa (graus decimais, WGS84). */
+export interface GeoPoint {
+  latitude: number;
+  longitude: number;
+}
+
+/**
+ * Km automático do orçamento (reunião com os stakeholders de 20/10/2026):
+ * distância de carro entre o ponto de onde o veterinário saiu (informado no
+ * orçamento) e o ponto do atendimento no mapa — só a ida. A tela preenche
+ * `displacementKm` com `distanceKm`, e o vet pode corrigir.
+ *
+ * Calculado no MS1 (RouteService), nunca no navegador: a chave do Google
+ * Maps não pode ir para o cliente. Custo da API é dos stakeholders
+ * (contrato, Cláusula 2ª).
+ */
+export interface RouteDistance {
+  /** Arredondado em 0,1 km. */
+  distanceKm: number;
+  /** Arredondado em minutos. */
+  durationMinutes: number;
+}
+
+export interface IRouteService {
+  /** `null` = rota indisponível agora (API fora, sem rota de carro): a tela pede o km à mão. */
+  distance(origin: GeoPoint, destination: GeoPoint): Promise<RouteDistance | null>;
 }
 
 export interface Owner {
@@ -177,7 +211,10 @@ export interface RegisterTenantDto {
   /** Nome do tenant/clínica; default = fullName se omitido (RF-CAD-030 não define campo próprio). */
   tenantName?: string;
 }
-export type UpdateVeterinarianDto = Partial<Pick<RegisterTenantDto, 'fullName' | 'phone' | 'email' | 'logoUrl'>>;
+export type UpdateVeterinarianDto = Partial<Pick<RegisterTenantDto, 'fullName' | 'phone' | 'email' | 'logoUrl'>> & {
+  /** `null` apaga o valor configurado. */
+  displacementRateCents?: Cents | null;
+};
 
 export interface IOwnerService {
   list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<Owner>>;

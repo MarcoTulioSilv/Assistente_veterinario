@@ -72,19 +72,19 @@ model Tenant {
 
 // ─── USERS ────────────────────────────────────────────────────────
 model User {
-  id               String     @id @default(uuid()) @db.Uuid
-  tenantId         String     @map("tenant_id") @db.Uuid
-  email            String     @unique @db.VarChar(255)
-  passwordHash     String     @map("password_hash") @db.VarChar(255)
-  role             UserRole   @default(admin)
-  fullName         String     @map("full_name") @db.VarChar(255)
-  phone            String?    @db.VarChar(20)
-  totpSecret       String?    @map("totp_secret") @db.VarChar(100)
-  totpEnabled      Boolean    @default(false) @map("totp_enabled")
+  id                    String     @id @default(uuid()) @db.Uuid
+  tenantId              String     @map("tenant_id") @db.Uuid
+  email                 String     @unique @db.VarChar(255)
+  passwordHash          String     @map("password_hash") @db.VarChar(255)
+  role                  UserRole   @default(admin)
+  fullName              String     @map("full_name") @db.VarChar(255)
+  phone                 String?    @db.VarChar(20)
+  totpSecret            String?    @map("totp_secret") @db.VarChar(100)
+  totpEnabled           Boolean    @default(false) @map("totp_enabled")
   refreshTokenHash      String?    @map("refresh_token_hash") @db.VarChar(255)
   refreshTokenExpiresAt DateTime?  @map("refresh_token_expires_at") @db.Timestamptz
   lastLoginAt           DateTime?  @map("last_login_at") @db.Timestamptz
-  status           UserStatus @default(active)
+  status                UserStatus @default(active)
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
@@ -102,16 +102,20 @@ model User {
 
 // ─── VETERINARIANS ────────────────────────────────────────────────
 model Veterinarian {
-  id        String  @id @default(uuid()) @db.Uuid
-  tenantId  String  @map("tenant_id") @db.Uuid
-  userId    String  @unique @map("user_id") @db.Uuid
-  fullName  String  @map("full_name") @db.VarChar(255)
-  crmv      String  @db.VarChar(30)
-  crmvState String  @map("crmv_state") @db.Char(2)
-  cpfCnpj   String  @map("cpf_cnpj") @db.VarChar(20)
-  phone     String  @db.VarChar(20)
-  email     String  @db.VarChar(255)
-  logoUrl   String? @map("logo_url") @db.Text
+  id                    String  @id @default(uuid()) @db.Uuid
+  tenantId              String  @map("tenant_id") @db.Uuid
+  userId                String  @unique @map("user_id") @db.Uuid
+  fullName              String  @map("full_name") @db.VarChar(255)
+  crmv                  String  @db.VarChar(30)
+  crmvState             String  @map("crmv_state") @db.Char(2)
+  cpfCnpj               String  @map("cpf_cnpj") @db.VarChar(20)
+  phone                 String  @db.VarChar(20)
+  email                 String  @db.VarChar(255)
+  logoUrl               String? @map("logo_url") @db.Text
+  /// Valor por km rodado, em centavos (RN-011). Pré-preenche o orçamento,
+  /// que guarda a própria cópia e pode ser alterado lá (reunião de
+  /// 20/10/2026). Nulo = ainda não configurado.
+  displacementRateCents Int?    @map("displacement_rate_cents")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -171,11 +175,11 @@ model Property {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   owners        PropertyOwner[]
   animals       Animal[]
-  transfersFrom AnimalTransfer[]  @relation("TransferFrom")
-  transfersTo   AnimalTransfer[]  @relation("TransferTo")
+  transfersFrom AnimalTransfer[] @relation("TransferFrom")
+  transfersTo   AnimalTransfer[] @relation("TransferTo")
 
   @@index([tenantId])
   @@index([status])
