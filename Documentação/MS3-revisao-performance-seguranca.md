@@ -45,7 +45,7 @@ Os números abaixo foram medidos com 500 mil linhas por tabela (50 mil por clín
 
 O custo agora acompanha só as vacinas que vencem naqueles dias.
 
-Os índices novos substituem os índices simples de `tenant_id` dessas três tabelas. O índice composto cobre o mesmo filtro, e manter os dois só encareceria as escritas. A mudança está na migration `20261017120000_ms3_performance`.
+Os índices novos substituem os índices simples de `tenant_id` dessas três tabelas. O índice composto cobre o mesmo filtro, e manter os dois só encareceria as escritas. A mudança está na migration `20261021120000_ms3_performance`.
 
 ### O que ficou como está
 - **Contagem da paginação (`count`):** cerca de 11 ms com 50 mil registros numa clínica. Ela precisa contar todas as linhas do filtro. Com volume realista (alguns milhares por clínica), fica abaixo de 1 ms. Se um dia pesar, a saída é paginação por cursor, que muda o contrato com o PWA.
