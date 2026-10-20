@@ -87,6 +87,7 @@ const routes: Array<[string, string]> = [
   ['/api/v1/appointments', process.env['MS_CLINICAL_URL'] ?? 'http://localhost:3003'],
   ['/api/v1/exam-types', process.env['MS_CLINICAL_URL'] ?? 'http://localhost:3003'],
   ['/api/v1/exams', process.env['MS_CLINICAL_URL'] ?? 'http://localhost:3003'],
+  ['/api/v1/vaccinations', process.env['MS_CLINICAL_URL'] ?? 'http://localhost:3003'],
   ['/api/v1/financial', process.env['MS_REPORTING_URL'] ?? 'http://localhost:3006'],
 ];
 

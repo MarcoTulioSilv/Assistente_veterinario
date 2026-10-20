@@ -9,6 +9,7 @@ import { healthRouter } from './controllers/health.controller';
 import { appointmentRouter } from './controllers/appointment.controller';
 import { examTypeRouter } from './controllers/exam-type.controller';
 import { examRouter } from './controllers/exam.controller';
+import { vaccinationRouter } from './controllers/vaccination.controller';
 
 export function createApp(): Express {
   const app = express();
@@ -24,6 +25,7 @@ export function createApp(): Express {
   app.use('/appointments', appointmentRouter);
   app.use('/exam-types', examTypeRouter);
   app.use('/exams', examRouter);
+  app.use('/vaccinations', vaccinationRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
