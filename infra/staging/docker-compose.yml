@@ -1,0 +1,159 @@
+# ══════════════════════════════════════════════════════════════════
+# Quíron Equine — ambiente de STAGING (homologação com os stakeholders)
+#
+# Um servidor só (VPS) com tudo em Docker: Caddy na frente (HTTPS
+# automático via Let's Encrypt), PWA, BFF, os microsserviços, Postgres e
+# Redis. Roteiro completo em Documentação/Manual-de-implantacao-staging.md.
+#
+# Sempre com o arquivo de variáveis do servidor (não versionado):
+#   docker compose --env-file .env.staging up -d
+#
+# Imagens publicadas pelo workflow deploy-staging.yml no GitHub Container
+# Registry; IMAGE_TAG é o commit implantado.
+# ══════════════════════════════════════════════════════════════════
+name: quironequine-staging
+
+x-app: &app
+  restart: unless-stopped
+  networks: [internal]
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+
+# JWT_SECRET: todo serviço valida o token (authMiddleware) — o mesmo segredo
+# em todos. REDIS_QUEUE_PREFIX separa as filas do staging de qualquer outro
+# ambiente que um dia divida o Redis.
+x-common-env: &common-env
+  NODE_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  JWT_SECRET: ${JWT_SECRET:?defina JWT_SECRET no .env.staging}
+  REDIS_URL: redis://redis:6379
+  REDIS_QUEUE_PREFIX: quironequine-staging
+
+services:
+  # Um servidor Postgres com um BANCO por serviço (identity, inventory,
+  # clinical, reporting) — continua database-per-service (ADR-001 §5.1),
+  # com isolamento por banco e por role; economiza a memória de 4 servidores.
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    networks: [internal]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-quironequine}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env.staging}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    # Só no localhost do servidor: o seed de homologação chega por túnel SSH
+    # (workflow seed-staging.yml). Nunca exposto à internet.
+    ports:
+      - '127.0.0.1:5432:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-quironequine} -d postgres']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks: [internal]
+    # AOF: o broker (BullMQ) guarda jobs e o agendamento dos lembretes —
+    # reiniciar o container não pode perder evento.
+    command: ['redis-server', '--appendonly', 'yes']
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  ms-identity:
+    <<: *app
+    image: ${REGISTRY:?defina REGISTRY}/quironequine-ms-identity:${IMAGE_TAG:-staging}
+    environment:
+      <<: *common-env
+      PORT_MS_IDENTITY: 3001
+      DATABASE_URL_IDENTITY_APP: postgresql://quironequine_app:${APP_DB_PASSWORD:?defina APP_DB_PASSWORD}@postgres:5432/identity
+      # Base das URLs públicas de upload (fotos, laudos).
+      PUBLIC_BFF_URL: https://${API_DOMAIN:?defina API_DOMAIN}
+    volumes:
+      - uploads:/app/apps/ms-identity/uploads
+
+  ms-inventory:
+    <<: *app
+    image: ${REGISTRY}/quironequine-ms-inventory:${IMAGE_TAG:-staging}
+    environment:
+      <<: *common-env
+      PORT_MS_INVENTORY: 3002
+      DATABASE_URL_INVENTORY_APP: postgresql://quironequine_app:${APP_DB_PASSWORD}@postgres:5432/inventory
+
+  ms-clinical:
+    <<: *app
+    image: ${REGISTRY}/quironequine-ms-clinical:${IMAGE_TAG:-staging}
+    environment:
+      <<: *common-env
+      PORT_MS_CLINICAL: 3003
+      DATABASE_URL_CLINICAL_APP: postgresql://quironequine_app:${APP_DB_PASSWORD}@postgres:5432/clinical
+
+  ms-reporting:
+    <<: *app
+    image: ${REGISTRY}/quironequine-ms-reporting:${IMAGE_TAG:-staging}
+    environment:
+      <<: *common-env
+      PORT_MS_REPORTING: 3006
+      DATABASE_URL_REPORTING_APP: postgresql://quironequine_app:${APP_DB_PASSWORD}@postgres:5432/reporting
+
+  bff:
+    image: ${REGISTRY}/quironequine-bff:${IMAGE_TAG:-staging}
+    restart: unless-stopped
+    networks: [internal]
+    depends_on: [ms-identity, ms-inventory, ms-clinical, ms-reporting]
+    environment:
+      <<: *common-env
+      PORT_BFF: 3000
+      MS_IDENTITY_URL: http://ms-identity:3001
+      MS_INVENTORY_URL: http://ms-inventory:3002
+      MS_CLINICAL_URL: http://ms-clinical:3003
+      MS_REPORTING_URL: http://ms-reporting:3006
+      # Origem liberada no CORS: o endereço da PWA.
+      NEXT_PUBLIC_APP_URL: https://${APP_DOMAIN:?defina APP_DOMAIN}
+
+  # A URL da API (NEXT_PUBLIC_BFF_URL) entra NA IMAGEM, no build — o
+  # workflow de deploy passa como build-arg. Aqui não adianta mudar.
+  pwa:
+    image: ${REGISTRY}/quironequine-pwa:${IMAGE_TAG:-staging}
+    restart: unless-stopped
+    networks: [internal]
+    depends_on: [bff]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    networks: [internal]
+    depends_on: [bff, pwa]
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?defina ACME_EMAIL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+networks:
+  internal:
+
+volumes:
+  pgdata:
+  redisdata:
+  uploads:
+  caddy_data:
+  caddy_config:

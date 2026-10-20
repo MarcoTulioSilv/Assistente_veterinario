@@ -1,0 +1,17 @@
+# Quíron Equine — staging. HTTPS automático (Let's Encrypt): basta o DNS dos
+# dois domínios apontar pro IP do servidor antes do primeiro `up`.
+{
+	email {$ACME_EMAIL}
+}
+
+# API (BFF). Só o BFF fica exposto; os microsserviços vivem na rede interna.
+{$API_DOMAIN} {
+	encode gzip
+	reverse_proxy bff:3000
+}
+
+# PWA
+{$APP_DOMAIN} {
+	encode gzip
+	reverse_proxy pwa:3100
+}
