@@ -83,6 +83,7 @@ const routes: Array<[string, string]> = [
   ['/api/v1/animals', process.env['MS_IDENTITY_URL'] ?? 'http://localhost:3001'],
   ['/api/v1/tenants', process.env['MS_IDENTITY_URL'] ?? 'http://localhost:3001'],
   ['/api/v1/uploads', process.env['MS_IDENTITY_URL'] ?? 'http://localhost:3001'],
+  ['/api/v1/geo', process.env['MS_IDENTITY_URL'] ?? 'http://localhost:3001'],
   ['/api/v1/products', process.env['MS_INVENTORY_URL'] ?? 'http://localhost:3002'],
   ['/api/v1/appointments', process.env['MS_CLINICAL_URL'] ?? 'http://localhost:3003'],
   ['/api/v1/exam-types', process.env['MS_CLINICAL_URL'] ?? 'http://localhost:3003'],

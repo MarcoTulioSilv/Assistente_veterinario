@@ -13,6 +13,7 @@ import { tenantRegisterRouter, tenantRouter } from './controllers/tenant.control
 import { propertyRouter } from './controllers/property.controller';
 import { animalRouter } from './controllers/animal.controller';
 import { uploadRouter } from './controllers/upload.controller';
+import { geoRouter } from './controllers/geo.controller';
 
 export function createApp(): Express {
   const app = express();
@@ -35,6 +36,7 @@ export function createApp(): Express {
   app.use('/properties', propertyRouter);
   app.use('/animals', animalRouter);
   app.use('/uploads', uploadRouter); // POST /
+  app.use('/geo', geoRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
