@@ -1,0 +1,114 @@
+name: Deploy staging
+
+# Homologação com os stakeholders. Deploy a cada push na branch `staging`
+# (promovida da develop por PR) ou à mão. Roteiro e configuração (variáveis,
+# secrets, servidor) em Documentação/Manual-de-implantacao-staging.md.
+#
+# Os segredos do RUNTIME (senhas dos bancos, JWT) moram só no servidor, no
+# .env.staging. Aqui ficam apenas os dados de acesso ao servidor.
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+# Dois deploys ao mesmo tempo disputariam as migrations.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  images:
+    name: Imagem ${{ matrix.service }}
+    # Arquitetura do servidor (variável STAGING_PLATFORM): padrão linux/amd64;
+    # linux/arm64 para a VM Ampere A1 da Oracle. ARM constrói num runner ARM
+    # NATIVO do GitHub (grátis em repositório público) — emular ARM num
+    # runner x86 (QEMU) levaria dezenas de minutos por imagem.
+    runs-on: ${{ vars.STAGING_PLATFORM == 'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: true
+      matrix:
+        service: [ms-identity, ms-inventory, ms-clinical, ms-reporting, bff, pwa]
+    steps:
+      - uses: actions/checkout@v4
+      # O GHCR exige o dono em minúsculas.
+      - name: Nome da imagem
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/quironequine-${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/${{ matrix.service }}/Dockerfile
+          push: true
+          platforms: ${{ vars.STAGING_PLATFORM || 'linux/amd64' }}
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ github.sha }}
+            ${{ steps.image.outputs.name }}:staging
+          # Só a PWA usa: a URL da API entra na imagem no build (Next.js).
+          build-args: |
+            NEXT_PUBLIC_BFF_URL=https://${{ vars.STAGING_API_DOMAIN }}/api/v1
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  deploy:
+    name: Deploy no servidor
+    needs: images
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      packages: read
+    env:
+      HOST: ${{ vars.STAGING_HOST }}
+      USER_AT_HOST: ${{ vars.STAGING_USER }}@${{ vars.STAGING_HOST }}
+      APP_PATH: ${{ vars.STAGING_PATH || '/opt/quironequine' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Chave do servidor FIXADA (known_hosts) — nunca StrictHostKeyChecking=no,
+      # que aceitaria qualquer máquina se passando pelo servidor.
+      - name: Acesso SSH
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.STAGING_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+
+      - name: Enviar arquivos do ambiente
+        run: |
+          # shellcheck disable=SC2029 # o caminho é expandido aqui de propósito
+          ssh "$USER_AT_HOST" "mkdir -p '$APP_PATH/postgres-init'"
+          scp infra/staging/docker-compose.yml infra/staging/Caddyfile \
+              infra/staging/deploy.sh infra/staging/backup.sh "$USER_AT_HOST:$APP_PATH/"
+          scp infra/staging/postgres-init/*.sql "$USER_AT_HOST:$APP_PATH/postgres-init/"
+          scp infra/postgres-init/01-create-app-role.sql "$USER_AT_HOST:$APP_PATH/role.sql"
+
+      # O token do job (só leitura de pacotes) expira junto com o job, e vai
+      # pela ENTRADA do ssh — na linha de comando ficaria visível na lista de
+      # processos do servidor.
+      - name: Deploy
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+          SHA: ${{ github.sha }}
+        run: |
+          # shellcheck disable=SC2029 # ator, caminho e commit expandidos aqui de propósito
+          printf '%s' "$GHCR_TOKEN" | ssh "$USER_AT_HOST" "docker login ghcr.io -u '$ACTOR' --password-stdin > /dev/null"
+          # shellcheck disable=SC2029
+          ssh "$USER_AT_HOST" "cd '$APP_PATH' && ./deploy.sh '$SHA'; status=\$?; docker logout ghcr.io > /dev/null; exit \$status"
+
+      - name: Smoke test pelo domínio público
+        run: |
+          curl -fsS --retry 10 --retry-delay 6 --retry-all-errors "https://${{ vars.STAGING_API_DOMAIN }}/health"
+          echo
+          curl -fsS --retry 5 --retry-delay 6 --retry-all-errors -o /dev/null "https://${{ vars.STAGING_APP_DOMAIN }}/"
+          echo "PWA respondeu"

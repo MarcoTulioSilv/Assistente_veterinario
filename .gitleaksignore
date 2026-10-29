@@ -1,0 +1,8 @@
+# Falsos positivos conhecidos do gitleaks (revisão de segurança, Sprint 8).
+# Formato: <commit>:<arquivo>:<regra>:<linha> — cada entrada vale SÓ para
+# aquele achado naquele commit; um segredo novo no mesmo arquivo ainda é pego.
+#
+# Senhas fictícias de fixture de teste do ms-identity ('senha-correta-123',
+# 'senha-do-cadastro-123') — não protegem nada.
+09928999d7028a1876c3e84dcc72583e26444a1a:apps/ms-identity/src/services/tenant.service.test.ts:generic-api-key:17
+537423b04827bb3855bb9f7e80d99c357d330184:apps/ms-identity/src/services/auth.service.test.ts:generic-api-key:10

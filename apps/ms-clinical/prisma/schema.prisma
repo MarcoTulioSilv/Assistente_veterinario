@@ -104,9 +104,10 @@ model Appointment {
   animals AppointmentAnimal[]
   items   AppointmentItem[]
 
-  @@index([tenantId])
+  /// Lista paginada (mais recente primeiro) — Sprint 8, medido com
+  /// scripts/perf-explain.ts. Substitui o índice só de tenantId.
+  @@index([tenantId, performedAt(sort: Desc)])
   @@index([ownerId])
-  @@index([performedAt])
   @@index([status])
   @@map("appointments")
 }
@@ -302,7 +303,9 @@ model ExamRequest {
   animals  ExamRequestAnimal[]
   items    ExamRequestItem[]
 
-  @@index([tenantId])
+  /// Lista paginada (mais recente primeiro) — Sprint 8, medido com
+  /// scripts/perf-explain.ts. Substitui o índice só de tenantId.
+  @@index([tenantId, createdAt(sort: Desc)])
   @@index([ownerId])
   @@index([status])
   @@index([expectedResultAt])
@@ -405,7 +408,9 @@ model Vaccination {
 
   animals VaccinationAnimal[]
 
-  @@index([tenantId])
+  /// Lista paginada (mais recente primeiro) — Sprint 8, medido com
+  /// scripts/perf-explain.ts. Substitui o índice só de tenantId.
+  @@index([tenantId, appliedAt(sort: Desc), createdAt(sort: Desc)])
   @@index([ownerId])
   @@index([productId])
   @@index([nextDoseAt])

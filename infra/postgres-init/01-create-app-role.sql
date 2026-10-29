@@ -59,6 +59,20 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO quironequine_app;
 
+-- ─── 3b. Historico de migrations fora do alcance da aplicacao ─────
+-- O GRANT ON ALL TABLES acima pega tambem a _prisma_migrations, que a
+-- aplicacao nunca usa. Com INSERT/DELETE nela, uma falha que permitisse
+-- SQL arbitrario poderia adulterar o historico (marcar como aplicada uma
+-- migration que nao rodou). Menor privilegio: so o dono das migrations
+-- (quironequine) mexe nela. Revisao de seguranca da Sprint 8.
+DO $$
+BEGIN
+  IF to_regclass('public._prisma_migrations') IS NOT NULL THEN
+    REVOKE ALL ON TABLE _prisma_migrations FROM quironequine_app;
+  END IF;
+END
+$$;
+
 -- ─── 4. Funcoes de auth pre-tenant (SECURITY DEFINER) ─────────────
 -- So EXECUTE, nunca SELECT direto -- ver ADR-004 e a migration
 -- 20260813192902_auth_refresh_and_lookup. So existem no banco do
