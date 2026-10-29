@@ -38,10 +38,13 @@ A contratação é das contratantes: o contrato, na Cláusula 2ª, diz "fornecer
 **Oracle Cloud (provedor escolhido em 29/10/2026):**
 - **Região:** `sa-saopaulo-1` (São Paulo) ou `sa-vinhedo-1` (Vinhedo).
 - **Forma da VM:**
-  - **`VM.Standard.A1.Flex` (Ampere, ARM)**, a do plano gratuito: dá para usar 4 OCPU e 24 GB. Exige a variável `STAGING_PLATFORM = linux/arm64` no GitHub (passo 4.3). O build das imagens fica mais lento, porque é emulado.
+  - **`VM.Standard.A1.Flex` (Ampere, ARM) com 1 OCPU e 6 GB**, a escolhida (29/10/2026). Fica dentro do plano gratuito (4 OCPU e 24 GB de A1 no total) e deixa espaço para uma VM de produção do mesmo tamanho também grátis. O ambiente usa algo como 1,5 a 2 GB de RAM (estimativa); o build das imagens não roda na VM, e sim num runner ARM nativo do GitHub. Exige a variável `STAGING_PLATFORM = linux/arm64` (passo 4.3).
   - **`VM.Standard.E4.Flex` / `E5.Flex` (AMD)**: não precisa de configuração extra. Com 2 OCPU (4 vCPU) e 8 GB, atende.
 - **Imagem:** Canonical Ubuntu 24.04. O usuário inicial é `ubuntu`, e a chave SSH dele é a informada na criação da VM.
-- **IP público:** reserve um **IP público reservado** e associe à VM, para o IP não mudar se ela for recriada (o DNS aponta para ele).
+- **IP público:** um **IP reservado** não muda se a VM for recriada (o DNS aponta para ele). Confira na página de preços se ele entra na faixa gratuita; se não entrar, o efêmero serve, e basta atualizar o DNS se a VM for recriada.
+- **Disco de boot:** cerca de 50 GB. A faixa gratuita cobre 200 GB de block storage no total. **Não ative backup automático de volume nem snapshots**, que são cobrados à parte; o `backup.sh` cobre os bancos.
+- **Conta pay-as-you-go:** crie um **alerta de orçamento** (*Billing → Budgets*) com valor baixo, por exemplo R$ 1, para qualquer recurso fora da faixa gratuita aparecer cedo.
+- **"Out of host capacity" ao criar a A1:** é comum faltar capacidade em São Paulo. Tente outro *availability domain* ou outro horário.
 
 ### 2.2 DNS
 No **registro.br**, abra o domínio → **DNS** → **Editar zona** (se o domínio ainda usa os servidores DNS do próprio registro.br) e crie dois registros **A** apontando para o IP do servidor:
@@ -69,6 +72,11 @@ curl -fsSL https://get.docker.com | sh
 adduser --disabled-password --gecos "" deploy
 usermod -aG docker deploy
 install -d -o deploy -g deploy /opt/quironequine
+
+# Swap de 2 GB: rede de segurança contra falta de memória num pico (com 6 GB
+# não deve ser preciso, mas custa só disco)
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
 
 # Firewall: só SSH e web
 ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
