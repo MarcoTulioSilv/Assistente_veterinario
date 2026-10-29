@@ -35,8 +35,16 @@ Internet ──► Caddy (HTTPS automático, Let's Encrypt)
 
 A contratação é das contratantes: o contrato, na Cláusula 2ª, diz "fornecer o ambiente de homologação".
 
+**Oracle Cloud (provedor escolhido em 29/10/2026):**
+- **Região:** `sa-saopaulo-1` (São Paulo) ou `sa-vinhedo-1` (Vinhedo).
+- **Forma da VM:**
+  - **`VM.Standard.A1.Flex` (Ampere, ARM)**, a do plano gratuito: dá para usar 4 OCPU e 24 GB. Exige a variável `STAGING_PLATFORM = linux/arm64` no GitHub (passo 4.3). O build das imagens fica mais lento, porque é emulado.
+  - **`VM.Standard.E4.Flex` / `E5.Flex` (AMD)**: não precisa de configuração extra. Com 2 OCPU (4 vCPU) e 8 GB, atende.
+- **Imagem:** Canonical Ubuntu 24.04. O usuário inicial é `ubuntu`, e a chave SSH dele é a informada na criação da VM.
+- **IP público:** reserve um **IP público reservado** e associe à VM, para o IP não mudar se ela for recriada (o DNS aponta para ele).
+
 ### 2.2 DNS
-No painel do domínio (ex.: registro.br), crie dois registros **A** apontando para o IP do servidor:
+No **registro.br**, abra o domínio → **DNS** → **Editar zona** (se o domínio ainda usa os servidores DNS do próprio registro.br) e crie dois registros **A** apontando para o IP do servidor:
 
 | Nome | Tipo | Valor |
 |---|---|---|
@@ -65,6 +73,15 @@ install -d -o deploy -g deploy /opt/quironequine
 # Firewall: só SSH e web
 ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
 ```
+
+**Na Oracle, o firewall tem duas camadas, e as duas precisam liberar 80 e 443:**
+1. **Rede (no console):** *Networking → Virtual Cloud Networks → a VCN da VM → Security Lists → Default Security List* → **Add Ingress Rules**: origem `0.0.0.0/0`, TCP, portas de destino `80` e `443`. A 22 (SSH) já vem liberada.
+2. **Dentro da VM:** a imagem Ubuntu da Oracle já vem com regras de **iptables** que bloqueiam tudo além do SSH, mesmo com a VCN liberada (o sintoma é o Caddy sem certificado). **Na Oracle, pule o `ufw` acima**: ele e as regras da Oracle se atrapalham. Use isto no lugar:
+   ```bash
+   iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
+   iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+   netfilter-persistent save
+   ```
 
 ## 4. Chave de deploy e segredos (uma vez, na sua máquina)
 
@@ -106,6 +123,7 @@ Em **Settings → Environments**, crie o ambiente **`staging`** e cadastre:
 | `STAGING_APP_DOMAIN` | `homolog.<dominio>` |
 | `STAGING_API_DOMAIN` | `api-homolog.<dominio>` |
 | `STAGING_PATH` | `/opt/quironequine` (opcional; esse é o padrão) |
+| `STAGING_PLATFORM` | `linux/arm64` **só** se a VM for ARM (Ampere A1); senão, não crie |
 
 **Secrets:**
 
@@ -116,7 +134,7 @@ Em **Settings → Environments**, crie o ambiente **`staging`** e cadastre:
 | `STAGING_POSTGRES_PASSWORD` | o `POSTGRES_PASSWORD` do `.env.staging` (só o seed usa) |
 | `STAGING_SEED_PASSWORD` | o `SEED_PASSWORD` do `.env.staging` |
 
-Em **Settings → Variables**, cadastre também `STAGING_API_DOMAIN` no nível do **repositório**. O build das imagens usa essa variável e roda fora do ambiente `staging`.
+Em **Settings → Variables**, cadastre também `STAGING_API_DOMAIN` (e `STAGING_PLATFORM`, se for ARM) no nível do **repositório**. O build das imagens usa essas variáveis e roda fora do ambiente `staging`.
 
 ## 5. Primeiro deploy
 
