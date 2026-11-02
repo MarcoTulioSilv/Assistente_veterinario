@@ -86,8 +86,13 @@ ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
 1. **Rede (no console):** *Networking → Virtual Cloud Networks → a VCN da VM → Security Lists → Default Security List* → **Add Ingress Rules**: origem `0.0.0.0/0`, TCP, portas de destino `80` e `443`. A 22 (SSH) já vem liberada.
 2. **Dentro da VM:** a imagem Ubuntu da Oracle já vem com regras de **iptables** que bloqueiam tudo além do SSH, mesmo com a VCN liberada (o sintoma é o Caddy sem certificado). **Na Oracle, pule o `ufw` acima**: ele e as regras da Oracle se atrapalham. Use isto no lugar:
    ```bash
-   iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80 -j ACCEPT
-   iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+   # A imagem Minimal não traz o netfilter-persistent
+   apt-get install -y iptables-persistent
+   # Veja em que linha está o REJECT (6 na imagem padrão, 5 na Minimal)
+   iptables -L INPUT --line-numbers -n
+   # Troque N por essa linha: as regras precisam ficar ANTES do REJECT
+   iptables -I INPUT N -m state --state NEW -p tcp --dport 80 -j ACCEPT
+   iptables -I INPUT N -m state --state NEW -p tcp --dport 443 -j ACCEPT
    netfilter-persistent save
    ```
 
