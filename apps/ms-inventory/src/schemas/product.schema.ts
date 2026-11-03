@@ -8,10 +8,30 @@ const PRODUCT_UNITS = [
 const PRODUCT_CATEGORIES = ['medication', 'vaccine', 'supply'] as const;
 
 /**
+ * Reunião de 2026-11-03: unidade válida depende da categoria. Por ora só
+ * vacina tem lista fechada (pedido explícito da reunião) — "dose" não
+ * entra aqui porque já é coberto por `dosesPerUnit` (frasco de N doses),
+ * não é um valor de `unit`. medication/supply continuam aceitando
+ * qualquer unidade até vir uma lista específica pra elas.
+ */
+const CATEGORY_UNITS: Record<(typeof PRODUCT_CATEGORIES)[number], readonly (typeof PRODUCT_UNITS)[number][]> = {
+  vaccine: ['ml', 'frasco', 'ampola'],
+  medication: PRODUCT_UNITS,
+  supply: PRODUCT_UNITS,
+};
+
+function unitAllowedForCategory(
+  category: (typeof PRODUCT_CATEGORIES)[number],
+  unit: (typeof PRODUCT_UNITS)[number],
+): boolean {
+  return CATEGORY_UNITS[category].includes(unit);
+}
+
+/**
  * Validação de entrada — Dev 2 é o dono desta camada.
  * Toda rota valida o body ANTES de chegar ao Service.
  */
-export const createProductSchema = z.object({
+const baseProductSchema = z.object({
   name: z.string().min(2).max(255),
   manufacturer: z.string().max(255).optional(),
   batch: z.string().max(100).optional(),
@@ -32,10 +52,32 @@ export const createProductSchema = z.object({
   doseIntervalDays: z.coerce.number().int().min(1).max(3650).nullable().optional(),
 });
 
+export const createProductSchema = baseProductSchema.refine(
+  (data) => unitAllowedForCategory(data.category, data.unit),
+  (data) => ({
+    message: `Unidade "${data.unit}" não é válida para a categoria "${data.category}"`,
+    path: ['unit'],
+  }),
+);
+
 // `quantityInStock` de propósito fora do update: mudar o estoque só via
 // StockMovement (RF-EST-007) — permitir aqui contornaria o ledger, mesmo
 // problema que RN-010 evita pra transferência de animal entre propriedades.
-export const updateProductSchema = createProductSchema.omit({ quantityInStock: true }).partial();
+//
+// O refine só valida quando os DOIS campos vêm juntos no mesmo PATCH — igual
+// doseIntervalDays (StockService.update), um PATCH que só troca a categoria
+// sem tocar na unidade não passa por aqui (precisaria do registro existente,
+// que o schema não tem acesso).
+export const updateProductSchema = baseProductSchema
+  .omit({ quantityInStock: true })
+  .partial()
+  .refine(
+    (data) => data.category === undefined || data.unit === undefined || unitAllowedForCategory(data.category, data.unit),
+    (data) => ({
+      message: `Unidade "${data.unit}" não é válida para a categoria "${data.category}"`,
+      path: ['unit'],
+    }),
+  );
 
 export const listProductsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
