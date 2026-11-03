@@ -2,6 +2,6 @@
   "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
   "high": true,
   "skip-dev": true,
-  "allowlist": ["GHSA-vfj7-8cjw-p6xm"],
-  "_comment": "GHSA-vfj7-8cjw-p6xm (braces, DoS por padrao aninhado): afeta TODAS as versoes publicadas do braces (<=3.0.3, sem fix upstream em 2026-10-05). Chega via http-proxy-middleware@2.0.10 -> micromatch (apps/bff), e via tailwindcss -> chokidar/fast-glob (apps/pwa, build-time). `npm audit fix --force` so oferece downgrade de http-proxy-middleware pra 0.2.0 (API pre-Node-streams, breaking). Uso real do braces/micromatch aqui e so matching de path estatico definido pelo dev (rotas do proxy) e globs de build, nunca input de usuario -- risco de exploracao e baixo. Revisitar quando o braces publicar um fix (acompanhar o advisory)."
+  "allowlist": ["GHSA-mrhx-c7xc-m3w5"],
+  "_comment": "GHSA-mrhx-c7xc-m3w5 (zod <4.6.6, exaustao de memoria validando colecoes grandes): fix exige zod 4.x, major breaking (muda formato de erro/.strict()) em TODOS os schemas Zod do monorepo -- nao e um bump de rotina, precisa de migracao deliberada e revisao, nao cabe num fix de CI isolado. zod continua pinado em ^3.24.0 propositalmente. Revisitar quando a migracao pro zod 4 for planejada (decisao conjunta Dev1/Dev2, muitos arquivos afetados dos dois lados). O GHSA-vfj7-8cjw-p6xm (braces) que estava aqui antes ja foi corrigido upstream -- removido em 2026-11-03."
 }
