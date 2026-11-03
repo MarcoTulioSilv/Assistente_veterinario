@@ -24,3 +24,8 @@ export function parseOptionalNumber(value: string): number | undefined {
   const amount = Number(trimmed.replace(',', '.'));
   return Number.isNaN(amount) ? undefined : amount;
 }
+
+/** Inverso de parseBRLToCents, pra pré-preencher um campo editável (ex: "5000" -> "50,00"). Zero -> '' (não preenchido). */
+export function centsToBRLInput(cents: number): string {
+  return cents === 0 ? '' : (cents / 100).toFixed(2).replace('.', ',');
+}

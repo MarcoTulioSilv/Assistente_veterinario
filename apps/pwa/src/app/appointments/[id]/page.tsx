@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import type { Appointment } from '@quironequine/shared-types';
+import type { Animal, Appointment } from '@quironequine/shared-types';
 import { Button, Spinner, useToast } from '@/components/ui';
 import { AppHeader } from '@/components/AppHeader';
 import { formatCentsToBRL } from '@/lib/money';
@@ -56,6 +56,7 @@ export default function AppointmentDetailPage(): React.ReactElement | null {
 
   const [loading, setLoading] = useState(true);
   const [appointment, setAppointment] = useState<Appointment | null>(null);
+  const [animalNames, setAnimalNames] = useState<Record<string, string>>({});
   const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [finishing, setFinishing] = useState(false);
@@ -69,8 +70,22 @@ export default function AppointmentDetailPage(): React.ReactElement | null {
     let cancelled = false;
     api.appointments
       .get(id)
-      .then((data) => {
-        if (!cancelled) setAppointment(data);
+      .then(async (data) => {
+        if (cancelled) return;
+        setAppointment(data);
+        // Appointment só guarda animalId (ADR-001 §5.1, sem join cross-service)
+        // -- busca o nome de cada um pra exibir.
+        const names = await Promise.all(
+          data.animals.map((a) =>
+            api.animals.get(a.animalId).catch(() => null as Animal | null),
+          ),
+        );
+        if (cancelled) return;
+        setAnimalNames(
+          Object.fromEntries(
+            data.animals.map((a, i) => [a.animalId, names[i]?.name ?? 'Animal removido']),
+          ),
+        );
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -195,10 +210,9 @@ export default function AppointmentDetailPage(): React.ReactElement | null {
               <Link href="/appointments" className="text-sm text-primary-700 hover:underline">
                 &larr; Atendimentos
               </Link>
-              <h1 className="mt-2 text-xl font-bold text-primary-800">
-                {TYPE_LABELS[appointment.type]}
-              </h1>
+              <h1 className="mt-2 text-xl font-bold text-primary-800">{appointment.title}</h1>
               <p className="mt-1 text-sm text-slate-500">
+                {TYPE_LABELS[appointment.type]} ·{' '}
                 {new Date(appointment.performedAt).toLocaleDateString('pt-BR')} · Status:{' '}
                 <strong>{STATUS_LABELS[appointment.status]}</strong>
               </p>
@@ -214,6 +228,43 @@ export default function AppointmentDetailPage(): React.ReactElement | null {
           </div>
 
           <dl className="space-y-3 text-sm">
+            <div>
+              <dt className="text-slate-500">Animais</dt>
+              <dd className="mt-1 space-y-2">
+                {appointment.animals.map((a) => (
+                  <details key={a.animalId} className="rounded-md border border-slate-200">
+                    <summary className="cursor-pointer px-3 py-2 font-medium text-slate-900">
+                      {animalNames[a.animalId] ?? '...'}
+                    </summary>
+                    <div className="space-y-2 border-t border-slate-200 p-3 text-slate-700">
+                      {a.medicalRecord ? (
+                        <>
+                          {a.medicalRecord.diagnosis && <p><strong>Diagnóstico:</strong> {a.medicalRecord.diagnosis}</p>}
+                          {a.medicalRecord.treatment && <p><strong>Tratamento:</strong> {a.medicalRecord.treatment}</p>}
+                          {a.medicalRecord.anamnesis && <p><strong>Anamnese:</strong> {a.medicalRecord.anamnesis}</p>}
+                          {a.medicalRecord.prognosis && <p><strong>Prognóstico:</strong> {a.medicalRecord.prognosis}</p>}
+                          {a.medicalRecord.referral && <p><strong>Encaminhamento:</strong> {a.medicalRecord.referral}</p>}
+                        </>
+                      ) : (
+                        <p className="text-slate-400">Sem ficha clínica.</p>
+                      )}
+                      {a.prescriptions.length > 0 && (
+                        <div>
+                          <p className="font-medium">Receita:</p>
+                          <ul className="list-disc pl-5">
+                            {a.prescriptions.map((p, i) => (
+                              <li key={i}>
+                                {p.medicationName} — {p.dose}, {p.schedule}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </details>
+                ))}
+              </dd>
+            </div>
             {appointment.animalLocation && (
               <div>
                 <dt className="text-slate-500">Local do animal</dt>

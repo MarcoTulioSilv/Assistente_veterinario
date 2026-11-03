@@ -20,10 +20,16 @@ import type {
   UpdateProductDto,
   CreateMovementDto,
   Appointment,
+  AppointmentStatus,
   CreateAppointmentDto,
   UpdateAppointmentDto,
   FinancialRecord,
   FinancialSourceType,
+  GeoPoint,
+  RouteDistance,
+  Vaccination,
+  CreateVaccinationDto,
+  VaccineBooster,
 } from '@quironequine/shared-types';
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
@@ -185,7 +191,7 @@ export const api = {
     },
   },
   appointments: {
-    list: (params?: { page?: number; limit?: number; animalId?: string }) =>
+    list: (params?: { page?: number; limit?: number; animalId?: string; status?: AppointmentStatus }) =>
       request<Paginated<Appointment>>(`/appointments?${buildQuery(params)}`),
     get: (id: string) => request<Appointment>(`/appointments/${id}`),
     create: (data: CreateAppointmentDto) =>
@@ -208,5 +214,32 @@ export const api = {
         throw err;
       }
     },
+  },
+  geo: {
+    // 503 (rota indisponível agora -- API fora, sem key, sem rota de carro)
+    // é um estado válido, não um erro: a tela volta a pedir o km à mão.
+    route: async (origin: GeoPoint, destination: GeoPoint) => {
+      const params = {
+        originLat: origin.latitude,
+        originLng: origin.longitude,
+        destinationLat: destination.latitude,
+        destinationLng: destination.longitude,
+      };
+      try {
+        return await request<RouteDistance>(`/geo/route?${buildQuery(params)}`);
+      } catch (err) {
+        if (err instanceof ApiClientError && err.status === 503) return null;
+        throw err;
+      }
+    },
+  },
+  vaccinations: {
+    list: (params?: { page?: number; limit?: number; animalId?: string }) =>
+      request<Paginated<Vaccination>>(`/vaccinations?${buildQuery(params)}`),
+    get: (id: string) => request<Vaccination>(`/vaccinations/${id}`),
+    boosters: (animalId: string) => request<VaccineBooster[]>(`/vaccinations/boosters/${animalId}`),
+    create: (data: CreateVaccinationDto) =>
+      request<Vaccination>('/vaccinations', { method: 'POST', body: JSON.stringify(data) }),
+    remove: (id: string) => request<void>(`/vaccinations/${id}`, { method: 'DELETE' }),
   },
 };

@@ -3,13 +3,22 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import type { Appointment, Pagination } from '@quironequine/shared-types';
+import type { Appointment, AppointmentStatus, Pagination } from '@quironequine/shared-types';
 import { Button, Spinner, useToast } from '@/components/ui';
 import { AppHeader } from '@/components/AppHeader';
 import { cn } from '@/lib/cn';
 import { formatCentsToBRL } from '@/lib/money';
 import { api, ApiClientError, hasSession } from '@/lib/api';
-import { TYPE_LABELS, STATUS_LABELS } from './labels';
+import { STATUS_LABELS } from './labels';
+
+type StatusFilter = AppointmentStatus | 'all';
+
+/** Pedido da reunião de 20/10/2026: filtro em aberto (rascunho) / finalizados na lista. */
+const STATUS_TABS: { value: StatusFilter; label: string }[] = [
+  { value: 'draft', label: 'Em aberto' },
+  { value: 'finished', label: 'Finalizados' },
+  { value: 'all', label: 'Todos' },
+];
 
 export default function AppointmentsPage(): React.ReactElement {
   const router = useRouter();
@@ -18,6 +27,7 @@ export default function AppointmentsPage(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [pagination, setPagination] = useState<Pagination | null>(null);
+  const [status, setStatus] = useState<StatusFilter>('draft');
   const [page, setPage] = useState(1);
 
   useEffect(() => {
@@ -30,7 +40,7 @@ export default function AppointmentsPage(): React.ReactElement {
     let cancelled = false;
     setLoading(true);
     api.appointments
-      .list({ page })
+      .list({ page, status: status === 'all' ? undefined : status })
       .then((result) => {
         if (cancelled) return;
         setAppointments(result.data);
@@ -42,7 +52,7 @@ export default function AppointmentsPage(): React.ReactElement {
           router.replace('/login');
           return;
         }
-        toast({ title: 'Falha ao carregar atendimentos', variant: 'error' });
+        toast({ title: 'Falha ao carregar orçamentos', variant: 'error' });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -51,7 +61,7 @@ export default function AppointmentsPage(): React.ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [page]);
+  }, [page, status]);
 
   return (
     <>
@@ -60,7 +70,24 @@ export default function AppointmentsPage(): React.ReactElement {
         <div className="mx-auto w-full max-w-2xl">
           <div className="mb-6 flex items-center justify-between">
             <h1 className="text-xl font-bold text-primary-800">Atendimentos</h1>
-            <Button onClick={() => router.push('/appointments/new')}>Novo atendimento</Button>
+            <Button onClick={() => router.push('/appointments/new')}>Novo orçamento</Button>
+          </div>
+
+          <div className="mb-4 flex gap-2">
+            {STATUS_TABS.map((tab) => (
+              <Button
+                key={tab.value}
+                type="button"
+                size="sm"
+                variant={status === tab.value ? 'primary' : 'outline'}
+                onClick={() => {
+                  setStatus(tab.value);
+                  setPage(1);
+                }}
+              >
+                {tab.label}
+              </Button>
+            ))}
           </div>
 
           <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
@@ -69,7 +96,7 @@ export default function AppointmentsPage(): React.ReactElement {
                 <Spinner size="lg" />
               </div>
             ) : appointments.length === 0 ? (
-              <p className="p-8 text-center text-sm text-slate-500">Nenhum atendimento encontrado.</p>
+              <p className="p-8 text-center text-sm text-slate-500">Nenhum orçamento encontrado.</p>
             ) : (
               <ul>
                 {appointments.map((appointment, index) => (
@@ -79,11 +106,11 @@ export default function AppointmentsPage(): React.ReactElement {
                       className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary-500"
                     >
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-slate-900">
-                          {TYPE_LABELS[appointment.type]}
-                        </p>
+                        <p className="truncate font-medium text-slate-900">{appointment.title}</p>
                         <p className="truncate text-sm text-slate-500">
                           {new Date(appointment.performedAt).toLocaleDateString('pt-BR')} ·{' '}
+                          {appointment.animals.length}{' '}
+                          {appointment.animals.length === 1 ? 'animal' : 'animais'} ·{' '}
                           {formatCentsToBRL(appointment.totalCents)}
                         </p>
                       </div>
