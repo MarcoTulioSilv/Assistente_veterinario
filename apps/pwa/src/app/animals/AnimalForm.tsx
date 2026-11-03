@@ -137,7 +137,7 @@ export function AnimalForm({
         error={fieldErrors.photoUrl}
       />
       <ImageUploadField
-        label="Resenha/desenho"
+        label="Resenha"
         hint="Identificação gráfica do equino (RF-CAD-023)"
         value={sketchUrl}
         onChange={setSketchUrl}
