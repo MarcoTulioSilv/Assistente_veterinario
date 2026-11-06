@@ -122,6 +122,9 @@ services:
       MS_REPORTING_URL: http://ms-reporting:3006
       # Origem liberada no CORS: o endereço da PWA.
       NEXT_PUBLIC_APP_URL: https://${APP_DOMAIN:?defina APP_DOMAIN}
+      # Um proxy confiável na frente (o Caddy): o limite de requisições passa
+      # a ser por cliente, não um só para todo mundo (auditoria A-02).
+      TRUST_PROXY: 1
 
   # A URL da API (NEXT_PUBLIC_BFF_URL) entra NA IMAGEM, no build — o
   # workflow de deploy passa como build-arg. Aqui não adianta mudar.

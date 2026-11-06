@@ -2,7 +2,7 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import rateLimit from 'express-rate-limit';
+import { applyRateLimits, rateLimitConfigFromEnv } from './rate-limit';
 import {
   traceMiddleware,
   errorHandler,
@@ -24,16 +24,8 @@ app.use(
 );
 app.use(traceMiddleware);
 
-// ─── Rate limiting (RNF-SEG-001) ─────────────────────────────────
-app.use(
-  rateLimit({
-    windowMs: Number(process.env['RATE_LIMIT_WINDOW_MS'] ?? 60_000),
-    max: Number(process.env['RATE_LIMIT_MAX_PER_IP'] ?? 100),
-    standardHeaders: true,
-    legacyHeaders: false,
-    message: { code: 'RATE_LIMITED', message: 'Muitas requisições. Aguarde um momento.' },
-  }),
-);
+// ─── Rate limiting (RNF-SEG-001) — ver rate-limit.ts ─────────────
+applyRateLimits(app, rateLimitConfigFromEnv());
 
 // ─── Health checks ───────────────────────────────────────────────
 app.get('/health', (_req, res) => {
