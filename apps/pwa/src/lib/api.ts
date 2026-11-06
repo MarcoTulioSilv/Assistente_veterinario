@@ -73,30 +73,82 @@ function buildQuery(params?: Record<string, string | number | undefined>): strin
   return query.toString();
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+function buildHeaders(init?: RequestInit): HeadersInit {
   const token = getToken();
   // FormData (upload de arquivo) precisa que o browser defina Content-Type
   // sozinho (com o boundary do multipart) — setar manualmente quebra o parse.
   const isFormData = init?.body instanceof FormData;
-  const res = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
-    },
-  });
+  return {
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...init?.headers,
+  };
+}
 
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({
-      code: 'INTERNAL_ERROR',
-      message: 'Erro de comunicação com o servidor',
-    }))) as ApiError;
-    throw new ApiClientError(res.status, body);
+async function throwForErrorResponse(res: Response): Promise<never> {
+  const body = (await res.json().catch(() => ({
+    code: 'INTERNAL_ERROR',
+    message: 'Erro de comunicação com o servidor',
+  }))) as ApiError;
+  throw new ApiClientError(res.status, body);
+}
+
+function parseResponse<T>(res: Response): Promise<T> {
+  if (res.status === 204) return Promise.resolve(undefined as T);
+  return res.json() as Promise<T>;
+}
+
+// 401 nessas rotas é a própria autenticação falhando (senha errada, refresh
+// token vencido/roubado, token de logout inválido) -- tentar renovar aí
+// entraria em laço. As demais rotas tratam 401 como "access token venceu".
+const SKIP_REFRESH_PATHS = ['/auth/login', '/auth/refresh', '/auth/logout'];
+
+let refreshing: Promise<boolean> | null = null;
+
+/**
+ * Renova o par de tokens. Uma renovação por vez: se cinco chamadas voltarem
+ * 401 juntas (ex: dashboard disparando várias de uma vez), todas esperam a
+ * MESMA Promise -- sem isso, cada uma tentaria renovar sozinha e as
+ * seguintes cairiam com um refresh token que a primeira já tinha invalidado
+ * (auditoria de 06/11/2026, pedidos-para-joao.md). Se o fetch rejeitar (sem
+ * rede), a rejeição propaga e quem chamou NÃO limpa a sessão.
+ */
+function refreshSession(): Promise<boolean> {
+  refreshing ??= (async () => {
+    const refreshToken = sessionStorage.getItem('refreshToken');
+    if (!refreshToken) return false;
+    const res = await fetch(`${BASE_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) return false;
+    setSession(await res.json());
+    return true;
+  })().finally(() => {
+    refreshing = null;
+  });
+  return refreshing;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, { ...init, headers: buildHeaders(init) });
+
+  if (res.status === 401 && !SKIP_REFRESH_PATHS.some((p) => path.startsWith(p))) {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      const retryRes = await fetch(`${BASE_URL}${path}`, { ...init, headers: buildHeaders(init) });
+      if (!retryRes.ok) await throwForErrorResponse(retryRes);
+      return parseResponse<T>(retryRes);
+    }
+    // Refresh recusado de verdade (não por falta de rede, ver acima): sessão
+    // vencida/roubada. Limpa e deixa o 401 original propagar -- cada tela já
+    // trata ApiClientError 401 mandando pro /login.
+    clearSession();
   }
 
-  if (res.status === 204) return undefined as T;
-  return res.json() as Promise<T>;
+  if (!res.ok) await throwForErrorResponse(res);
+  return parseResponse<T>(res);
 }
 
 /** Cliente tipado do BFF — Dev 2 é o dono */
@@ -107,6 +159,11 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ email, password, totpCode }),
       }),
+    refresh: (refreshToken: string) =>
+      request<AuthTokens>('/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken }) }),
+    /** Sempre 204 (ver AuthService.logout) -- não precisa tratar erro. */
+    logout: (refreshToken: string) =>
+      request<void>('/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken }) }),
   },
   owners: {
     list: (params?: {
