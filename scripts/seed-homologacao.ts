@@ -37,10 +37,10 @@ import { calculateExamChargeCents, calculateExpectedResultAt } from '../apps/ms-
 import {
   calculateVaccinationTotalCents,
   calculateNextDoseAt,
-  totalDoses,
+  totalMl,
 } from '../apps/ms-clinical/src/services/vaccination.service';
 import { saoPauloDay, addDays } from '../apps/ms-clinical/src/services/sao-paulo-day';
-import { dosesToUnits } from '../apps/ms-inventory/src/services/deduction.service';
+import { toStockUnits } from '../apps/ms-inventory/src/services/stock.service';
 import { EXAM_TYPE_SUGGESTIONS } from '@quironequine/shared-types';
 import type { ExamProtocolField, StockConsumptionSource } from '@quironequine/shared-types';
 
@@ -247,8 +247,15 @@ interface StockItem {
   name: string;
   batch: string | null;
   salePriceCents: number;
-  dosesPerUnit: number | null;
+  /** Medicamento e vacina são cobrados e baixados por ml (reunião de 2026-11-03). */
+  mlPerUnit: number | null;
+  applicationMl: number | null;
   doseIntervalDays: number | null;
+}
+
+/** Preço do item por unidade de uso: por ml quando o produto é usado por ml, como a tela sugere. */
+function usePriceCents(product: StockItem): number {
+  return product.mlPerUnit ? Math.round(product.salePriceCents / product.mlPerUnit) : product.salePriceCents;
 }
 
 async function seedInventory(): Promise<Record<string, StockItem>> {
@@ -259,7 +266,8 @@ async function seedInventory(): Promise<Record<string, StockItem>> {
     batch?: string;
     unit: 'frasco' | 'unidade' | 'ampola' | 'caixa';
     quantity: number;
-    dosesPerUnit?: number;
+    mlPerUnit?: number;
+    applicationMl?: number;
     costPriceCents: number;
     markupPercent: number;
     expiryInDays?: number;
@@ -269,17 +277,17 @@ async function seedInventory(): Promise<Record<string, StockItem>> {
   };
 
   const seeds: ProductSeed[] = [
-    // Vacinas: frasco multidose; intervalo é a base da re-vacinação (RF-VAC-005).
-    { key: 'influenza', name: 'Vacina Influenza Equina', manufacturer: 'Zoetis', batch: 'ZI-2026-114', unit: 'frasco', quantity: 6, dosesPerUnit: 10, costPriceCents: 32000, markupPercent: 35, expiryInDays: 240, minStockQty: 2, category: 'vaccine', doseIntervalDays: 180 },
-    { key: 'tetano', name: 'Vacina Tétano Equino', manufacturer: 'Labtest', batch: 'LT-2026-07', unit: 'frasco', quantity: 5, dosesPerUnit: 10, costPriceCents: 9000, markupPercent: 40, expiryInDays: 300, minStockQty: 2, category: 'vaccine', doseIntervalDays: 365 },
-    { key: 'encefalo', name: 'Vacina Encefalomielite + Tétano', manufacturer: 'Ourofino', batch: 'OF-EN-2203', unit: 'frasco', quantity: 4, dosesPerUnit: 10, costPriceCents: 28000, markupPercent: 35, expiryInDays: 180, minStockQty: 2, category: 'vaccine', doseIntervalDays: 365 },
-    { key: 'raiva', name: 'Vacina Antirrábica', manufacturer: 'Ceva', batch: 'CV-RB-0912', unit: 'frasco', quantity: 3, dosesPerUnit: 10, costPriceCents: 12000, markupPercent: 40, expiryInDays: 25, minStockQty: 1, category: 'vaccine', doseIntervalDays: 365 },
-    { key: 'rino', name: 'Vacina Rinopneumonite', manufacturer: 'Zoetis', batch: 'ZR-2026-031', unit: 'frasco', quantity: 1, dosesPerUnit: 10, costPriceCents: 35000, markupPercent: 30, expiryInDays: 200, minStockQty: 2, category: 'vaccine', doseIntervalDays: 180 },
+    // Vacinas: frasco de 20 ml (10 aplicações de 2 ml); intervalo é a base da re-vacinação (RF-VAC-005).
+    { key: 'influenza', name: 'Vacina Influenza Equina', manufacturer: 'Zoetis', batch: 'ZI-2026-114', unit: 'frasco', quantity: 6, mlPerUnit: 20, applicationMl: 2, costPriceCents: 32000, markupPercent: 35, expiryInDays: 240, minStockQty: 2, category: 'vaccine', doseIntervalDays: 180 },
+    { key: 'tetano', name: 'Vacina Tétano Equino', manufacturer: 'Labtest', batch: 'LT-2026-07', unit: 'frasco', quantity: 5, mlPerUnit: 20, applicationMl: 2, costPriceCents: 9000, markupPercent: 40, expiryInDays: 300, minStockQty: 2, category: 'vaccine', doseIntervalDays: 365 },
+    { key: 'encefalo', name: 'Vacina Encefalomielite + Tétano', manufacturer: 'Ourofino', batch: 'OF-EN-2203', unit: 'frasco', quantity: 4, mlPerUnit: 20, applicationMl: 2, costPriceCents: 28000, markupPercent: 35, expiryInDays: 180, minStockQty: 2, category: 'vaccine', doseIntervalDays: 365 },
+    { key: 'raiva', name: 'Vacina Antirrábica', manufacturer: 'Ceva', batch: 'CV-RB-0912', unit: 'frasco', quantity: 3, mlPerUnit: 20, applicationMl: 2, costPriceCents: 12000, markupPercent: 40, expiryInDays: 25, minStockQty: 1, category: 'vaccine', doseIntervalDays: 365 },
+    { key: 'rino', name: 'Vacina Rinopneumonite', manufacturer: 'Zoetis', batch: 'ZR-2026-031', unit: 'frasco', quantity: 1, mlPerUnit: 20, applicationMl: 2, costPriceCents: 35000, markupPercent: 30, expiryInDays: 200, minStockQty: 2, category: 'vaccine', doseIntervalDays: 180 },
     // Medicamentos
-    { key: 'flunixin', name: 'Flunixin Meglumine 5%', manufacturer: 'Ourofino', batch: 'OF-2026-88', unit: 'frasco', quantity: 8, costPriceCents: 8200, markupPercent: 40, expiryInDays: 400, minStockQty: 3, category: 'medication' },
-    { key: 'fenil', name: 'Fenilbutazona 20%', manufacturer: 'Vetnil', batch: 'VN-FB-552', unit: 'frasco', quantity: 6, costPriceCents: 6500, markupPercent: 40, expiryInDays: 365, minStockQty: 2, category: 'medication' },
+    { key: 'flunixin', name: 'Flunixin Meglumine 5%', manufacturer: 'Ourofino', batch: 'OF-2026-88', unit: 'frasco', quantity: 8, mlPerUnit: 50, costPriceCents: 8200, markupPercent: 40, expiryInDays: 400, minStockQty: 3, category: 'medication' },
+    { key: 'fenil', name: 'Fenilbutazona 20%', manufacturer: 'Vetnil', batch: 'VN-FB-552', unit: 'frasco', quantity: 6, mlPerUnit: 100, costPriceCents: 6500, markupPercent: 40, expiryInDays: 365, minStockQty: 2, category: 'medication' },
     { key: 'ivermectina', name: 'Ivermectina Pasta Oral', manufacturer: 'Vetnil', batch: 'VN-IV-118', unit: 'unidade', quantity: 20, costPriceCents: 2500, markupPercent: 50, expiryInDays: 500, minStockQty: 5, category: 'medication' },
-    { key: 'penicilina', name: 'Penicilina Benzatina 6.000.000 UI', manufacturer: 'Ourofino', batch: 'OF-PB-771', unit: 'frasco', quantity: 4, costPriceCents: 4800, markupPercent: 40, expiryInDays: 300, minStockQty: 2, category: 'medication' },
+    { key: 'penicilina', name: 'Penicilina Benzatina 6.000.000 UI', manufacturer: 'Ourofino', batch: 'OF-PB-771', unit: 'frasco', quantity: 4, mlPerUnit: 15, costPriceCents: 4800, markupPercent: 40, expiryInDays: 300, minStockQty: 2, category: 'medication' },
     // Insumos
     { key: 'seringa', name: 'Seringa Descartável 10ml', manufacturer: 'BD', unit: 'unidade', quantity: 200, costPriceCents: 150, markupPercent: 50, minStockQty: 50, category: 'supply' },
     { key: 'agulha', name: 'Agulha 40x12', manufacturer: 'BD', unit: 'unidade', quantity: 300, costPriceCents: 40, markupPercent: 60, minStockQty: 100, category: 'supply' },
@@ -297,7 +305,8 @@ async function seedInventory(): Promise<Record<string, StockItem>> {
         batch: p.batch ?? null,
         unit: p.unit,
         quantityInStock: p.quantity,
-        dosesPerUnit: p.dosesPerUnit ?? null,
+        mlPerUnit: p.mlPerUnit ?? null,
+        applicationMl: p.applicationMl ?? null,
         costPriceCents: p.costPriceCents,
         markupPercent: p.markupPercent,
         expiryDate: p.expiryInDays === undefined ? null : new Date(`${addDays(TODAY, p.expiryInDays)}T00:00:00Z`),
@@ -327,21 +336,26 @@ async function seedInventory(): Promise<Record<string, StockItem>> {
       name: p.name,
       batch: p.batch ?? null,
       salePriceCents: saved.salePriceCents ?? 0,
-      dosesPerUnit: p.dosesPerUnit ?? null,
+      mlPerUnit: p.mlPerUnit ?? null,
+      applicationMl: p.applicationMl ?? null,
       doseIntervalDays: p.doseIntervalDays ?? null,
     };
   }
   return products;
 }
 
-/** Baixa no estoque como o DeductionService faria ao receber o evento (RN-003). */
+/**
+ * Baixa no estoque como o StockService.deduct faria ao receber o evento
+ * (RN-003): `quantity` vem na unidade de uso (ml nos produtos usados por ml).
+ */
 async function consume(
   product: StockItem,
-  quantity: number,
+  useQuantity: number,
   source: StockConsumptionSource,
   sourceId: string,
   at: Date,
 ): Promise<void> {
+  const quantity = toStockUnits(useQuantity, product.mlPerUnit);
   await inventory.stockMovement.create({
     data: {
       tenantId: CLINICA,
@@ -410,6 +424,7 @@ async function seedAppointments(h: Herd, p: Record<string, StockItem>): Promise<
     /** Procedimento em texto; o valor do serviço vai na mão de obra (reunião de 20/10/2026). */
     procedure: string;
     laborCents: number;
+    /** Quantidade na unidade de uso: ml nos produtos usados por ml. */
     products: Array<[StockItem, number]>;
     clinical?: Record<string, Clinical>;
     paidDaysAfter?: number;
@@ -420,7 +435,7 @@ async function seedAppointments(h: Herd, p: Record<string, StockItem>): Promise<
     {
       animals: ['Relâmpago'], vet: h.vets.helena, type: 'locomotor', daysAgo: 62, finished: true, km: 24,
       procedure: 'Consulta clínica e exame de claudicação', laborCents: 26000,
-      products: [[p['fenil']!, 1], [p['seringa']!, 2]],
+      products: [[p['fenil']!, 10], [p['seringa']!, 2]],
       clinical: {
         'Relâmpago': {
           record: {
@@ -452,7 +467,7 @@ async function seedAppointments(h: Herd, p: Record<string, StockItem>): Promise<
     {
       animals: ['Pérola'], vet: h.vets.helena, type: 'clinico_geral', daysAgo: 30, finished: true, km: 38,
       procedure: 'Atendimento de cólica', laborCents: 26000,
-      products: [[p['flunixin']!, 1], [p['seringa']!, 1], [p['agulha']!, 2]],
+      products: [[p['flunixin']!, 10], [p['seringa']!, 1], [p['agulha']!, 2]],
       clinical: {
         'Pérola': {
           record: {
@@ -487,7 +502,7 @@ async function seedAppointments(h: Herd, p: Record<string, StockItem>): Promise<
     {
       animals: ['Imperador'], vet: h.vets.helena, type: 'cirurgia', daysAgo: 14, finished: true, km: 10,
       procedure: 'Debridamento e sutura de ferida lacerante no peitoral', laborCents: 105000,
-      products: [[p['penicilina']!, 1], [p['seringa']!, 3], [p['agulha']!, 3]],
+      products: [[p['penicilina']!, 15], [p['seringa']!, 3], [p['agulha']!, 3]],
       clinical: {
         'Imperador': {
           record: {
@@ -539,8 +554,8 @@ async function seedAppointments(h: Herd, p: Record<string, StockItem>): Promise<
       productId: product.id,
       description: product.name,
       quantity,
-      unitPriceCents: product.salePriceCents,
-      totalCents: calculateItemTotalCents(quantity, product.salePriceCents),
+      unitPriceCents: usePriceCents(product),
+      totalCents: calculateItemTotalCents(quantity, usePriceCents(product)),
     }));
     const displacementRateCents = 250;
     const totalCents = calculateTotalCents({ items, laborCents: s.laborCents, displacementKm: s.km, displacementRateCents });
@@ -694,8 +709,8 @@ async function seedExams(h: Herd, p: Record<string, StockItem>): Promise<number>
       productId: product.id,
       description: product.name,
       quantity,
-      unitPriceCents: product.salePriceCents,
-      totalCents: calculateItemTotalCents(quantity, product.salePriceCents),
+      unitPriceCents: usePriceCents(product),
+      totalCents: calculateItemTotalCents(quantity, usePriceCents(product)),
     }));
     const chargeClosed = s.status !== 'draft' && s.status !== 'requested';
     const chargedAt = chargeClosed ? (collectedAt ?? on(-(s.sentDaysAgo ?? 0), 9)) : null;
@@ -761,7 +776,8 @@ async function seedVaccinations(h: Herd, p: Record<string, StockItem>): Promise<
     product?: StockItem;
     /** Registro externo: vacina aplicada por outra pessoa. */
     external?: { appliedBy: string; vaccineName?: string; doseIntervalDays?: number };
-    dosesPerAnimal?: number;
+    /** Ml por animal; sem isso, o volume de aplicação da vacina. */
+    mlPerAnimal?: number;
     km?: number;
     laborCents?: number;
     paidDaysAfter?: number;
@@ -778,8 +794,8 @@ async function seedVaccinations(h: Herd, p: Record<string, StockItem>): Promise<
     { animals: ['Pérola'], vet: h.vets.helena, product: p['encefalo'], nextDoseInDays: 3, km: 38, laborCents: 4000 },
     // Agendada para daqui a meses.
     { animals: ['Pérola', 'Faísca'], vet: h.vets.helena, product: p['tetano'], nextDoseInDays: 200, km: 38, laborCents: 5000, paidDaysAfter: 2 },
-    // Dose dupla nos potros (primovacinação).
-    { animals: ['Cometa', 'Aurora'], vet: h.vets.ricardo, product: p['tetano'], appliedDaysAgo: 3, dosesPerAnimal: 2, km: 10, laborCents: 6000 },
+    // Volume dobrado nos potros (primovacinação).
+    { animals: ['Cometa', 'Aurora'], vet: h.vets.ricardo, product: p['tetano'], appliedDaysAgo: 3, mlPerAnimal: 4, km: 10, laborCents: 6000 },
     // Raiva recente (vacina com validade perto de vencer no estoque).
     { animals: ['Trovão', 'Relâmpago', 'Estrela'], vet: h.vets.helena, product: p['raiva'], appliedDaysAgo: 8, km: 24, laborCents: 9000, paidDaysAfter: 1 },
     // Externa, do catálogo: outro vet aplicou antes de o animal chegar à clínica.
@@ -799,15 +815,15 @@ async function seedVaccinations(h: Herd, p: Record<string, StockItem>): Promise<
       s.nextDoseInDays !== undefined && doseIntervalDays !== null
         ? on(s.nextDoseInDays - doseIntervalDays, 10)
         : on(-(s.appliedDaysAgo ?? 0), 10);
-    const dosesPerAnimal = s.dosesPerAnimal ?? 1;
-    const doses = totalDoses(dosesPerAnimal, s.animals.length);
     const isClinic = !s.external;
-    const pricePerDoseCents =
-      isClinic && s.product ? Math.round(s.product.salePriceCents / (s.product.dosesPerUnit ?? 1)) : 0;
+    // Registro externo: o volume que outra pessoa aplicou não é conhecido.
+    const mlPerAnimal = isClinic ? (s.mlPerAnimal ?? s.product?.applicationMl ?? null) : null;
+    const ml = totalMl(mlPerAnimal ?? 0, s.animals.length);
+    const pricePerMlCents = isClinic && s.product ? usePriceCents(s.product) : 0;
     const totalCents = isClinic
       ? calculateVaccinationTotalCents({
-          pricePerDoseCents,
-          doses,
+          pricePerMlCents,
+          ml,
           laborCents: s.laborCents ?? 0,
           displacementKm: s.km ?? 0,
           displacementRateCents: 250,
@@ -825,11 +841,11 @@ async function seedVaccinations(h: Herd, p: Record<string, StockItem>): Promise<
         vaccineName: s.external?.vaccineName ?? s.product!.name,
         vaccineBatch: s.product?.batch ?? null,
         appliedBy: s.external?.appliedBy ?? null,
-        dosesPerAnimal,
+        mlPerAnimal,
         appliedAt,
         doseIntervalDays,
         nextDoseAt: calculateNextDoseAt(appliedAt, doseIntervalDays),
-        pricePerDoseCents,
+        pricePerMlCents,
         laborCents: isClinic ? (s.laborCents ?? 0) : 0,
         displacementKm: isClinic ? (s.km ?? 0) : 0,
         displacementRateCents: isClinic ? 250 : 0,
@@ -839,7 +855,7 @@ async function seedVaccinations(h: Herd, p: Record<string, StockItem>): Promise<
     });
 
     if (isClinic && s.product) {
-      await consume(s.product, dosesToUnits(doses, s.product.dosesPerUnit), 'vaccination', created.id, appliedAt);
+      await consume(s.product, ml, 'vaccination', created.id, appliedAt);
       await charge('vaccination', created.id, ownerId, totalCents, appliedAt, s.paidDaysAfter);
     }
   }
