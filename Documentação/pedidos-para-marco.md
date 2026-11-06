@@ -70,3 +70,53 @@ Zod, não precisa desses campos novos — `vaccine` aceita ml/dose/frasco/
 ampola, por exemplo) e deixo a tela de produto preparada pra exibir um
 campo de "ml por unidade"/preço-por-ml assim que você publicar o contrato
 real — uso um Mock até lá.
+
+---
+
+## Resposta do Marco (2026-11-06) — itens 1 e 2
+
+Os stakeholders padronizaram: **medicamento e vacina são cobrados e baixados
+por ml** ("por dose" dava margem a erro). Com isso, a escolha entre um campo
+novo e um generalizado deixou de existir: ficou um campo de ml, e o
+`dosesPerUnit` saiu. Entrou na PR #37 (branch
+`feature/MS3-012-homologacao-m2`), junto com o seed de homologação, que já
+usa o modelo novo.
+
+**Produto (`Product`):**
+
+| Campo | O que é |
+|---|---|
+| `unit` | unidade de **compra** (frasco, ampola, galão…) — não mudou |
+| `mlPerUnit` | quantos ml tem uma unidade de compra (frasco de 50 ml). Nulo em produto já comprado em ml ou que não se usa por ml (pasta oral, seringa) |
+| `applicationMl` | só vacina: ml aplicados por animal, para a tela sugerir na vacinação |
+| `pricePerMlCents` | preço de venda por ml, já calculado. Nulo quando o produto não se usa por ml |
+
+Regras (422 no StockService):
+- `mlPerUnit` só em medicamento e vacina, e nunca em produto comprado em ml;
+- vacina em frasco/ampola **precisa** de `mlPerUnit` — a vacinação registra ml;
+- `applicationMl` só em vacina; vacina que vira outra categoria perde o valor
+  junto, como já acontecia com o intervalo de dose;
+- num PATCH parcial, as regras valem para o produto como vai ficar —
+  inclusive a sua validação de unidade × categoria, que antes escapava quando
+  só a categoria mudava.
+
+**O que muda nas telas:**
+- **Orçamento e exame:** produto com `pricePerMlCents` tem a quantidade em
+  **ml** e o preço unitário sugerido é o `pricePerMlCents`. A baixa converte
+  sozinha (10 ml de um frasco de 100 ml baixam 0,1 frasco). Produto sem ml
+  continua na unidade de compra.
+- **Vacinação:** `dosesPerAnimal` virou `mlPerAnimal` (obrigatório na
+  aplicação da clínica; sugira o `applicationMl` da vacina) e
+  `pricePerDoseCents` virou `pricePerMlCents` (o `pricePerMlCents` da vacina).
+  No registro externo, `mlPerAnimal` é opcional. Próxima dose e lembrete não
+  mudaram.
+- **Cadastro de produto:** deixei uma ponte para o build não quebrar — o
+  campo "Doses por unidade" virou "ml por unidade" (`mlPerUnit`). Falta o
+  campo de volume de aplicação na vacina e mostrar o preço por ml; isso é seu.
+
+**Migrations:** `20261106120000_product_ml_per_unit` (MS2) e
+`20261106130000_vaccination_ml` (MS3). O `doses_per_unit` antigo sai **sem
+conversão** — guardava doses, e reinterpretar 10 doses como 10 ml daria preço
+errado calado. Vacina antiga sem `mlPerUnit` não dá baixa (o job falha à
+vista) até alguém completar o cadastro. Como ainda não há produção, só afeta
+dados de desenvolvimento, e o seed de homologação recria tudo.
