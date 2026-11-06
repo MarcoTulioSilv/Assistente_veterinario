@@ -130,6 +130,12 @@ export function AppointmentForm({
   const [submitting, setSubmitting] = useState(false);
 
   const animalsInProperty = animals.filter((a) => a.propertyId === propertyId);
+  const selectedDraftProduct = products.find((p) => p.id === draftItem.productId);
+  const draftQuantityUnit = selectedDraftProduct
+    ? selectedDraftProduct.pricePerMlCents !== null
+      ? 'ml'
+      : selectedDraftProduct.unit
+    : 'unidade';
 
   function clinicalFor(animalId: string): AnimalClinicalFormValues {
     return clinical[animalId] ?? { medicalRecord: { ...EMPTY_MEDICAL_RECORD }, prescriptions: [] };
@@ -179,11 +185,15 @@ export function AppointmentForm({
 
   function selectProduct(productId: string): void {
     const product = products.find((p) => p.id === productId);
+    // pricePerMlCents != null => AppointmentItem.quantity é em ml, e esse é
+    // o preço sugerido (ADR-002 rev. 1.5 / reunião 2026-11-03); senão, é por
+    // unidade de compra, igual antes.
+    const priceCents = product ? product.pricePerMlCents ?? product.salePriceCents : null;
     setDraftItem((prev) => ({
       ...prev,
       productId,
       description: product?.name ?? prev.description,
-      unitPriceCents: product ? String(product.salePriceCents / 100).replace('.', ',') : prev.unitPriceCents,
+      unitPriceCents: priceCents !== null ? String(priceCents / 100).replace('.', ',') : prev.unitPriceCents,
     }));
   }
 
@@ -404,12 +414,12 @@ export function AppointmentForm({
             />
           </div>
           <Input
-            label="Quantidade"
+            label={`Quantidade (${draftQuantityUnit})`}
             value={draftItem.quantity}
             onChange={(e) => setDraftItem((prev) => ({ ...prev, quantity: e.target.value }))}
           />
           <Input
-            label="Valor unitário (R$)"
+            label={`Valor por ${draftQuantityUnit} (R$)`}
             placeholder="0,00"
             value={draftItem.unitPriceCents}
             onChange={(e) => setDraftItem((prev) => ({ ...prev, unitPriceCents: e.target.value }))}

@@ -21,6 +21,7 @@ export const productFormSchema = z.object({
   category: z.string().min(1, 'Selecione a categoria'),
   quantityInStock: z.string().regex(decimalRegex, 'Número inválido').optional().or(z.literal('')),
   mlPerUnit: z.string().regex(decimalRegex, 'Número inválido').optional().or(z.literal('')),
+  applicationMl: z.string().regex(decimalRegex, 'Número inválido').optional().or(z.literal('')),
   costPrice: z.string().regex(decimalRegex, 'Informe um valor de custo válido'),
   markupPercent: z.string().regex(decimalRegex, 'Número inválido').optional().or(z.literal('')),
   expiryDate: z.string().optional().or(z.literal('')),
