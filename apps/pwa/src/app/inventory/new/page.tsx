@@ -18,7 +18,7 @@ function toCreateDto(values: ProductFormValues): CreateProductDto {
     unit: values.unit as ProductUnit,
     category: values.category as ProductCategory,
     quantityInStock: parseOptionalNumber(values.quantityInStock ?? ''),
-    dosesPerUnit: parseOptionalNumber(values.dosesPerUnit ?? ''),
+    mlPerUnit: parseOptionalNumber(values.mlPerUnit ?? ''),
     costPriceCents: parseBRLToCents(values.costPrice) ?? 0,
     markupPercent: parseOptionalNumber(values.markupPercent ?? ''),
     expiryDate: values.expiryDate || undefined,

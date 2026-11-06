@@ -41,11 +41,11 @@ function vaccination(overrides: Partial<Vaccination> = {}): Vaccination {
     vaccineBatch: 'L123',
     appliedBy: null,
     animalIds: [ANIMAL_A, ANIMAL_B],
-    dosesPerAnimal: 1,
+    mlPerAnimal: 2,
     appliedAt: '2026-10-08T12:00:00.000Z',
     doseIntervalDays: 180,
     nextDoseAt: '2027-04-06T12:00:00.000Z',
-    pricePerDoseCents: 4500,
+    pricePerMlCents: 2250,
     laborCents: 5000,
     displacementKm: 20,
     displacementRateCents: 200,
@@ -76,7 +76,8 @@ const INPUT = {
   veterinarianId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
   productId: PRODUCT_ID,
   vaccineName: 'Influenza Equina',
-  pricePerDoseCents: 4500,
+  mlPerAnimal: 2,
+  pricePerMlCents: 2250,
   doseIntervalDays: 180,
   animalIds: [ANIMAL_A, ANIMAL_B],
   appliedAt: '2026-10-08T12:00:00.000Z',
@@ -100,7 +101,7 @@ function setup(existing: Vaccination | null = vaccination()) {
         productId: data.productId,
         appliedBy: data.appliedBy,
         animalIds: data.animalIds,
-        dosesPerAnimal: data.dosesPerAnimal,
+        mlPerAnimal: data.mlPerAnimal,
         totalCents: data.totalCents,
         appliedAt: data.appliedAt.toISOString(),
         nextDoseAt: data.nextDoseAt ? data.nextDoseAt.toISOString() : null,
@@ -114,12 +115,12 @@ function setup(existing: Vaccination | null = vaccination()) {
 }
 
 describe('calculateVaccinationTotalCents (RF-VAC-003)', () => {
-  it('vacina (preço por dose × doses) + mão de obra + km × valor/km', () => {
-    // 2 doses × R$ 45 + R$ 50 + 20 km × R$ 2
+  it('vacina (preço por ml × ml) + mão de obra + km × valor/km', () => {
+    // 4 ml × R$ 22,50 + R$ 50 + 20 km × R$ 2
     expect(
       calculateVaccinationTotalCents({
-        pricePerDoseCents: 4500,
-        doses: 2,
+        pricePerMlCents: 2250,
+        ml: 4,
         laborCents: 5000,
         displacementKm: 20,
         displacementRateCents: 200,
@@ -127,11 +128,11 @@ describe('calculateVaccinationTotalCents (RF-VAC-003)', () => {
     ).toBe(9000 + 5000 + 4000);
   });
 
-  it('dose fracionada arredonda a vacina uma vez, no fim', () => {
+  it('ml fracionado arredonda a vacina uma vez, no fim', () => {
     expect(
       calculateVaccinationTotalCents({
-        pricePerDoseCents: 333,
-        doses: 1.5,
+        pricePerMlCents: 333,
+        ml: 1.5,
         laborCents: 0,
         displacementKm: 0,
         displacementRateCents: 0,
@@ -212,7 +213,7 @@ describe('VaccinationService.create', () => {
 
     expect(captured.data).toMatchObject({
       animalIds: [ANIMAL_A, ANIMAL_B],
-      dosesPerAnimal: 1,
+      mlPerAnimal: 2,
       totalCents: 18000,
       doseIntervalDays: 180,
       vaccineBatch: null,
@@ -221,17 +222,17 @@ describe('VaccinationService.create', () => {
 
     const event = captured.event as DomainEvent<VaccinationAppliedPayload>;
     expect(event.name).toBe('vaccination.applied');
-    expect(event.payload).toMatchObject({ totalDoses: 2, totalCostCents: 18000, productId: PRODUCT_ID });
+    expect(event.payload).toMatchObject({ totalMl: 4, totalCostCents: 18000, productId: PRODUCT_ID });
     expect(event.payload.performedAt).toBe(INPUT.appliedAt);
   });
 
-  it('dose dupla: dobra as doses baixadas e o valor da vacina', async () => {
+  it('volume dobrado: dobra os ml baixados e o valor da vacina', async () => {
     const { service, captured } = setup();
 
-    await service.create(ctx, { ...INPUT, dosesPerAnimal: 2 });
+    await service.create(ctx, { ...INPUT, mlPerAnimal: 4 });
 
-    expect(captured.data?.totalCents).toBe(4 * 4500 + 5000 + 4000);
-    expect((captured.event as DomainEvent<VaccinationAppliedPayload>).payload.totalDoses).toBe(4);
+    expect(captured.data?.totalCents).toBe(8 * 2250 + 5000 + 4000);
+    expect((captured.event as DomainEvent<VaccinationAppliedPayload>).payload.totalMl).toBe(8);
   });
 
   it('vacina sem intervalo não tem próxima dose', async () => {
@@ -264,7 +265,8 @@ describe('VaccinationService.create — registro externo (aplicada por outra pes
       origin: 'external',
       productId: null,
       appliedBy: 'Dr. Fulano (CRMV-MG 1234)',
-      pricePerDoseCents: 0,
+      mlPerAnimal: null,
+      pricePerMlCents: 0,
       laborCents: 0,
       displacementKm: 0,
       totalCents: 0,

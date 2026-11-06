@@ -296,11 +296,28 @@ export interface Product {
   manufacturer: string | null;
   batch: string | null;
   unit: ProductUnit;
+  /** Na unidade de compra (`unit`). */
   quantityInStock: number;
-  dosesPerUnit: number | null;
+  /**
+   * Medicamento e vacina são cobrados e baixados por ML (reunião de
+   * 2026-11-03 — "por dose" dava margem a erro). Quantos ml tem uma unidade
+   * de compra (frasco de 50 ml). Nulo quando o produto já é comprado em ml
+   * ou não é usado por ml (pasta oral, seringa).
+   */
+  mlPerUnit: number | null;
+  /** Só vacina: ml aplicados por animal, sugerido na vacinação (ex.: 2 ml). */
+  applicationMl: number | null;
   costPriceCents: Cents;
   markupPercent: number;
+  /** Por unidade de compra. */
   salePriceCents: Cents;
+  /**
+   * Preço de venda por ml (`salePriceCents / mlPerUnit`, arredondado; ou o
+   * próprio `salePriceCents` se a unidade de compra já é ml). Nulo quando o
+   * produto não é usado por ml. É o preço que a tela sugere para o item do
+   * orçamento, o insumo do exame e a vacinação.
+   */
+  pricePerMlCents: Cents | null;
   expiryDate: ISODateString | null;
   alertDaysBefore: number | null;
   minStockQty: number;
@@ -318,7 +335,9 @@ export interface IStockService {
   update(ctx: RequestContext, id: UUID, data: UpdateProductDto): Promise<Product>;
   softDelete(ctx: RequestContext, id: UUID): Promise<void>;
   /**
-   * RN-003: baixa idempotente disparada por evento do broker.
+   * RN-003: baixa idempotente disparada por evento do broker. `qty` vem em
+   * ML quando o produto é usado por ml (`mlPerUnit`) e é convertida aqui para
+   * a unidade de estoque; nos demais, já vem na unidade de compra.
    * `reference` liga o StockMovement resultante de volta à origem (o
    * atendimento ou exame que consumiu o produto) e também define o MOTIVO
    * do movimento — consumo de exame sai como `exam`, não como `appointment`.
@@ -345,7 +364,10 @@ export interface CreateProductDto {
   batch?: string;
   unit: ProductUnit;
   quantityInStock?: number;
-  dosesPerUnit?: number;
+  /** Só medicamento e vacina; não se aplica a produto comprado em ml. `null` na edição tira. */
+  mlPerUnit?: number | null;
+  /** Só vacina. `null` na edição tira. */
+  applicationMl?: number | null;
   costPriceCents: Cents;
   markupPercent?: number;
   expiryDate?: ISODateString;
@@ -426,7 +448,9 @@ export interface AppointmentItem {
   productId: UUID;
   /** Nome congelado no atendimento: o produto pode ser renomeado ou removido depois. */
   description: string;
+  /** Em ml quando o produto é usado por ml (`Product.pricePerMlCents`); senão, na unidade de compra. */
   quantity: number;
+  /** Por ml ou por unidade de compra, conforme `quantity`. */
   unitPriceCents: Cents;
   totalCents: Cents;
 }
@@ -709,6 +733,7 @@ export interface ExamRequestItem {
   productId: UUID;
   /** Nome e preço congelados no pedido, como nos itens do atendimento. */
   description: string;
+  /** Em ml quando o produto é usado por ml, como no item do atendimento. */
   quantity: number;
   unitPriceCents: Cents;
   totalCents: Cents;
@@ -844,9 +869,9 @@ export interface IExamService {
 //    baixa nem cobrança, mas com próxima dose e lembrete como qualquer outra.
 //    A vacina vem do catálogo ou é digitada; sem produto, "mesma vacina" é
 //    reconhecida pelo nome (ver VaccineBooster);
-//  - 1 dose por animal por padrão, ajustável. A conversão de doses em
-//    unidades do estoque (frasco de 10 doses etc.) é do MS2, que conhece o
-//    `dosesPerUnit` do produto;
+//  - a quantidade aplicada é em ML por animal, cobrada por ml (reunião de
+//    2026-11-03); a tela sugere o `applicationMl` da vacina. A conversão de
+//    ml em frascos é do MS2, que conhece o `mlPerUnit` do produto;
 //  - o intervalo de dose mora no PRODUTO (MS2, `doseIntervalDays`) e é
 //    copiado para a vacinação: mudar o produto depois não muda a data da
 //    próxima dose de quem já foi vacinado;
@@ -878,7 +903,8 @@ export interface Vaccination {
   /** Só em `external`: quem aplicou de fato (outro veterinário, o proprietário…). */
   appliedBy: string | null;
   animalIds: UUID[];
-  dosesPerAnimal: number;
+  /** Nulo só em registro externo sem o volume informado. */
+  mlPerAnimal: number | null;
   appliedAt: ISODateString;
   /** Cópia do intervalo do produto na aplicação. Nulo = sem próxima dose. */
   doseIntervalDays: number | null;
@@ -886,8 +912,8 @@ export interface Vaccination {
   nextDoseAt: ISODateString | null;
   // RF-VAC-003: valor da vacina + mão de obra + km rodado (RN-011).
   // Tudo zero em `external`: a clínica não aplicou, não cobra.
-  /** Preço de venda POR DOSE, congelado na aplicação. */
-  pricePerDoseCents: Cents;
+  /** Preço de venda POR ML, congelado na aplicação. */
+  pricePerMlCents: Cents;
   laborCents: Cents;
   displacementKm: number;
   displacementRateCents: Cents;
@@ -906,8 +932,8 @@ interface CreateVaccinationBaseDto {
   doseIntervalDays?: number | null;
   /** Ao menos um. Repetidos são ignorados. */
   animalIds: UUID[];
-  /** Padrão 1. */
-  dosesPerAnimal?: number;
+  /** Ml aplicados em cada animal. Obrigatório na aplicação da clínica. */
+  mlPerAnimal?: number;
   appliedAt: ISODateString;
   notes?: string;
 }
@@ -917,15 +943,16 @@ export interface CreateClinicVaccinationDto extends CreateVaccinationBaseDto {
   /** Padrão `clinic`. */
   origin?: 'clinic';
   productId: UUID;
+  /** A tela sugere o `applicationMl` da vacina; o veterinário ajusta. */
+  mlPerAnimal: number;
   /**
    * Nome, lote, intervalo e preço vêm do produto no MS2 — a tela já o
    * carregou pra listar as vacinas. Mesmo padrão do preço dos itens do
    * atendimento: o MS3 não consulta o MS2, guarda a cópia.
    *
-   * `salePriceCents / dosesPerUnit` do produto (sem `dosesPerUnit`, a unidade
-   * é a dose), arredondado para centavo.
+   * `Product.pricePerMlCents` da vacina.
    */
-  pricePerDoseCents: Cents;
+  pricePerMlCents: Cents;
   laborCents?: Cents;
   displacementKm?: number;
   displacementRateCents?: Cents;
@@ -971,7 +998,7 @@ export interface IVaccinationService {
   listBoostersByAnimal(ctx: RequestContext, animalId: UUID): Promise<VaccineBooster[]>;
   /**
    * RF-VAC-001/002/003: registra a aplicação. Na da clínica, publica
-   * `vaccination.applied` na mesma transação: o MS2 dá baixa nas doses e o
+   * `vaccination.applied` na mesma transação: o MS2 dá baixa nos ml e o
    * MS6 abre a pendência. Registro externo não publica nada.
    */
   create(ctx: RequestContext, data: CreateVaccinationDto): Promise<Vaccination>;
@@ -1210,16 +1237,16 @@ export interface ExamResultDuePayload {
 }
 
 /**
- * Vacina aplicada. O MS2 baixa `totalDoses` convertido em unidades pelo
- * `dosesPerUnit` do produto (RN-007); o MS6 abre a pendência se o total for
+ * Vacina aplicada. O MS2 baixa `totalMl` convertido em frascos pelo
+ * `mlPerUnit` do produto (RN-007); o MS6 abre a pendência se o total for
  * maior que zero (RN-002).
  */
 export interface VaccinationAppliedPayload {
   vaccinationId: UUID;
   ownerId: UUID;
   productId: UUID;
-  /** dosesPerAnimal × nº de animais. */
-  totalDoses: number;
+  /** mlPerAnimal × nº de animais. */
+  totalMl: number;
   totalCostCents: Cents;
   /** Data da aplicação — a data da pendência. */
   performedAt: ISODateString;

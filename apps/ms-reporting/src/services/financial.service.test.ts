@@ -378,7 +378,7 @@ describe('FinancialService.handle — vacinação', () => {
         ownerId: OWNER_ID,
         // Campos que só o MS2 usa — o schema do MS6 ignora.
         productId: '77777777-7777-7777-7777-777777777777',
-        totalDoses: 2,
+        totalMl: 4,
         totalCostCents,
         performedAt: '2026-10-08T12:00:00.000Z',
       },

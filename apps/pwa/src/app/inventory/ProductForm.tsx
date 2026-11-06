@@ -51,7 +51,7 @@ export function ProductForm({
   const [unit, setUnit] = useState(defaultValues?.unit ?? '');
   const [category, setCategory] = useState(defaultValues?.category ?? '');
   const [quantityInStock, setQuantityInStock] = useState(defaultValues?.quantityInStock ?? '');
-  const [dosesPerUnit, setDosesPerUnit] = useState(defaultValues?.dosesPerUnit ?? '');
+  const [mlPerUnit, setMlPerUnit] = useState(defaultValues?.mlPerUnit ?? '');
   const [costPrice, setCostPrice] = useState(defaultValues?.costPrice ?? '');
   const [markupPercent, setMarkupPercent] = useState(defaultValues?.markupPercent ?? '');
   const [expiryDate, setExpiryDate] = useState(defaultValues?.expiryDate ?? '');
@@ -70,7 +70,7 @@ export function ProductForm({
       unit,
       category,
       quantityInStock,
-      dosesPerUnit,
+      mlPerUnit,
       costPrice,
       markupPercent,
       expiryDate,
@@ -163,11 +163,11 @@ export function ProductForm({
           error={fieldErrors.minStockQty}
         />
         <Input
-          label="Doses por unidade"
+          label="ml por unidade"
           placeholder="Opcional"
-          value={dosesPerUnit}
-          onChange={(e) => setDosesPerUnit(e.target.value)}
-          error={fieldErrors.dosesPerUnit}
+          value={mlPerUnit}
+          onChange={(e) => setMlPerUnit(e.target.value)}
+          error={fieldErrors.mlPerUnit}
         />
       </div>
       <div className="grid grid-cols-2 gap-3">

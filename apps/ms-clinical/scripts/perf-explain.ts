@@ -111,11 +111,11 @@ async function seed(): Promise<void> {
 
     await admin.$executeRawUnsafe(`
       INSERT INTO vaccinations (id, tenant_id, origin, owner_id, property_id, veterinarian_id, product_id, vaccine_name,
-        doses_per_animal, applied_at, dose_interval_days, next_dose_at, price_per_dose_cents, total_cents, created_at, updated_at)
+        ml_per_animal, applied_at, dose_interval_days, next_dose_at, price_per_ml_cents, total_cents, created_at, updated_at)
       SELECT gen_random_uuid(), '${tenant}', 'clinic'::"VaccinationOrigin", gen_random_uuid(), gen_random_uuid(), gen_random_uuid(),
         ('b0000000-0000-0000-0000-' || lpad((g % 5)::text, 12, '0'))::uuid, 'Vacina ' || (g % 5),
-        1, now() - (g % 365) * interval '1 day', 180, now() - (g % 365) * interval '1 day' + interval '180 days',
-        4500, 13500, now(), now()
+        2, now() - (g % 365) * interval '1 day', 180, now() - (g % 365) * interval '1 day' + interval '180 days',
+        2250, 13500, now(), now()
       FROM generate_series(1, ${n}) g`);
     await admin.$executeRawUnsafe(`
       INSERT INTO vaccination_animals (id, tenant_id, vaccination_id, animal_id)

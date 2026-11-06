@@ -382,8 +382,11 @@ model Vaccination {
   /// Só em `external`: quem aplicou de fato (outro vet, o proprietário…).
   appliedBy    String? @map("applied_by") @db.VarChar(255)
 
-  dosesPerAnimal Decimal  @default(1) @map("doses_per_animal") @db.Decimal(10, 3)
-  appliedAt      DateTime @map("applied_at") @db.Timestamptz
+  /// Ml aplicados em cada animal (reunião de 2026-11-03: vacina é cobrada
+  /// por ml). Obrigatório na aplicação da clínica (CHECK); opcional no
+  /// registro externo.
+  mlPerAnimal Decimal? @map("ml_per_animal") @db.Decimal(10, 3)
+  appliedAt   DateTime @map("applied_at") @db.Timestamptz
 
   /// Cópia do intervalo do produto (RF-VAC-005) — ou informado à mão no
   /// registro externo de vacina fora do catálogo. nextDoseAt = appliedAt +
@@ -394,7 +397,7 @@ model Vaccination {
   // ─── RF-VAC-003: custo ─────────────────────────────────────────
   // Centavos, INTEGER (ADR-001 §5.6). Congelado na aplicação. Tudo zero em
   // registro externo.
-  pricePerDoseCents     Int     @map("price_per_dose_cents")
+  pricePerMlCents       Int     @map("price_per_ml_cents")
   laborCents            Int     @default(0) @map("labor_cents")
   displacementKm        Decimal @default(0) @map("displacement_km") @db.Decimal(10, 2)
   displacementRateCents Int     @default(0) @map("displacement_rate_cents")

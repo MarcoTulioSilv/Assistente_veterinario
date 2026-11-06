@@ -57,7 +57,8 @@ export class ProductRepository {
           batch: data.batch ?? null,
           unit: data.unit,
           quantityInStock: data.quantityInStock ?? 0,
-          dosesPerUnit: data.dosesPerUnit ?? null,
+          mlPerUnit: data.mlPerUnit ?? null,
+          applicationMl: data.applicationMl ?? null,
           costPriceCents: data.costPriceCents,
           markupPercent: data.markupPercent ?? 0,
           expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
@@ -132,10 +133,18 @@ export class ProductRepository {
   }
 }
 
+/** Preço por ml: comprado em ml, é o próprio preço; com conversão, divide; senão, não se vende por ml. */
+function pricePerMlCents(unit: Product['unit'], salePriceCents: number, mlPerUnit: number | null): number | null {
+  if (unit === 'ml') return salePriceCents;
+  return mlPerUnit ? Math.round(salePriceCents / mlPerUnit) : null;
+}
+
 function toDomain(row: PrismaProduct): Product {
   const quantityInStock = row.quantityInStock.toNumber();
   const minStockQty = row.minStockQty.toNumber();
   const expiryDate = row.expiryDate;
+  const salePriceCents = row.salePriceCents ?? 0;
+  const mlPerUnit = row.mlPerUnit ? row.mlPerUnit.toNumber() : null;
 
   const isNearExpiry =
     expiryDate !== null &&
@@ -148,10 +157,12 @@ function toDomain(row: PrismaProduct): Product {
     batch: row.batch,
     unit: row.unit,
     quantityInStock,
-    dosesPerUnit: row.dosesPerUnit ? row.dosesPerUnit.toNumber() : null,
+    mlPerUnit,
+    applicationMl: row.applicationMl ? row.applicationMl.toNumber() : null,
     costPriceCents: row.costPriceCents,
     markupPercent: row.markupPercent.toNumber(),
-    salePriceCents: row.salePriceCents ?? 0,
+    salePriceCents,
+    pricePerMlCents: pricePerMlCents(row.unit, salePriceCents, mlPerUnit),
     expiryDate: expiryDate ? expiryDate.toISOString() : null,
     alertDaysBefore: row.alertDaysBefore,
     doseIntervalDays: row.doseIntervalDays,

@@ -49,17 +49,6 @@ export function deriveItemIdempotencyKey(envelopeIdempotencyKey: string, index: 
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
-/**
- * RF-VAC-002: doses aplicadas → unidades do estoque. Frasco de 10 doses com
- * 3 doses aplicadas baixa 0,3 frasco. Sem `dosesPerUnit`, a unidade É a
- * dose. Arredonda em 3 casas, a precisão da coluna de quantidade — e nunca
- * deixa uma aplicação real virar baixa zero.
- */
-export function dosesToUnits(doses: number, dosesPerUnit: number | null): number {
-  const units = Math.round((doses / (dosesPerUnit ?? 1)) * 1000) / 1000;
-  return Math.max(units, 0.001);
-}
-
 /** O que dá baixa, venha de atendimento, exame ou vacinação. */
 interface Consumption {
   sourceId: UUID;
@@ -70,7 +59,9 @@ interface Consumption {
 /**
  * Lógica de negócio — Dev 1 é o dono.
  * RN-003: consome appointment.done, exam.collected e vaccination.applied do
- * broker e baixa estoque via IStockService.deduct(), um item por vez.
+ * broker e baixa estoque via IStockService.deduct(), um item por vez. As
+ * quantidades seguem como vieram (ml nos produtos usados por ml): a
+ * conversão para a unidade de estoque é do `deduct`, que já carrega o produto.
  *
  * A fila `domain-events` é compartilhada (ver events/deduction-consumer.ts,
  * que só faz a parte de plumbing BullMQ) — jobs de outro tipo são
@@ -82,7 +73,7 @@ export class DeductionService {
 
   async handle(jobName: string, event: DomainEvent<unknown>): Promise<void> {
     const ctx = systemCtx(event.tenantId, event.traceId);
-    const consumption = await this.toConsumption(ctx, jobName, event.payload);
+    const consumption = this.toConsumption(jobName, event.payload);
     if (!consumption) return;
 
     const errors: unknown[] = [];
@@ -117,7 +108,7 @@ export class DeductionService {
   }
 
   /** Evento de outro tipo → `null`: não é assunto do estoque. */
-  private async toConsumption(ctx: RequestContext, jobName: string, payload: unknown): Promise<Consumption | null> {
+  private toConsumption(jobName: string, payload: unknown): Consumption | null {
     switch (jobName) {
       case EVENTS.APPOINTMENT_DONE: {
         const parsed = appointmentDonePayloadSchema.parse(payload);
@@ -129,16 +120,12 @@ export class DeductionService {
       }
       case EVENTS.VACCINATION_APPLIED: {
         const parsed = vaccinationAppliedPayloadSchema.parse(payload);
-        // Produto inexistente falha o job: o BullMQ tenta de novo e, se
-        // persistir, o job fica em `failed` à vista — baixa não some calada.
-        const product = await this.stock.findById(ctx, parsed.productId);
-        if (!product) {
-          throw new Error(`Vacina ${parsed.productId} não encontrada no estoque (vacinação ${parsed.vaccinationId})`);
-        }
+        // Produto inexistente falha no `deduct` (404) e o job fica em
+        // `failed` à vista depois dos retries — baixa não some calada.
         return {
           sourceId: parsed.vaccinationId,
           sourceType: 'vaccination',
-          items: [{ productId: parsed.productId, quantity: dosesToUnits(parsed.totalDoses, product.dosesPerUnit) }],
+          items: [{ productId: parsed.productId, quantity: parsed.totalMl }],
         };
       }
       default:

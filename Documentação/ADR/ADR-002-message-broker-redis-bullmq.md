@@ -118,11 +118,11 @@ O `exam.result_due` é publicado direto, sem outbox, como o `alert.triggered`: �
 
 | Evento | Publicado quando | Consumido por | Efeito |
 |---|---|---|---|
-| `vaccination.applied` | Vacinação registrada | **Inventory** + **Reporting** | Baixa das doses (motivo `vaccination`) e pendência, se o total for > 0 |
+| `vaccination.applied` | Vacinação registrada | **Inventory** + **Reporting** | Baixa dos ml aplicados (motivo `vaccination`) e pendência, se o total for > 0 |
 | `vaccination.deleted` | Vacinação com custo excluída | **Reporting** | Cancela a pendência (mesma lógica de ordem do item 4) |
 | `vaccination.due` | Job diário, 07h de São Paulo: próxima dose daqui a 7 dias ou hoje | **Notification** (MS5) | Lembrete de re-vacinação para o veterinário |
 
-O `vaccination.applied` leva **doses**, não unidades. Quem converte é o MS2, que conhece o `dosesPerUnit` do produto: 3 doses de um frasco de 10 baixam 0,3 frasco. O MS3 não guarda esse dado e não deveria.
+O `vaccination.applied` leva **ml** (`totalMl`), não frascos. Quem converte é o MS2, que conhece o `mlPerUnit` do produto: 6 ml de um frasco de 20 ml baixam 0,3 frasco. O MS3 não guarda esse dado e não deveria. Até a revisão 1.4 o evento levava doses; a troca para ml veio da reunião de 03/11/2026 (ver a revisão).
 
 O lembrete segue o padrão do `exam.result_due`: varredura sem outbox, função `SECURITY DEFINER` `clinical_list_vaccinations_due` e chave por (aplicação, tipo de lembrete). A diferença é o filtro de **re-vacinação**. A função devolve uma linha por animal e tira o animal que recebeu a mesma vacina depois daquela aplicação. Sem esse filtro, um cavalo vacinado de novo na semana passada receberia o aviso da dose antiga. Os dois lembretes diários do MS3 agora rodam no mesmo agendador (`clinical-reminders`).
 
@@ -152,3 +152,4 @@ Vacina aplicada por **outra pessoa** (o veterinário assumiu o animal no meio do
 | 1.2 | Out/2026 | Evento `appointment.deleted` (exclusão de atendimento finalizado cancela a pendência, independente da ordem de chegada); `performedAt` no `appointment.done`; MS2 aceita atendimento sem item de estoque; prefixo de fila próprio nos testes. |
 | 1.3 | Out/2026 | Eventos de exame (`exam.collected`, `exam.charged`, `exam.deleted`, `exam.result_due`): coleta e cobrança opcionais, cobrança fechada na saída de `requested`; MS2 baixa insumo de exame com motivo `exam`; MS6 abre e cancela pendência de exame. |
 | 1.4 | Out/2026 | Eventos de vacinação (`vaccination.applied` para MS2 + MS6, `vaccination.deleted`, `vaccination.due`): baixa em doses convertidas pelo MS2, lembrete de re-vacinação 7 dias antes e no dia, que ignora o animal já re-vacinado; registro externo (aplicada por outra pessoa) sem evento. |
+| 1.5 | Nov/2026 | Reunião de 03/11/2026: medicamento e vacina cobrados e baixados por **ml**. O payload do `vaccination.applied` troca `totalDoses` por `totalMl`; a conversão de ml em frascos passa para o `StockService.deduct` (vale também para itens de atendimento e insumos de exame). |

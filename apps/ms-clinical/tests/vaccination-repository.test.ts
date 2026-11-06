@@ -47,7 +47,8 @@ function novoInput(overrides: Partial<CreateClinicVaccinationInput> = {}): Creat
     productId: INFLUENZA,
     vaccineName: 'Influenza Equina',
     vaccineBatch: 'L123',
-    pricePerDoseCents: 4500,
+    mlPerAnimal: 2,
+    pricePerMlCents: 2250,
     doseIntervalDays: 180,
     animalIds: [randomUUID(), randomUUID()],
     appliedAt: '2026-04-08T12:00:00.000Z',
@@ -99,21 +100,21 @@ afterAll(async () => {
 
 describe('VaccinationService.create — atomicidade (ADR-002)', () => {
   it('grava aplicação, animais e vaccination.applied juntos, e mapeia de volta pro domínio', async () => {
-    const criada = await service.create(ctxA, novoInput({ dosesPerAnimal: 1.5 }));
+    const criada = await service.create(ctxA, novoInput({ mlPerAnimal: 1.5 }));
 
     expect(criada.animalIds).toHaveLength(2);
     // Decimal do Prisma vira number no domínio
-    expect(criada.dosesPerAnimal).toBe(1.5);
+    expect(criada.mlPerAnimal).toBe(1.5);
     expect(criada.displacementKm).toBe(20);
-    // 3 doses × R$ 45 + R$ 50 + 20 km × R$ 2
-    expect(criada.totalCents).toBe(13500 + 5000 + 4000);
+    // 3 ml × R$ 22,50 + R$ 50 + 20 km × R$ 2
+    expect(criada.totalCents).toBe(6750 + 5000 + 4000);
     expect(criada.nextDoseAt).toBe('2026-10-05T12:00:00.000Z');
 
     const eventos = await withTenant(TENANT_A, (tx) => tx.outboxEvent.findMany({}));
     expect(eventos.map((e) => e.eventName)).toEqual(['vaccination.applied']);
     expect(eventos[0]!.idempotencyKey).toBe(deriveEventIdempotencyKey('vaccination.applied', criada.id));
-    const envelope = eventos[0]!.payload as unknown as { payload: { totalDoses: number; totalCostCents: number } };
-    expect(envelope.payload).toMatchObject({ totalDoses: 3, totalCostCents: criada.totalCents });
+    const envelope = eventos[0]!.payload as unknown as { payload: { totalMl: number; totalCostCents: number } };
+    expect(envelope.payload).toMatchObject({ totalMl: 3, totalCostCents: criada.totalCents });
   });
 });
 
@@ -143,14 +144,17 @@ describe('registro externo (aplicada por outra pessoa)', () => {
             veterinarianId: randomUUID(),
             vaccineName: 'X',
             appliedAt: new Date(),
-            pricePerDoseCents: 0,
+            pricePerMlCents: 0,
             totalCents: 0,
             ...data,
           },
         }),
       );
 
-    await expect(insert({ origin: 'clinic', productId: null })).rejects.toThrow();
+    await expect(insert({ origin: 'clinic', productId: null, mlPerAnimal: 2 })).rejects.toThrow();
+    // Aplicação da clínica sem o volume aplicado (reunião de 2026-11-03).
+    await expect(insert({ origin: 'clinic', productId: randomUUID() })).rejects.toThrow();
+    await expect(insert({ origin: 'clinic', productId: randomUUID(), mlPerAnimal: 0 })).rejects.toThrow();
     await expect(insert({ origin: 'external', totalCents: 100 })).rejects.toThrow();
   });
 });

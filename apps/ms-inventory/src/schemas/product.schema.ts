@@ -10,8 +10,7 @@ const PRODUCT_CATEGORIES = ['medication', 'vaccine', 'supply'] as const;
 /**
  * Reunião de 2026-11-03: unidade válida depende da categoria. Por ora só
  * vacina tem lista fechada (pedido explícito da reunião) — "dose" não
- * entra aqui porque já é coberto por `dosesPerUnit` (frasco de N doses),
- * não é um valor de `unit`. medication/supply continuam aceitando
+ * entra: vacina é cobrada e baixada por ml (`mlPerUnit`). medication/supply continuam aceitando
  * qualquer unidade até vir uma lista específica pra elas.
  */
 const CATEGORY_UNITS: Record<(typeof PRODUCT_CATEGORIES)[number], readonly (typeof PRODUCT_UNITS)[number][]> = {
@@ -20,7 +19,7 @@ const CATEGORY_UNITS: Record<(typeof PRODUCT_CATEGORIES)[number], readonly (type
   supply: PRODUCT_UNITS,
 };
 
-function unitAllowedForCategory(
+export function unitAllowedForCategory(
   category: (typeof PRODUCT_CATEGORIES)[number],
   unit: (typeof PRODUCT_UNITS)[number],
 ): boolean {
@@ -37,7 +36,13 @@ const baseProductSchema = z.object({
   batch: z.string().max(100).optional(),
   unit: z.enum(PRODUCT_UNITS),
   quantityInStock: z.coerce.number().min(0).optional(),
-  dosesPerUnit: z.coerce.number().positive().optional(),
+  /**
+   * Ml por unidade de compra e volume de aplicação da vacina. `null` na
+   * edição tira. As regras que cruzam com categoria e unidade ficam no
+   * StockService, que enxerga o registro existente num PATCH parcial.
+   */
+  mlPerUnit: z.coerce.number().positive().max(100000).nullable().optional(),
+  applicationMl: z.coerce.number().positive().max(1000).nullable().optional(),
   costPriceCents: z.coerce.number().int().min(0),
   markupPercent: z.coerce.number().min(0).optional(),
   expiryDate: z.string().date().optional(),
