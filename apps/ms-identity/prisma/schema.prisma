@@ -60,10 +60,11 @@ model Tenant {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  users      User[]
-  owners     Owner[]
-  properties Property[]
-  animals    Animal[]
+  users        User[]
+  owners       Owner[]
+  properties   Property[]
+  animals      Animal[]
+  userSessions UserSession[]
 
   @@index([plan])
   @@index([status])
@@ -81,8 +82,6 @@ model User {
   phone                 String?    @db.VarChar(20)
   totpSecret            String?    @map("totp_secret") @db.VarChar(100)
   totpEnabled           Boolean    @default(false) @map("totp_enabled")
-  refreshTokenHash      String?    @map("refresh_token_hash") @db.VarChar(255)
-  refreshTokenExpiresAt DateTime?  @map("refresh_token_expires_at") @db.Timestamptz
   lastLoginAt           DateTime?  @map("last_login_at") @db.Timestamptz
   status                UserStatus @default(active)
 
@@ -93,11 +92,41 @@ model User {
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   veterinarian Veterinarian?
   auditLogs    AuditLog[]
+  sessions     UserSession[]
 
   @@index([tenantId])
   @@index([role])
   @@index([status])
   @@map("users")
+}
+
+// ─── USER SESSIONS ────────────────────────────────────────────────
+/// Uma sessão por aparelho (auditoria de 06/11/2026, A-03). O refresh token
+/// é "<id>.<segredo>": o id localiza a linha, o segredo prova a posse e só
+/// o SHA-256 dele é gravado. Cada refresh revoga a linha (`rotated`) e cria
+/// a seguinte na mesma família; um token já rotacionado que volta depois da
+/// tolerância derruba a família inteira (`reuse`) — sinal de token roubado.
+model UserSession {
+  id            String    @id @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  /// Todas as rotações de um mesmo login (um aparelho).
+  familyId      String    @map("family_id") @db.Uuid
+  secretHash    String    @map("secret_hash") @db.VarChar(64)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  rotatedAt     DateTime? @map("rotated_at") @db.Timestamptz
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz
+  /// `rotated` | `logout` | `reuse` (CHECK na migration).
+  revokedReason String?   @map("revoked_reason") @db.VarChar(20)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([familyId])
+  @@map("user_sessions")
 }
 
 // ─── VETERINARIANS ────────────────────────────────────────────────

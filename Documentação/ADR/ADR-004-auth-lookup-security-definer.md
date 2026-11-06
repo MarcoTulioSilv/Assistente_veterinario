@@ -57,6 +57,17 @@ Novo teste de integração `apps/ms-identity/tests/auth-lookup.test.ts` (mesmo p
 
 Se o contrato `IAuthService` mudar para receber `tenantId` explicitamente em `refresh`/`logout` (ex.: cliente informa um slug/subdomínio de tenant), `auth_tenant_id_for_user` deixa de ser necessária e pode ser removida — mantendo só `auth_lookup_by_email` para o login.
 
+## Revisão 1.1: sessão por aparelho (Nov/2026)
+
+A auditoria de 06/11/2026 (A-03) apontou que um refresh token por usuário, guardado em `users`, fazia o login num aparelho derrubar o outro, e que o logout não revogava nada. A sessão passou para a tabela `user_sessions`, com uma linha por aparelho. O refresh token agora é `<sessionId>.<segredo>`.
+
+**O que muda nesta ADR:**
+- `auth_tenant_id_for_user` foi **removida** e trocada por `auth_tenant_id_for_session(sessionId) → tenant_id`. É o mesmo desenho: só leitura, devolve só o UUID do tenant, e o resto continua pelo `withTenant()` com RLS.
+- **O risco residual diminuiu.** Para obter o tenant, agora é preciso o id de uma sessão, que só existe dentro do refresh token. O id de usuário sozinho já não serve. E a revogação continua exigindo o segredo: o `UPDATE` filtra por `id` **e** `secret_hash`.
+- **O segredo agora é guardado como SHA-256, não bcrypt.** São 32 bytes aleatórios, então não há dicionário que o bcrypt precise atrasar. O bcrypt ali só gastava CPU a cada renovação (M-04).
+
+Testes em `auth-lookup.test.ts`: a conexão de runtime não enxerga `user_sessions` sem tenant definido, e a função acha o tenant da sessão e devolve nulo para sessão inexistente.
+
 ---
 
 ## Histórico
@@ -64,3 +75,4 @@ Se o contrato `IAuthService` mudar para receber `tenantId` explicitamente em `re
 | Versão | Data | Descrição | Autor |
 |---|---|---|---|
 | 1.0 | Ago/2026 | Criação. Decisão de bypass de RLS para o AuthService (Sprint 2). | Marco Túlio |
+| 1.1 | Nov/2026 | `auth_tenant_id_for_user` substituída por `auth_tenant_id_for_session` (sessão por aparelho, auditoria A-03); segredo do refresh em SHA-256 (M-04). | Marco Túlio |

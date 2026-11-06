@@ -81,8 +81,8 @@ $$;
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'auth_lookup_by_email') THEN
-    GRANT EXECUTE ON FUNCTION auth_lookup_by_email(TEXT)    TO quironequine_app;
-    GRANT EXECUTE ON FUNCTION auth_tenant_id_for_user(UUID) TO quironequine_app;
+    GRANT EXECUTE ON FUNCTION auth_lookup_by_email(TEXT)          TO quironequine_app;
+    GRANT EXECUTE ON FUNCTION auth_tenant_id_for_session(UUID)    TO quironequine_app;
   END IF;
 END
 $$;

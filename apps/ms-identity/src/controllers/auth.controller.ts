@@ -36,10 +36,9 @@ authRouter.post('/refresh', validate(refreshSchema), async (req, res, next) => {
 authRouter.post('/logout', validate(logoutSchema), async (req, res, next) => {
   try {
     const { refreshToken } = req.body as LogoutInput;
-    // IAuthService.logout(userId) não recebe o token — resolve e valida
-    // a posse dele aqui antes de chamar o service (ver ADR-004).
-    const { userId } = await service.verifyRefreshToken(refreshToken);
-    await service.logout(userId);
+    // Sempre 204: revoga a sessão deste aparelho se o token for válido, e
+    // não diz nada se não for (ver AuthService.logout).
+    await service.logout(refreshToken);
     res.status(204).send();
   } catch (e) {
     next(e);

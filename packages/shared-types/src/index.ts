@@ -182,8 +182,16 @@ export interface Animal {
 // ─── Interfaces de Service (contrato Dev1 → Dev2) ─────────────────
 export interface IAuthService {
   login(email: string, password: string, totpCode?: string): Promise<AuthTokens>;
+  /**
+   * Renova a sessão DESTE aparelho: devolve um par novo e o refresh token
+   * usado deixa de valer. Chamadas simultâneas com o mesmo token (duas abas,
+   * nova tentativa após timeout) são toleradas por alguns segundos; depois
+   * disso, reapresentar um token já usado derruba a sessão do aparelho
+   * (sinal de token roubado) e exige novo login.
+   */
   refresh(refreshToken: string): Promise<AuthTokens>;
-  logout(userId: UUID): Promise<void>;
+  /** Revoga a sessão deste aparelho. Idempotente: token inválido ou já revogado não é erro. */
+  logout(refreshToken: string): Promise<void>;
 }
 
 /**
