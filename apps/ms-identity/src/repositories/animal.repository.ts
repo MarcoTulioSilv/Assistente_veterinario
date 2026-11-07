@@ -1,6 +1,7 @@
 import type { Animal as PrismaAnimal } from '@prisma/client';
 import type { RequestContext, UUID, Paginated, Animal } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
+import { assertTenantReferences } from './tenant-references';
 import type { CreateAnimalInput, UpdateAnimalInput, ListAnimalsInput } from '../schemas/animal.schema';
 
 /**
@@ -46,6 +47,7 @@ export class AnimalRepository {
 
   async create(ctx: RequestContext, data: CreateAnimalInput): Promise<Animal> {
     return withTenant(ctx.tenantId, async (tx) => {
+      await assertTenantReferences(tx, { propertyIds: [data.propertyId], ownerIds: [data.ownerId] });
       const row = await tx.animal.create({
         data: {
           tenantId: ctx.tenantId,
@@ -72,6 +74,7 @@ export class AnimalRepository {
   async update(ctx: RequestContext, id: UUID, data: UpdateAnimalInput): Promise<Animal> {
     return withTenant(ctx.tenantId, async (tx) => {
       const { birthDate, ...rest } = data;
+      await assertTenantReferences(tx, { propertyIds: [data.propertyId], ownerIds: [data.ownerId] });
       const row = await tx.animal.update({
         where: { id },
         data: { ...rest, ...(birthDate !== undefined ? { birthDate: new Date(birthDate) } : {}) },
@@ -99,6 +102,7 @@ export class AnimalRepository {
   async transfer(ctx: RequestContext, id: UUID, toPropertyId: UUID, notes?: string): Promise<Animal> {
     return withTenant(ctx.tenantId, async (tx) => {
       const current = await tx.animal.findFirstOrThrow({ where: { id, deletedAt: null } });
+      await assertTenantReferences(tx, { propertyIds: [toPropertyId] });
 
       await tx.animalTransfer.create({
         data: {

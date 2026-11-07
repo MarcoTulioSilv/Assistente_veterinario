@@ -1,6 +1,7 @@
 import type { Property as PrismaProperty } from '@prisma/client';
 import type { RequestContext, UUID, Paginated, Property } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
+import { assertTenantReferences } from './tenant-references';
 import type { CreatePropertyInput, UpdatePropertyInput, ListPropertiesInput } from '../schemas/property.schema';
 
 /**
@@ -50,6 +51,9 @@ export class PropertyRepository {
     coordinates: { latitude: number; longitude: number } | null,
   ): Promise<Property> {
     return withTenant(ctx.tenantId, async (tx) => {
+      // Antes de criar: proprietário de outro tenant (ou inexistente) é 404,
+      // e a propriedade não fica criada pela metade.
+      await assertTenantReferences(tx, { ownerIds: data.ownerIds });
       const row = await tx.property.create({
         data: {
           tenantId: ctx.tenantId,
@@ -67,7 +71,8 @@ export class PropertyRepository {
 
       if (data.ownerIds && data.ownerIds.length > 0) {
         await tx.propertyOwner.createMany({
-          data: data.ownerIds.map((ownerId, index) => ({
+          // Sem repetição: o mesmo dono duas vezes bateria na UNIQUE (property_id, owner_id).
+          data: [...new Set(data.ownerIds)].map((ownerId, index) => ({
             tenantId: ctx.tenantId,
             propertyId: row.id,
             ownerId,
