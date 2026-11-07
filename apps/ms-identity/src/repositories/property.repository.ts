@@ -2,6 +2,7 @@ import type { Property as PrismaProperty } from '@prisma/client';
 import type { RequestContext, UUID, Paginated, Property } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
 import { assertTenantReferences } from './tenant-references';
+import { changedFields, writeAudit } from '@quironequine/shared-middlewares';
 import type { CreatePropertyInput, UpdatePropertyInput, ListPropertiesInput } from '../schemas/property.schema';
 
 /**
@@ -81,6 +82,7 @@ export class PropertyRepository {
         });
       }
 
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'create', table: 'properties', recordId: row.id, fields: changedFields(data) });
       return toDomain(row);
     });
   }
@@ -104,15 +106,22 @@ export class PropertyRepository {
           ...(coordinates ? { latitude: coordinates.latitude, longitude: coordinates.longitude } : {}),
         },
       });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, {
+        action: 'update',
+        table: 'properties',
+        recordId: id,
+        fields: [...changedFields(rest), ...(coordinates ? ['latitude', 'longitude'] : [])],
+      });
       return toDomain(row);
     });
   }
 
   /** Soft delete — LGPD exige exportação antes de exclusão física */
   async softDelete(ctx: RequestContext, id: UUID): Promise<void> {
-    await withTenant(ctx.tenantId, (tx) =>
-      tx.property.update({ where: { id }, data: { deletedAt: new Date() } }),
-    );
+    await withTenant(ctx.tenantId, async (tx) => {
+      await tx.property.update({ where: { id }, data: { deletedAt: new Date() } });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'delete', table: 'properties', recordId: id });
+    });
   }
 }
 

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { TenantProfile } from '@quironequine/shared-types';
-import { AppError } from '@quironequine/shared-middlewares';
+import { AppError, changedFields, writeAudit } from '@quironequine/shared-middlewares';
 import { prisma, withTenant } from '../prisma';
 import type { RegisterTenantInput, UpdateVeterinarianInput } from '../schemas/tenant.schema';
 
@@ -113,6 +113,13 @@ export class TenantRepository {
         });
       }
 
+      await writeAudit(tx, { tenantId, userId }, {
+        action: 'update',
+        table: 'veterinarians',
+        recordId: veterinarian.id,
+        fields: changedFields(data),
+      });
+      
       const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: tenantId } });
       return toProfile(tenant, veterinarian);
     });

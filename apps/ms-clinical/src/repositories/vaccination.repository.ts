@@ -10,7 +10,7 @@ import type {
   VaccinationOrigin,
   DomainEvent,
 } from '@quironequine/shared-types';
-import { AppError } from '@quironequine/shared-middlewares';
+import { AppError, changedFields, writeAudit } from '@quironequine/shared-middlewares';
 import { prisma, withTenant } from '../prisma';
 import { enqueueOutboxEvent } from './outbox.repository';
 import type { ListVaccinationsInput } from '../schemas/vaccination.schema';
@@ -155,6 +155,7 @@ export class VaccinationRepository {
         },
         include: INCLUDE,
       });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'create', table: 'vaccinations', recordId: row.id, fields: changedFields(data) });
       const created = toDomain(row);
       const event = buildEvent(created);
       if (event) await enqueueOutboxEvent(tx, ctx.tenantId, event);
@@ -170,6 +171,7 @@ export class VaccinationRepository {
         data: { deletedAt: new Date() },
       });
       if (count === 0) throw AppError.notFound('Vacinação não encontrada');
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'delete', table: 'vaccinations', recordId: id });
       if (event) await enqueueOutboxEvent(tx, ctx.tenantId, event);
     });
   }

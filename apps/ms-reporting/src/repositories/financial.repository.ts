@@ -8,8 +8,17 @@ import type {
   FinancialSourceType,
   CreateFinancialRecordDto,
 } from '@quironequine/shared-types';
+import { writeAudit, type AuditActor } from '@quironequine/shared-middlewares';
 import { withTenant } from '../prisma';
 import type { ListFinancialRecordsInput } from '../schemas/financial.schema';
+
+/** Usuário de sistema dos consumidores de evento (financial.service.ts). */
+const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
+
+/** Quem fez, para o audit_log (M-06): evento do broker grava user_id nulo. */
+function actor(ctx: RequestContext): AuditActor {
+  return { tenantId: ctx.tenantId, userId: ctx.userId === SYSTEM_USER_ID ? null : ctx.userId };
+}
 
 // FinancialRecord tem duas UNIQUEs (idempotency_key e a origem), e o
 // tratamento é o mesmo pras duas — buscar o registro da origem. Por isso não
@@ -112,6 +121,12 @@ export class FinancialRepository {
             idempotencyKey,
           },
         });
+        await writeAudit(tx, actor(ctx), {
+          action: 'create',
+          table: 'financial_records',
+          recordId: row.id,
+          source: `event:${data.sourceType}`,
+        });
         return toDomain(row);
       });
     } catch (err) {
@@ -153,8 +168,8 @@ export class FinancialRepository {
     if (first) return first;
 
     try {
-      await withTenant(ctx.tenantId, (tx) =>
-        tx.financialRecord.create({
+      await withTenant(ctx.tenantId, async (tx) => {
+        const row = await tx.financialRecord.create({
           data: {
             tenantId: ctx.tenantId,
             ownerId: data.ownerId,
@@ -166,8 +181,14 @@ export class FinancialRepository {
             cancelledAt: new Date(),
             idempotencyKey,
           },
-        }),
-      );
+        });
+        await writeAudit(tx, actor(ctx), {
+          action: 'cancel',
+          table: 'financial_records',
+          recordId: row.id,
+          source: `event:${data.sourceType}`,
+        });
+      });
       return 'cancelled-before-pending';
     } catch (err) {
       if (!isUniqueError(err)) throw err;
@@ -190,11 +211,20 @@ export class FinancialRepository {
         where: { sourceType: data.sourceType, sourceId: data.sourceId, status: 'pending' },
         data: { status: 'cancelled', cancelledAt: new Date() },
       });
-      if (count > 0) return 'cancelled';
-
       const existing = await tx.financialRecord.findUnique({
         where: { sourceType_sourceId: { sourceType: data.sourceType, sourceId: data.sourceId } },
       });
+      if (count > 0) {
+        if (existing) {
+          await writeAudit(tx, actor(ctx), {
+            action: 'cancel',
+            table: 'financial_records',
+            recordId: existing.id,
+            source: `event:${data.sourceType}`,
+          });
+        }
+        return 'cancelled';
+      }
       if (!existing) return null;
       return existing.status === 'received' ? 'kept-received' : 'already-cancelled';
     });
@@ -224,6 +254,7 @@ export class FinancialRepository {
 
       if (count === 0) return null;
 
+      await writeAudit(tx, actor(ctx), { action: 'receive', table: 'financial_records', recordId: id, fields: ['status', 'paidAt'] });
       const row = await tx.financialRecord.findFirstOrThrow({ where: { id } });
       return toDomain(row);
     });

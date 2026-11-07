@@ -10,7 +10,8 @@
 import { describe, it, expect, beforeAll, afterEach, afterAll, vi } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { RequestContext, DomainEvent } from '@quironequine/shared-types';
-import { prisma, withTenant } from '../src/prisma';
+import { prisma } from '../src/prisma';
+import { admin, purgeTenants } from './admin-db';
 import { FinancialRepository } from '../src/repositories/financial.repository';
 import { FinancialService } from '../src/services/financial.service';
 
@@ -53,12 +54,12 @@ beforeAll(async () => {
 
 afterEach(async () => {
   publishSpy.mockClear();
-  for (const tenantId of [TENANT_A, TENANT_B]) {
-    await withTenant(tenantId, (tx) => tx.financialRecord.deleteMany({}));
-  }
+  // Pela conexão de migração: a role da aplicação não tem DELETE (M-06).
+  await purgeTenants(TENANT_A, TENANT_B);
 });
 
 afterAll(async () => {
+  await admin.$disconnect();
   await prisma.$disconnect();
 });
 

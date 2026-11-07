@@ -80,8 +80,9 @@ async function reset(): Promise<void> {
     for (const table of tables) await client.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id IN (${ids})`);
   };
 
-  await wipe(reporting, ['financial_records']);
+  await wipe(reporting, ['audit_log', 'financial_records']);
   await wipe(clinical, [
+    'audit_log',
     'outbox_events',
     'vaccination_animals',
     'vaccinations',

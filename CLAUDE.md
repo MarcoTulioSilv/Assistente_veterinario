@@ -127,7 +127,8 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 - **TypeScript strict**, no `any` (ESLint error). `noUncheckedIndexedAccess` is on.
 - **No `console.log`** in service code — use `createServiceLogger()`. Console is allowed in seeds and `scripts/**`. Don't log personal data (names, CPF, addresses) or raw Prisma error messages.
 - **Money in cents**, integer. **Medication and vaccine quantities in ml** (stakeholder decision, Nov/2026): `Product.mlPerUnit` converts ml to stock units in `StockService.deduct`.
-- **Soft delete** (`deletedAt`) on every table with personal data; never a physical `DELETE` (LGPD).
+- **Soft delete** (`deletedAt`) on every table with personal data; never a physical `DELETE` (LGPD). The runtime role has **no `DELETE`** (`01-create-app-role.sql`): only the MS3 link/item tables rewritten while a quote is a draft are granted it (section 3c) — a new table that really needs it goes in that list. Integration tests clean up through the migration connection (`DATABASE_URL_*`, see `tests/admin-db.ts` in MS3/MS6), never through the app role.
+- **Audit trail** (`audit_log` in MS1, MS3, MS6; LGPD art. 37): every write to personal, clinical or financial data calls `writeAudit(tx, actor, entry)` (`shared-middlewares`) inside the same `withTenant`, recording who, action, table, record id and the **names** of the fields — never the values (the table is insert-only, so values there could never be erased). Detail screens of medical records/exam reports log reads via `findById(ctx, id, { audit: true })`; internal existence checks don't. Event consumers write `user_id` null plus `source`.
 - **Migrations that change the meaning of existing data**: before go-live it was acceptable to rename/drop (homologation data is reseeded); after go-live, only new column + explicit data migration.
 - **Coverage floor 70%** on `src/services/**` and `src/repositories/**`. Tests colocated as `*.test.ts`; integration tests in `tests/` run against the real Postgres as `quironequine_app`. Vitest (not Jest), ESLint 9 flat config — don't reintroduce Jest or `.eslintrc`.
 - **Commits**: `type(scope): descrição` in pt-BR, scopes are service names (`ms1`, `ms2`, `ms3`, `ms6`, `bff`, `pwa`, `infra`, `ci`, `docs`). Branches: `feature/MS3-012-descricao`, `fix/...`.
@@ -142,7 +143,7 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 The report lives outside the repo (ask Marco for it). Done: A-02 (per-client rate limit in the BFF), A-03 (per-device sessions, atomic rotation, real logout — server and PWA), M-04 for the refresh token. Pending, in the audit's suggested order:
 
 1. Refresh token in an `HttpOnly` cookie: server side done on `develop`; the PWA side and A-01 (service worker caches personal data keyed only by URL and keeps it after logout) are with João (`pedidos-para-joao.md`). **Don't open `develop → staging` until the PWA side lands** — until then the PWA on `develop` can't refresh.
-2. M-01 (composite `(tenant_id, id)` foreign keys in MS1 — Postgres checks FKs without RLS) and M-06 (revoke `DELETE` from the app role; actually write `audit_log`).
+2. ~~M-01~~ and ~~M-06~~: done (composite FKs in MS1; no `DELETE` for the app role; `audit_log` written in MS1/MS3/MS6).
 3. M-02 (per-account login/TOTP lockout, TOTP replay), M-03 (signed URLs for uploaded exam reports), M-05 (personal data and raw Prisma messages in logs).
 4. Rest of M-04: password hashing off `bcryptjs` (native modules are a problem on the ARM image; Node's built-in `scrypt` with rehash on login is an option).
 5. B-01 to B-08, I-01, I-02.

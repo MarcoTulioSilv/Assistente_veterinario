@@ -162,7 +162,7 @@ export class ExamService implements IExamService {
   }
 
   async findById(ctx: RequestContext, id: UUID): Promise<ExamRequest | null> {
-    return this.repo.findById(ctx, id);
+    return this.repo.findById(ctx, id, { audit: true }); // tela de detalhe: registra a leitura (M-06)
   }
 
   /** RF-CAD-026 */
@@ -171,7 +171,7 @@ export class ExamService implements IExamService {
     animalId: UUID,
     params: ListExamRequestsInput,
   ): Promise<Paginated<ExamRequest>> {
-    return this.repo.listByAnimal(ctx, animalId, params);
+    return this.repo.listByAnimal(ctx, animalId, params, { audit: true });
   }
 
   /** Nasce rascunho: pode estar incompleto, mas não pode carregar campo que o protocolo não tem. */

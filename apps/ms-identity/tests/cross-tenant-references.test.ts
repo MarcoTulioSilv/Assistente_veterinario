@@ -47,6 +47,7 @@ async function cleanup(): Promise<void> {
   await admin.propertyOwner.deleteMany({ where: { tenantId } });
   await admin.property.deleteMany({ where: { tenantId } });
   await admin.owner.deleteMany({ where: { tenantId } });
+  await admin.auditLog.deleteMany({ where: { tenantId: tenantId } });
   await admin.tenant.deleteMany({ where: { id: tenantId } });
 }
 

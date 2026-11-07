@@ -2,6 +2,7 @@ import type { Animal as PrismaAnimal } from '@prisma/client';
 import type { RequestContext, UUID, Paginated, Animal } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
 import { assertTenantReferences } from './tenant-references';
+import { changedFields, writeAudit } from '@quironequine/shared-middlewares';
 import type { CreateAnimalInput, UpdateAnimalInput, ListAnimalsInput } from '../schemas/animal.schema';
 
 /**
@@ -67,6 +68,7 @@ export class AnimalRepository {
           status: data.propertyId && data.ownerId ? 'active' : 'pending',
         },
       });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'create', table: 'animals', recordId: row.id, fields: changedFields(data) });
       return toDomain(row);
     });
   }
@@ -79,15 +81,17 @@ export class AnimalRepository {
         where: { id },
         data: { ...rest, ...(birthDate !== undefined ? { birthDate: new Date(birthDate) } : {}) },
       });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'update', table: 'animals', recordId: id, fields: changedFields(data) });
       return toDomain(row);
     });
   }
 
   /** Soft delete — LGPD exige exportação antes de exclusão física */
   async softDelete(ctx: RequestContext, id: UUID): Promise<void> {
-    await withTenant(ctx.tenantId, (tx) =>
-      tx.animal.update({ where: { id }, data: { deletedAt: new Date() } }),
-    );
+    await withTenant(ctx.tenantId, async (tx) => {
+      await tx.animal.update({ where: { id }, data: { deletedAt: new Date() } });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'delete', table: 'animals', recordId: id });
+    });
   }
 
   /**
@@ -115,6 +119,7 @@ export class AnimalRepository {
       });
 
       const row = await tx.animal.update({ where: { id }, data: { propertyId: toPropertyId } });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'transfer', table: 'animals', recordId: id, fields: ['propertyId'] });
       return toDomain(row);
     });
   }

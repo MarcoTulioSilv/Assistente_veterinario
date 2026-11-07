@@ -14,7 +14,7 @@ import type {
   ExamStatus,
   DomainEvent,
 } from '@quironequine/shared-types';
-import { AppError } from '@quironequine/shared-middlewares';
+import { AppError, changedFields, writeAudit } from '@quironequine/shared-middlewares';
 import { prisma, withTenant } from '../prisma';
 import { enqueueOutboxEvent } from './outbox.repository';
 import type { ListExamRequestsInput } from '../schemas/exam.schema';
@@ -102,8 +102,21 @@ export class ExamRepository {
     ctx: RequestContext,
     animalId: UUID,
     params: ListExamRequestsInput,
+    opts: { audit?: boolean } = {},
   ): Promise<Paginated<ExamRequest>> {
-    return this.paginate(ctx, params, { animals: { some: { animalId } } });
+    const page = await this.paginate(ctx, params, { animals: { some: { animalId } } });
+    if (opts.audit && page.data.length > 0) {
+      // Histórico do animal: um registro por consulta, apontando para o animal.
+      await withTenant(ctx.tenantId, (tx) =>
+        writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, {
+          action: 'read',
+          table: 'exam_requests',
+          recordId: animalId,
+          source: 'history:animal',
+        }),
+      );
+    }
+    return page;
   }
 
   private async paginate(
@@ -127,9 +140,17 @@ export class ExamRepository {
     });
   }
 
-  async findById(ctx: RequestContext, id: UUID): Promise<ExamRequest | null> {
+  /**
+   * `audit: true` registra a leitura no audit_log (M-06: quem abriu o
+   * prontuário/laudo). Só a tela de detalhe pede; as checagens internas do
+   * service (antes de editar/excluir) não são leitura do usuário.
+   */
+  async findById(ctx: RequestContext, id: UUID, opts: { audit?: boolean } = {}): Promise<ExamRequest | null> {
     return withTenant(ctx.tenantId, async (tx) => {
       const row = await tx.examRequest.findFirst({ where: { id, deletedAt: null }, include: INCLUDE });
+      if (row && opts.audit) {
+        await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'read', table: 'exam_requests', recordId: id });
+      }
       return row ? toDomain(row) : null;
     });
   }
@@ -154,6 +175,7 @@ export class ExamRepository {
         },
         include: INCLUDE,
       });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'create', table: 'exam_requests', recordId: row.id, fields: changedFields(data) });
       return toDomain(row);
     });
   }
@@ -195,6 +217,7 @@ export class ExamRepository {
         },
         include: INCLUDE,
       });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'update', table: 'exam_requests', recordId: id, fields: changedFields(data) });
       return toDomain(row);
     });
   }
@@ -246,6 +269,12 @@ export class ExamRepository {
         }
       }
 
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, {
+        action: 'advance',
+        table: 'exam_requests',
+        recordId: id,
+        fields: [...changedFields(data), ...(extras.items?.length ? ['items'] : [])],
+      });
       const row = await tx.examRequest.findFirstOrThrow({ where: { id }, include: INCLUDE });
       return toDomain(row);
     });
@@ -274,6 +303,7 @@ export class ExamRepository {
         data: { deletedAt: new Date() },
       });
       if (count === 0) throw AppError.conflict('Pedido mudou de estado ou já foi excluído — tente de novo');
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'delete', table: 'exam_requests', recordId: id });
       if (event) await enqueueOutboxEvent(tx, ctx.tenantId, event);
     });
   }

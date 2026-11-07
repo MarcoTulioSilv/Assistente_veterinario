@@ -91,7 +91,6 @@ model User {
 
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   veterinarian Veterinarian?
-  auditLogs    AuditLog[]
   sessions     UserSession[]
 
   @@index([tenantId])
@@ -308,7 +307,8 @@ model AuditLog {
   ipAddress String?  @map("ip_address") @db.Inet
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Sem FK para users (M-06): com ON DELETE SET NULL, apagar um usuário
+  // apagaria a autoria de tudo o que ele fez. Igual ao audit_log do MS3/MS6.
 
   @@index([tenantId])
   @@index([action])

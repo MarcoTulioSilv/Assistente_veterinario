@@ -232,5 +232,6 @@ describe('AuthRepository — bypass controlado de RLS (ADR-004)', () => {
 async function cleanup(): Promise<void> {
   await admin.userSession.deleteMany({ where: { tenantId: TENANT_ID } });
   await admin.user.deleteMany({ where: { tenantId: TENANT_ID } });
+  await admin.auditLog.deleteMany({ where: { tenantId: TENANT_ID } });
   await admin.tenant.deleteMany({ where: { id: TENANT_ID } });
 }
