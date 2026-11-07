@@ -147,6 +147,8 @@ Em **Settings → Environments**, crie o ambiente **`staging`** e cadastre:
 | `STAGING_POSTGRES_PASSWORD` | o `POSTGRES_PASSWORD` do `.env.staging` (só o seed usa) |
 | `STAGING_SEED_PASSWORD` | o `SEED_PASSWORD` do `.env.staging` |
 
+**Para copiar a chave privada sem estragar:** no PowerShell, rode `Get-Content $HOME\.ssh\quironequine_staging -Raw | Set-Clipboard` e cole no campo do secret sem editar nada. O texto vai de `-----BEGIN OPENSSH PRIVATE KEY-----` até `-----END OPENSSH PRIVATE KEY-----`, com essas duas linhas incluídas. Se o deploy falhar com `error in libcrypto` ou com "não é uma chave privada válida", a chave colada está incompleta ou é o arquivo errado (o `.pub` ou a chave da Oracle).
+
 Em **Settings → Variables**, cadastre também `STAGING_API_DOMAIN` (e `STAGING_PLATFORM`, se for ARM) no nível do **repositório**. O build das imagens usa essas variáveis e roda fora do ambiente `staging`.
 
 ## 5. Primeiro deploy
