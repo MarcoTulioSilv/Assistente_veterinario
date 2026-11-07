@@ -26,6 +26,11 @@ function parseDurationMs(input: string): number {
   return value * unitMs[match[2] as string]!;
 }
 
+/** Vida da sessão de um aparelho (refresh token e o cookie que o carrega). */
+export function refreshTokenTtlMs(): number {
+  return parseDurationMs(process.env['JWT_REFRESH_EXPIRES_IN'] ?? '7d');
+}
+
 interface RefreshTokenParts {
   sessionId: string;
   secret: string;
@@ -203,8 +208,7 @@ export class AuthService implements IAuthService {
   }
 
   private refreshExpiresAt(): Date {
-    const refreshExpiry = process.env['JWT_REFRESH_EXPIRES_IN'] ?? '7d';
-    return new Date(Date.now() + parseDurationMs(refreshExpiry));
+    return new Date(Date.now() + refreshTokenTtlMs());
   }
 }
 

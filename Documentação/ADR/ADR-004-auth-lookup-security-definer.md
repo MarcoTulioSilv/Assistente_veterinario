@@ -68,6 +68,16 @@ A auditoria de 06/11/2026 (A-03) apontou que um refresh token por usuário, guar
 
 Testes em `auth-lookup.test.ts`: a conexão de runtime não enxerga `user_sessions` sem tenant definido, e a função acha o tenant da sessão e devolve nulo para sessão inexistente.
 
+## Revisão 1.2: refresh token só em cookie HttpOnly (Nov/2026)
+
+Fecha o item 3 da A-03: o refresh token não passa mais pelo JavaScript da PWA. O identity o grava no cookie `qe_refresh` (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`, sem `Domain`), e o refresh e o logout leem **só** o cookie, sem corpo. A resposta HTTP do login e do refresh é o `AuthSession` (`AuthTokens` sem o `refreshToken`); o `IAuthService` continua devolvendo `AuthTokens`, porque é o controller que separa o que vai para o cookie.
+
+- **CSRF:** a PWA e a API são subdomínios do mesmo site (`quironequi.com.br`), então o `SameSite=Strict` deixa o cookie ir no `fetch` da PWA e o barra em requisições iniciadas por outro site. O CORS do BFF continua limitado à origem da PWA.
+- **Falha no refresh apaga o cookie**, inclusive quando o cookie não veio.
+- O código está em `apps/ms-identity/src/lib/refresh-cookie.ts`, e os testes em `controllers/auth.controller.test.ts`.
+
+Nada muda nas funções `SECURITY DEFINER` desta ADR.
+
 ---
 
 ## Histórico
@@ -76,3 +86,4 @@ Testes em `auth-lookup.test.ts`: a conexão de runtime não enxerga `user_sessio
 |---|---|---|---|
 | 1.0 | Ago/2026 | Criação. Decisão de bypass de RLS para o AuthService (Sprint 2). | Marco Túlio |
 | 1.1 | Nov/2026 | `auth_tenant_id_for_user` substituída por `auth_tenant_id_for_session` (sessão por aparelho, auditoria A-03); segredo do refresh em SHA-256 (M-04). | Marco Túlio |
+| 1.2 | Nov/2026 | Refresh token só em cookie HttpOnly, sem corpo no refresh/logout (auditoria A-03, item 3). | Marco Túlio |

@@ -10,14 +10,7 @@ export const loginSchema = z.object({
     .optional(),
 });
 
-export const refreshSchema = z.object({
-  refreshToken: z.string().min(1),
-});
-
-export const logoutSchema = z.object({
-  refreshToken: z.string().min(1),
-});
+// Refresh e logout não têm corpo: o refresh token chega no cookie HttpOnly
+// (ver lib/refresh-cookie.ts).
 
 export type LoginInput = z.infer<typeof loginSchema>;
-export type RefreshInput = z.infer<typeof refreshSchema>;
-export type LogoutInput = z.infer<typeof logoutSchema>;
