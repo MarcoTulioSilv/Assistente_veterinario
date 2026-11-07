@@ -3,17 +3,26 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui';
-import { clearSession } from '@/lib/api';
+import { api, clearSession } from '@/lib/api';
 import { cn } from '@/lib/cn';
 
-const NAV_ITEMS = [
+const ALL_NAV_ITEMS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/owners', label: 'Proprietários' },
   { href: '/properties', label: 'Propriedades' },
   { href: '/animals', label: 'Animais' },
+  { href: '/appointments', label: 'Atendimentos' },
   { href: '/inventory', label: 'Estoque' },
   { href: '/profile', label: 'Meu perfil' },
 ];
+
+// Demo estática (GitHub Pages): api.demo.ts ainda não implementa
+// appointments, então o link quebraria em runtime -- esconde até a demo
+// ganhar fixtures/generateStaticParams reais pra essa tela.
+const NAV_ITEMS =
+  process.env['NEXT_PUBLIC_DEMO_MODE'] === 'true'
+    ? ALL_NAV_ITEMS.filter((item) => item.href !== '/appointments')
+    : ALL_NAV_ITEMS;
 
 /**
  * Barra de navegação persistente das telas autenticadas. Antes do Dashboard
@@ -27,6 +36,10 @@ export function AppHeader(): React.ReactElement {
   const router = useRouter();
 
   function handleLogout(): void {
+    // Não espera o resultado: sem rede, o usuário sai do mesmo jeito. O
+    // servidor revoga a sessão deste aparelho (pedidos-para-joao.md, item 2).
+    const refreshToken = sessionStorage.getItem('refreshToken');
+    if (refreshToken) void api.auth.logout(refreshToken).catch(() => {});
     clearSession();
     router.replace('/login');
   }

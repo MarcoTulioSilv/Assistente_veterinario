@@ -1,8 +1,16 @@
 import { createHash } from 'node:crypto';
 import { EVENTS } from '@quironequine/shared-types';
-import type { DomainEvent, IStockService, RequestContext, UUID } from '@quironequine/shared-types';
+import type {
+  DomainEvent,
+  IStockService,
+  RequestContext,
+  StockConsumptionSource,
+  UUID,
+} from '@quironequine/shared-types';
 import { createServiceLogger } from '@quironequine/shared-middlewares';
 import { appointmentDonePayloadSchema } from '../schemas/appointment-done.schema';
+import { examCollectedPayloadSchema } from '../schemas/exam-collected.schema';
+import { vaccinationAppliedPayloadSchema } from '../schemas/vaccination-applied.schema';
 
 const log = createServiceLogger('deduction-service');
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
@@ -41,10 +49,19 @@ export function deriveItemIdempotencyKey(envelopeIdempotencyKey: string, index: 
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
+/** O que dá baixa, venha de atendimento, exame ou vacinação. */
+interface Consumption {
+  sourceId: UUID;
+  sourceType: StockConsumptionSource;
+  items: Array<{ productId: UUID; quantity: number }>;
+}
+
 /**
  * Lógica de negócio — Dev 1 é o dono.
- * RN-003: consome appointment.done do broker e baixa estoque via
- * IStockService.deduct(), um item por vez.
+ * RN-003: consome appointment.done, exam.collected e vaccination.applied do
+ * broker e baixa estoque via IStockService.deduct(), um item por vez. As
+ * quantidades seguem como vieram (ml nos produtos usados por ml): a
+ * conversão para a unidade de estoque é do `deduct`, que já carrega o produto.
  *
  * A fila `domain-events` é compartilhada (ver events/deduction-consumer.ts,
  * que só faz a parte de plumbing BullMQ) — jobs de outro tipo são
@@ -55,25 +72,24 @@ export class DeductionService {
   constructor(private readonly stock: IStockService) {}
 
   async handle(jobName: string, event: DomainEvent<unknown>): Promise<void> {
-    if (jobName !== EVENTS.APPOINTMENT_DONE) return;
-
-    const payload = appointmentDonePayloadSchema.parse(event.payload);
     const ctx = systemCtx(event.tenantId, event.traceId);
+    const consumption = this.toConsumption(jobName, event.payload);
+    if (!consumption) return;
 
     const errors: unknown[] = [];
-    for (const [index, item] of payload.consumedItems.entries()) {
+    for (const [index, item] of consumption.items.entries()) {
       try {
         await this.stock.deduct(
           ctx,
           item.productId,
           item.quantity,
           deriveItemIdempotencyKey(event.idempotencyKey, index),
-          { referenceId: payload.appointmentId, referenceType: 'appointment' },
+          { referenceId: consumption.sourceId, referenceType: consumption.sourceType },
         );
       } catch (err) {
         log.error(
-          { err, appointmentId: payload.appointmentId, productId: item.productId, index },
-          'Falha ao baixar item do atendimento',
+          { err, sourceType: consumption.sourceType, sourceId: consumption.sourceId, productId: item.productId, index },
+          'Falha ao baixar item consumido',
         );
         errors.push(err);
       }
@@ -86,8 +102,34 @@ export class DeductionService {
       // e deixar o BullMQ tentar de novo é seguro, não duplica baixa.
       throw new AggregateError(
         errors,
-        `Falha ao baixar ${errors.length} de ${payload.consumedItems.length} item(ns) do atendimento ${payload.appointmentId}`,
+        `Falha ao baixar ${errors.length} de ${consumption.items.length} item(ns) de ${consumption.sourceType} ${consumption.sourceId}`,
       );
+    }
+  }
+
+  /** Evento de outro tipo → `null`: não é assunto do estoque. */
+  private toConsumption(jobName: string, payload: unknown): Consumption | null {
+    switch (jobName) {
+      case EVENTS.APPOINTMENT_DONE: {
+        const parsed = appointmentDonePayloadSchema.parse(payload);
+        return { sourceId: parsed.appointmentId, sourceType: 'appointment', items: parsed.consumedItems };
+      }
+      case EVENTS.EXAM_COLLECTED: {
+        const parsed = examCollectedPayloadSchema.parse(payload);
+        return { sourceId: parsed.examRequestId, sourceType: 'exam', items: parsed.consumedItems };
+      }
+      case EVENTS.VACCINATION_APPLIED: {
+        const parsed = vaccinationAppliedPayloadSchema.parse(payload);
+        // Produto inexistente falha no `deduct` (404) e o job fica em
+        // `failed` à vista depois dos retries — baixa não some calada.
+        return {
+          sourceId: parsed.vaccinationId,
+          sourceType: 'vaccination',
+          items: [{ productId: parsed.productId, quantity: parsed.totalMl }],
+        };
+      }
+      default:
+        return null;
     }
   }
 }

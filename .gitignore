@@ -23,6 +23,13 @@ apps/ms-identity/uploads/
 .env
 .env.local
 .env.*.local
+# Segredos de qualquer ambiente (ex.: infra/staging/.env.staging). Só o
+# exemplo é versionado.
+.env.*
+!.env.example
+
+# Backups do staging (gerados no servidor por infra/staging/backup.sh)
+infra/staging/backups/
 *.pem
 *.key
 

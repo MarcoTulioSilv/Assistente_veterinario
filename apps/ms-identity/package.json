@@ -24,9 +24,9 @@
     "@quironequine/shared-middlewares": "*",
     "@quironequine/shared-types": "*",
     "bcryptjs": "^2.4.3",
-    "express": "^4.21.2",
+    "express": "^4.22.3",
     "jose": "^5.9.0",
-    "multer": "^2.3.0",
+    "multer": "^2.4.0",
     "otpauth": "^9.3.0",
     "zod": "^3.24.0"
   },

@@ -152,6 +152,56 @@ describe('ProductRepository + MovementRepository', () => {
     expect(updated.expiryDate).toBe('2027-01-01T00:00:00.000Z');
   });
 
+  it('doseIntervalDays (RF-VAC-005) grava, edita e volta a null', async () => {
+    const created = await products.create(ctx, {
+      name: 'Influenza Equina',
+      unit: 'frasco',
+      mlPerUnit: 20,
+      applicationMl: 2,
+      costPriceCents: 30000,
+      category: 'vaccine',
+      doseIntervalDays: 180,
+    });
+    expect(created.doseIntervalDays).toBe(180);
+
+    expect((await products.update(ctx, created.id, { doseIntervalDays: 365 })).doseIntervalDays).toBe(365);
+    expect((await products.update(ctx, created.id, { doseIntervalDays: null })).doseIntervalDays).toBeNull();
+  });
+
+  it('ml por unidade: grava, calcula o preço por ml e volta a null', async () => {
+    const created = await products.create(ctx, {
+      name: 'Flunixin 50 ml',
+      unit: 'frasco',
+      mlPerUnit: 50,
+      costPriceCents: 10000,
+      markupPercent: 50,
+      category: 'medication',
+    });
+
+    expect(created).toMatchObject({ mlPerUnit: 50, salePriceCents: 15000, pricePerMlCents: 300 });
+
+    const semMl = await products.update(ctx, created.id, { mlPerUnit: null });
+    expect(semMl).toMatchObject({ mlPerUnit: null, pricePerMlCents: null });
+  });
+
+  it('produto comprado em ml: o preço por ml é o próprio preço', async () => {
+    const created = await products.create(ctx, { name: 'Soro', unit: 'ml', costPriceCents: 10, category: 'medication' });
+    expect(created.pricePerMlCents).toBe(created.salePriceCents);
+  });
+
+  it('o banco rejeita ml zero ou negativo (CHECK)', async () => {
+    const created = await products.create(ctx, { name: 'Tétano', unit: 'frasco', costPriceCents: 100, category: 'vaccine' });
+
+    await expect(products.update(ctx, created.id, { mlPerUnit: 0 })).rejects.toThrow();
+    await expect(products.update(ctx, created.id, { applicationMl: -1 })).rejects.toThrow();
+  });
+
+  it('o banco rejeita intervalo de dose zero ou negativo (CHECK)', async () => {
+    const created = await products.create(ctx, { name: 'Tétano', unit: 'frasco', costPriceCents: 100, category: 'vaccine' });
+
+    await expect(products.update(ctx, created.id, { doseIntervalDays: 0 })).rejects.toThrow();
+  });
+
   it('isLowStock e isNearExpiry são calculados na leitura, não são colunas', async () => {
     const daqui10Dias = new Date();
     daqui10Dias.setDate(daqui10Dias.getDate() + 10);

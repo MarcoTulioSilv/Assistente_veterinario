@@ -16,6 +16,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { PrismaClient } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { AuthRepository } from '../src/repositories/auth.repository';
 import { prisma as appPrisma } from '../src/prisma';
 
@@ -24,7 +25,20 @@ const USER_ID = '44444444-4444-4444-4444-444444444444';
 const DELETED_USER_ID = '55555555-5555-5555-5555-555555555555';
 const EMAIL = 'auth-lookup-test@quironequine.com.br';
 const DELETED_EMAIL = 'auth-lookup-deleted@quironequine.com.br';
-const UNKNOWN_USER_ID = '00000000-0000-0000-0000-000000000000';
+const UNKNOWN_SESSION_ID = '00000000-0000-0000-0000-000000000000';
+const GRACE_MS = 30_000;
+const IN_A_WEEK = () => new Date(Date.now() + 7 * 86_400_000);
+
+/** Abre uma sessão como o login faria e devolve o id. */
+async function login(secretHash = 'hash-login'): Promise<string> {
+  const id = randomUUID();
+  await repo.startSession(TENANT_ID, USER_ID, { id, secretHash, expiresAt: IN_A_WEEK() });
+  return id;
+}
+
+function next(secretHash: string): { id: string; secretHash: string; expiresAt: Date } {
+  return { id: randomUUID(), secretHash, expiresAt: IN_A_WEEK() };
+}
 
 /** Conexao de migration: superusuario, ignora RLS. Usada so no setup/assert. */
 const admin = new PrismaClient({ datasourceUrl: process.env['DATABASE_URL_IDENTITY'] });
@@ -98,46 +112,125 @@ describe('AuthRepository — bypass controlado de RLS (ADR-004)', () => {
     });
   });
 
-  describe('findTenantIdForUser', () => {
-    it('acha o tenant do usuário', async () => {
-      await expect(repo.findTenantIdForUser(USER_ID)).resolves.toBe(TENANT_ID);
-    });
+  it('conexão de runtime não enxerga user_sessions sem tenant definido', async () => {
+    await login();
+    const rows = await appPrisma.$queryRaw<Array<{ id: string }>>`SELECT id FROM user_sessions`;
+    expect(rows).toHaveLength(0);
+  });
 
-    it('retorna null para usuário deletado ou inexistente', async () => {
-      await expect(repo.findTenantIdForUser(DELETED_USER_ID)).resolves.toBeNull();
-      await expect(repo.findTenantIdForUser(UNKNOWN_USER_ID)).resolves.toBeNull();
+  describe('findTenantIdForSession (SECURITY DEFINER)', () => {
+    it('acha o tenant da sessão e nada para sessão inexistente', async () => {
+      const id = await login();
+      await expect(repo.findTenantIdForSession(id)).resolves.toBe(TENANT_ID);
+      await expect(repo.findTenantIdForSession(UNKNOWN_SESSION_ID)).resolves.toBeNull();
     });
   });
 
-  describe('caminho normal via withTenant (findById / grava e limpa refresh token)', () => {
-    it('findById traz o usuário com o plano atual do tenant', async () => {
-      const row = await repo.findById(TENANT_ID, USER_ID);
-      expect(row?.email).toBe(EMAIL);
-      expect(row?.tenantPlan).toBe('basic');
-      expect(row?.refreshTokenHash).toBeNull();
+  describe('sessões por aparelho (auditoria A-03)', () => {
+    it('login grava a sessão (família = ela mesma) e o último acesso', async () => {
+      const id = await login('hash-a');
+      const row = await admin.userSession.findUniqueOrThrow({ where: { id } });
+      expect(row).toMatchObject({ familyId: id, secretHash: 'hash-a', revokedAt: null, tenantId: TENANT_ID });
+      const user = await admin.user.findUniqueOrThrow({ where: { id: USER_ID } });
+      expect(user.lastLoginAt).not.toBeNull();
     });
 
-    it('recordSuccessfulLogin grava hash e expiração; rotateRefreshToken troca o hash; clearRefreshToken zera', async () => {
-      const expiresAt = new Date(Date.now() + 60_000);
-      await repo.recordSuccessfulLogin(TENANT_ID, USER_ID, 'hash-1', expiresAt);
+    it('dois aparelhos convivem: renovar um não mexe no outro', async () => {
+      const celular = await login('hash-celular');
+      const notebook = await login('hash-notebook');
 
-      let row = await admin.user.findUniqueOrThrow({ where: { id: USER_ID } });
-      expect(row.refreshTokenHash).toBe('hash-1');
-      expect(row.lastLoginAt).not.toBeNull();
+      const r = await repo.rotateSession(TENANT_ID, { sessionId: celular, secretHash: 'hash-celular', next: next('h2'), graceMs: GRACE_MS });
 
-      await repo.rotateRefreshToken(TENANT_ID, USER_ID, 'hash-2', expiresAt);
-      row = await admin.user.findUniqueOrThrow({ where: { id: USER_ID } });
-      expect(row.refreshTokenHash).toBe('hash-2');
+      expect(r.outcome).toBe('rotated');
+      const outro = await admin.userSession.findUniqueOrThrow({ where: { id: notebook } });
+      expect(outro.revokedAt).toBeNull();
+    });
 
-      await repo.clearRefreshToken(TENANT_ID, USER_ID);
-      row = await admin.user.findUniqueOrThrow({ where: { id: USER_ID } });
-      expect(row.refreshTokenHash).toBeNull();
-      expect(row.refreshTokenExpiresAt).toBeNull();
+    it('rotação: a linha vigente vira `rotated` e a próxima nasce na mesma família', async () => {
+      const id = await login('hash-1');
+      const seguinte = next('hash-2');
+
+      const r = await repo.rotateSession(TENANT_ID, { sessionId: id, secretHash: 'hash-1', next: seguinte, graceMs: GRACE_MS });
+
+      expect(r).toMatchObject({ outcome: 'rotated', user: { id: USER_ID, email: EMAIL, tenantPlan: 'basic' } });
+      const antiga = await admin.userSession.findUniqueOrThrow({ where: { id } });
+      expect(antiga.revokedReason).toBe('rotated');
+      const nova = await admin.userSession.findUniqueOrThrow({ where: { id: seguinte.id } });
+      expect(nova).toMatchObject({ familyId: id, secretHash: 'hash-2', revokedAt: null });
+    });
+
+    it('renovações simultâneas com o mesmo token: uma rotaciona, a outra cai na tolerância — ninguém é derrubado', async () => {
+      const id = await login('hash-1');
+
+      const resultados = await Promise.all([
+        repo.rotateSession(TENANT_ID, { sessionId: id, secretHash: 'hash-1', next: next('aba-1'), graceMs: GRACE_MS }),
+        repo.rotateSession(TENANT_ID, { sessionId: id, secretHash: 'hash-1', next: next('aba-2'), graceMs: GRACE_MS }),
+      ]);
+
+      expect(resultados.map((r) => r.outcome).sort()).toEqual(['grace', 'rotated']);
+      const vivas = await admin.userSession.count({ where: { familyId: id, revokedAt: null } });
+      expect(vivas).toBe(2);
+    });
+
+    it('token já rotacionado fora da tolerância: revoga a família inteira (token roubado)', async () => {
+      const id = await login('hash-1');
+      const seguinte = next('hash-2');
+      await repo.rotateSession(TENANT_ID, { sessionId: id, secretHash: 'hash-1', next: seguinte, graceMs: GRACE_MS });
+      await admin.userSession.update({ where: { id }, data: { rotatedAt: new Date(Date.now() - GRACE_MS - 1000) } });
+
+      const r = await repo.rotateSession(TENANT_ID, { sessionId: id, secretHash: 'hash-1', next: next('hash-3'), graceMs: GRACE_MS });
+
+      expect(r).toEqual({ outcome: 'reuse', userId: USER_ID });
+      const legitima = await admin.userSession.findUniqueOrThrow({ where: { id: seguinte.id } });
+      expect(legitima.revokedReason).toBe('reuse');
+    });
+
+    it('segredo errado, sessão expirada e sessão após logout não renovam', async () => {
+      const id = await login('hash-1');
+      await expect(
+        repo.rotateSession(TENANT_ID, { sessionId: id, secretHash: 'outro', next: next('x'), graceMs: GRACE_MS }),
+      ).resolves.toEqual({ outcome: 'invalid' });
+
+      const vencida = await login('hash-v');
+      await admin.userSession.update({ where: { id: vencida }, data: { expiresAt: new Date(Date.now() - 1000) } });
+      await expect(
+        repo.rotateSession(TENANT_ID, { sessionId: vencida, secretHash: 'hash-v', next: next('x'), graceMs: GRACE_MS }),
+      ).resolves.toEqual({ outcome: 'expired' });
+
+      await repo.revokeSession(TENANT_ID, id, 'hash-1');
+      await expect(
+        repo.rotateSession(TENANT_ID, { sessionId: id, secretHash: 'hash-1', next: next('x'), graceMs: GRACE_MS }),
+      ).resolves.toEqual({ outcome: 'revoked' });
+    });
+
+    it('logout só revoga com o segredo certo, e só a sessão deste aparelho', async () => {
+      const id = await login('hash-1');
+      const outro = await login('hash-outro');
+
+      await repo.revokeSession(TENANT_ID, id, 'segredo-errado');
+      expect((await admin.userSession.findUniqueOrThrow({ where: { id } })).revokedAt).toBeNull();
+
+      await repo.revokeSession(TENANT_ID, id, 'hash-1');
+      expect((await admin.userSession.findUniqueOrThrow({ where: { id } })).revokedReason).toBe('logout');
+      expect((await admin.userSession.findUniqueOrThrow({ where: { id: outro } })).revokedAt).toBeNull();
+    });
+
+    it('usuário desativado não renova', async () => {
+      const id = await login('hash-1');
+      await admin.user.update({ where: { id: USER_ID }, data: { status: 'inactive' } });
+      try {
+        await expect(
+          repo.rotateSession(TENANT_ID, { sessionId: id, secretHash: 'hash-1', next: next('x'), graceMs: GRACE_MS }),
+        ).resolves.toEqual({ outcome: 'inactive' });
+      } finally {
+        await admin.user.update({ where: { id: USER_ID }, data: { status: 'active' } });
+      }
     });
   });
 });
 
 async function cleanup(): Promise<void> {
+  await admin.userSession.deleteMany({ where: { tenantId: TENANT_ID } });
   await admin.user.deleteMany({ where: { tenantId: TENANT_ID } });
   await admin.tenant.deleteMany({ where: { id: TENANT_ID } });
 }

@@ -97,6 +97,7 @@ export class TenantRepository {
           phone: data.phone,
           email: data.email,
           logoUrl: data.logoUrl,
+          displacementRateCents: data.displacementRateCents,
         },
       });
 
@@ -155,6 +156,7 @@ interface VeterinarianRow {
   phone: string;
   email: string;
   logoUrl: string | null;
+  displacementRateCents: number | null;
 }
 
 function toProfile(tenant: TenantRow, veterinarian: VeterinarianRow): TenantProfile {
@@ -173,6 +175,7 @@ function toProfile(tenant: TenantRow, veterinarian: VeterinarianRow): TenantProf
       phone: veterinarian.phone,
       email: veterinarian.email,
       logoUrl: veterinarian.logoUrl,
+      displacementRateCents: veterinarian.displacementRateCents,
     },
   };
 }

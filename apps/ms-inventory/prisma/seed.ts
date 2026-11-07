@@ -16,7 +16,9 @@ async function main(): Promise<void> {
       batch: 'L-2026-01',
       unit: 'frasco',
       quantityInStock: 20,
-      dosesPerUnit: 10,
+      // Frasco de 10 doses de 2 ml.
+      mlPerUnit: 20,
+      applicationMl: 2,
       costPriceCents: 4500,
       markupPercent: 30,
       expiryDate: new Date('2027-03-01'),

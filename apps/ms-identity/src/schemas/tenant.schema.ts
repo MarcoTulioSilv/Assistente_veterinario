@@ -26,6 +26,11 @@ export const updateVeterinarianSchema = z.object({
   phone: z.string().max(20).optional(),
   email: z.string().email().optional(),
   logoUrl: z.string().url().optional(),
+  /**
+   * Valor por km rodado em centavos (RN-011) — pré-preenche o orçamento.
+   * Teto de R$ 1.000/km: além disso é erro de digitação. `null` apaga.
+   */
+  displacementRateCents: z.number().int().min(0).max(100_000).nullable().optional(),
 });
 
 export type RegisterTenantInput = z.infer<typeof registerTenantSchema>;

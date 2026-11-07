@@ -130,11 +130,24 @@ describe('DeductionService.handle', () => {
     await expect(service.handle('appointment.done', event)).resolves.toBeUndefined();
   });
 
-  it('payload inválido (sem itens) rejeita antes de chamar deduct', async () => {
+  it('atendimento só de procedimento (sem item de estoque) é no-op, não falha', async () => {
+    // O MS3 publica appointment.done mesmo sem produto, porque o MS6 abre a
+    // pendência financeira a partir do mesmo evento. Falhar aqui fazia o job
+    // tentar 5 vezes no broker por nada.
     const deduct = vi.fn();
     const service = new DeductionService(fakeStock({ deduct }));
 
-    await expect(service.handle('appointment.done', appointmentDoneEvent([]))).rejects.toThrow();
+    await expect(service.handle('appointment.done', appointmentDoneEvent([]))).resolves.toBeUndefined();
+    expect(deduct).not.toHaveBeenCalled();
+  });
+
+  it('payload realmente inválido (productId que não é UUID) rejeita antes de chamar deduct', async () => {
+    const deduct = vi.fn();
+    const service = new DeductionService(fakeStock({ deduct }));
+
+    await expect(
+      service.handle('appointment.done', appointmentDoneEvent([{ productId: 'não-é-uuid', quantity: 1 }])),
+    ).rejects.toThrow();
     expect(deduct).not.toHaveBeenCalled();
   });
 });
@@ -157,5 +170,95 @@ describe('deriveItemIdempotencyKey', () => {
   it('gera um UUID sintaticamente válido (8-4-4-4-12 hex)', () => {
     const derived = deriveItemIdempotencyKey(randomUUID(), 0);
     expect(derived).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  });
+});
+
+describe('DeductionService.handle — exam.collected (RF-EXM-006)', () => {
+  const EXAM_ID = '55555555-5555-5555-5555-555555555555';
+
+  function examCollectedEvent(consumedItems: Array<{ productId: string; quantity: number }>): DomainEvent<unknown> {
+    return {
+      name: 'exam.collected',
+      tenantId: TENANT_ID,
+      traceId: 'test-trace',
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      payload: { examRequestId: EXAM_ID, consumedItems },
+    };
+  }
+
+  it('baixa os insumos da coleta com referência e motivo de exame', async () => {
+    const deduct = vi.fn().mockResolvedValue(undefined);
+    const service = new DeductionService(fakeStock({ deduct }));
+    const event = examCollectedEvent([{ productId: PRODUCT_A, quantity: 2 }]);
+
+    await service.handle('exam.collected', event);
+
+    expect(deduct).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT_ID }),
+      PRODUCT_A,
+      2,
+      deriveItemIdempotencyKey(event.idempotencyKey, 0),
+      { referenceId: EXAM_ID, referenceType: 'exam' },
+    );
+  });
+
+  it('rejeita payload de exame malformado', async () => {
+    const service = new DeductionService(fakeStock());
+    const event = { ...examCollectedEvent([]), payload: { consumedItems: [] } };
+
+    await expect(service.handle('exam.collected', event)).rejects.toThrow();
+  });
+});
+
+describe('DeductionService.handle — vaccination.applied (RF-VAC-002)', () => {
+  const VACCINATION_ID = '66666666-6666-6666-6666-666666666666';
+
+  function vaccinationAppliedEvent(totalMl: number): DomainEvent<unknown> {
+    return {
+      name: 'vaccination.applied',
+      tenantId: TENANT_ID,
+      traceId: 'test-trace',
+      idempotencyKey: randomUUID(),
+      occurredAt: new Date().toISOString(),
+      payload: {
+        vaccinationId: VACCINATION_ID,
+        ownerId: randomUUID(),
+        productId: PRODUCT_A,
+        totalMl,
+        totalCostCents: 18000,
+        performedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  it('repassa os ml aplicados (a conversão para frasco é do deduct), com motivo de vacinação', async () => {
+    const deduct = vi.fn().mockResolvedValue(undefined);
+    const service = new DeductionService(fakeStock({ deduct }));
+    const event = vaccinationAppliedEvent(6);
+
+    await service.handle('vaccination.applied', event);
+
+    expect(deduct).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: TENANT_ID }),
+      PRODUCT_A,
+      6,
+      deriveItemIdempotencyKey(event.idempotencyKey, 0),
+      { referenceId: VACCINATION_ID, referenceType: 'vaccination' },
+    );
+  });
+
+  it('vacina que não existe mais falha o job — baixa não some calada', async () => {
+    const deduct = vi.fn().mockRejectedValue(new Error('Produto não encontrado'));
+    const service = new DeductionService(fakeStock({ deduct }));
+
+    await expect(service.handle('vaccination.applied', vaccinationAppliedEvent(2))).rejects.toThrow(/Falha ao baixar/);
+  });
+
+  it('rejeita payload malformado', async () => {
+    const service = new DeductionService(fakeStock());
+    const event = { ...vaccinationAppliedEvent(1), payload: { vaccinationId: VACCINATION_ID } };
+
+    await expect(service.handle('vaccination.applied', event)).rejects.toThrow();
   });
 });

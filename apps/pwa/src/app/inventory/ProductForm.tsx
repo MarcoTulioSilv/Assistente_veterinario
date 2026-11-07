@@ -51,7 +51,8 @@ export function ProductForm({
   const [unit, setUnit] = useState(defaultValues?.unit ?? '');
   const [category, setCategory] = useState(defaultValues?.category ?? '');
   const [quantityInStock, setQuantityInStock] = useState(defaultValues?.quantityInStock ?? '');
-  const [dosesPerUnit, setDosesPerUnit] = useState(defaultValues?.dosesPerUnit ?? '');
+  const [mlPerUnit, setMlPerUnit] = useState(defaultValues?.mlPerUnit ?? '');
+  const [applicationMl, setApplicationMl] = useState(defaultValues?.applicationMl ?? '');
   const [costPrice, setCostPrice] = useState(defaultValues?.costPrice ?? '');
   const [markupPercent, setMarkupPercent] = useState(defaultValues?.markupPercent ?? '');
   const [expiryDate, setExpiryDate] = useState(defaultValues?.expiryDate ?? '');
@@ -70,7 +71,8 @@ export function ProductForm({
       unit,
       category,
       quantityInStock,
-      dosesPerUnit,
+      mlPerUnit,
+      applicationMl,
       costPrice,
       markupPercent,
       expiryDate,
@@ -163,13 +165,24 @@ export function ProductForm({
           error={fieldErrors.minStockQty}
         />
         <Input
-          label="Doses por unidade"
+          label="ml por unidade"
           placeholder="Opcional"
-          value={dosesPerUnit}
-          onChange={(e) => setDosesPerUnit(e.target.value)}
-          error={fieldErrors.dosesPerUnit}
+          hint="Vacina/medicamento em frasco ou ampola: ml que tem dentro"
+          value={mlPerUnit}
+          onChange={(e) => setMlPerUnit(e.target.value)}
+          error={fieldErrors.mlPerUnit}
         />
       </div>
+      {category === 'vaccine' && (
+        <Input
+          label="ml aplicados por animal"
+          placeholder="Opcional"
+          hint="Sugerido na tela de vacinação — o veterinário pode ajustar"
+          value={applicationMl}
+          onChange={(e) => setApplicationMl(e.target.value)}
+          error={fieldErrors.applicationMl}
+        />
+      )}
       <div className="grid grid-cols-2 gap-3">
         <Input
           label="Validade"

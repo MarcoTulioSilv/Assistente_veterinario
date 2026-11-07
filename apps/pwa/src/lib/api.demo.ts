@@ -188,6 +188,7 @@ export const apiDemo = {
           phone: '(64) 00000-0000',
           email: 'demo@quironequine.com.br',
           logoUrl: null,
+          displacementRateCents: 350,
         },
       }),
     updateMe: (_data: UpdateVeterinarianDto): Promise<TenantProfile> => readOnly(),

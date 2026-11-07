@@ -1,0 +1,64 @@
+name: Seed staging
+
+# Recria os dados de homologação (Clínica Equina Modelo + tenant de
+# isolamento) no staging — apaga e recria SÓ esses dois tenants. Manual e com
+# confirmação: os stakeholders podem estar mexendo nos dados.
+#
+# O Postgres do servidor só escuta no localhost; o seed chega por túnel SSH.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Digite "homologacao" para apagar e recriar os dados de homologação'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    environment: staging
+    if: inputs.confirmar == 'homologacao'
+    env:
+      USER_AT_HOST: ${{ vars.STAGING_USER }}@${{ vars.STAGING_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # O seed usa o cliente Prisma de cada serviço e as regras dos services.
+      - run: |
+          for s in ms-identity ms-inventory ms-clinical ms-reporting; do
+            npx prisma generate --schema "apps/$s/prisma/schema.prisma"
+          done
+          npm run build -w @quironequine/shared-types
+
+      - name: Túnel SSH até o Postgres
+        # Secrets por variável de ambiente, não interpolados no script.
+        env:
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          # Colado a partir do Windows, o secret pode vir com CRLF — o OpenSSH
+          # não lê a chave assim ("error in libcrypto").
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
+          if ! ssh-keygen -y -f ~/.ssh/id_ed25519 > /dev/null; then
+            echo "::error::STAGING_SSH_KEY não é uma chave privada válida. Copie o arquivo inteiro, da linha BEGIN até a END (manual de implantação, passo 4.3)."
+            exit 1
+          fi
+          ssh -f -N -o ExitOnForwardFailure=yes -L 15432:127.0.0.1:5432 "$USER_AT_HOST"
+
+      - name: Seed
+        env:
+          PG: postgresql://quironequine:${{ secrets.STAGING_POSTGRES_PASSWORD }}@127.0.0.1:15432
+          SEED_PASSWORD: ${{ secrets.STAGING_SEED_PASSWORD }}
+        run: |
+          DATABASE_URL_IDENTITY="$PG/identity" DATABASE_URL_INVENTORY="$PG/inventory" \
+          DATABASE_URL_CLINICAL="$PG/clinical" DATABASE_URL_REPORTING="$PG/reporting" \
+            npx tsx scripts/seed-homologacao.ts

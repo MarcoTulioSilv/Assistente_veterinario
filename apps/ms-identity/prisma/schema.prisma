@@ -60,10 +60,11 @@ model Tenant {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  users      User[]
-  owners     Owner[]
-  properties Property[]
-  animals    Animal[]
+  users        User[]
+  owners       Owner[]
+  properties   Property[]
+  animals      Animal[]
+  userSessions UserSession[]
 
   @@index([plan])
   @@index([status])
@@ -72,19 +73,17 @@ model Tenant {
 
 // ─── USERS ────────────────────────────────────────────────────────
 model User {
-  id               String     @id @default(uuid()) @db.Uuid
-  tenantId         String     @map("tenant_id") @db.Uuid
-  email            String     @unique @db.VarChar(255)
-  passwordHash     String     @map("password_hash") @db.VarChar(255)
-  role             UserRole   @default(admin)
-  fullName         String     @map("full_name") @db.VarChar(255)
-  phone            String?    @db.VarChar(20)
-  totpSecret       String?    @map("totp_secret") @db.VarChar(100)
-  totpEnabled      Boolean    @default(false) @map("totp_enabled")
-  refreshTokenHash      String?    @map("refresh_token_hash") @db.VarChar(255)
-  refreshTokenExpiresAt DateTime?  @map("refresh_token_expires_at") @db.Timestamptz
+  id                    String     @id @default(uuid()) @db.Uuid
+  tenantId              String     @map("tenant_id") @db.Uuid
+  email                 String     @unique @db.VarChar(255)
+  passwordHash          String     @map("password_hash") @db.VarChar(255)
+  role                  UserRole   @default(admin)
+  fullName              String     @map("full_name") @db.VarChar(255)
+  phone                 String?    @db.VarChar(20)
+  totpSecret            String?    @map("totp_secret") @db.VarChar(100)
+  totpEnabled           Boolean    @default(false) @map("totp_enabled")
   lastLoginAt           DateTime?  @map("last_login_at") @db.Timestamptz
-  status           UserStatus @default(active)
+  status                UserStatus @default(active)
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
@@ -93,6 +92,7 @@ model User {
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   veterinarian Veterinarian?
   auditLogs    AuditLog[]
+  sessions     UserSession[]
 
   @@index([tenantId])
   @@index([role])
@@ -100,18 +100,51 @@ model User {
   @@map("users")
 }
 
+// ─── USER SESSIONS ────────────────────────────────────────────────
+/// Uma sessão por aparelho (auditoria de 06/11/2026, A-03). O refresh token
+/// é "<id>.<segredo>": o id localiza a linha, o segredo prova a posse e só
+/// o SHA-256 dele é gravado. Cada refresh revoga a linha (`rotated`) e cria
+/// a seguinte na mesma família; um token já rotacionado que volta depois da
+/// tolerância derruba a família inteira (`reuse`) — sinal de token roubado.
+model UserSession {
+  id            String    @id @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  /// Todas as rotações de um mesmo login (um aparelho).
+  familyId      String    @map("family_id") @db.Uuid
+  secretHash    String    @map("secret_hash") @db.VarChar(64)
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  rotatedAt     DateTime? @map("rotated_at") @db.Timestamptz
+  revokedAt     DateTime? @map("revoked_at") @db.Timestamptz
+  /// `rotated` | `logout` | `reuse` (CHECK na migration).
+  revokedReason String?   @map("revoked_reason") @db.VarChar(20)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([userId])
+  @@index([familyId])
+  @@map("user_sessions")
+}
+
 // ─── VETERINARIANS ────────────────────────────────────────────────
 model Veterinarian {
-  id        String  @id @default(uuid()) @db.Uuid
-  tenantId  String  @map("tenant_id") @db.Uuid
-  userId    String  @unique @map("user_id") @db.Uuid
-  fullName  String  @map("full_name") @db.VarChar(255)
-  crmv      String  @db.VarChar(30)
-  crmvState String  @map("crmv_state") @db.Char(2)
-  cpfCnpj   String  @map("cpf_cnpj") @db.VarChar(20)
-  phone     String  @db.VarChar(20)
-  email     String  @db.VarChar(255)
-  logoUrl   String? @map("logo_url") @db.Text
+  id                    String  @id @default(uuid()) @db.Uuid
+  tenantId              String  @map("tenant_id") @db.Uuid
+  userId                String  @unique @map("user_id") @db.Uuid
+  fullName              String  @map("full_name") @db.VarChar(255)
+  crmv                  String  @db.VarChar(30)
+  crmvState             String  @map("crmv_state") @db.Char(2)
+  cpfCnpj               String  @map("cpf_cnpj") @db.VarChar(20)
+  phone                 String  @db.VarChar(20)
+  email                 String  @db.VarChar(255)
+  logoUrl               String? @map("logo_url") @db.Text
+  /// Valor por km rodado, em centavos (RN-011). Pré-preenche o orçamento,
+  /// que guarda a própria cópia e pode ser alterado lá (reunião de
+  /// 20/10/2026). Nulo = ainda não configurado.
+  displacementRateCents Int?    @map("displacement_rate_cents")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
@@ -171,11 +204,11 @@ model Property {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant        Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   owners        PropertyOwner[]
   animals       Animal[]
-  transfersFrom AnimalTransfer[]  @relation("TransferFrom")
-  transfersTo   AnimalTransfer[]  @relation("TransferTo")
+  transfersFrom AnimalTransfer[] @relation("TransferFrom")
+  transfersTo   AnimalTransfer[] @relation("TransferTo")
 
   @@index([tenantId])
   @@index([status])

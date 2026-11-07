@@ -15,6 +15,9 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
   transpilePackages: ['@quironequine/shared-types'],
+  // Demo estática pro GitHub Pages: sem server Node por trás (ver
+  // api.demo.ts), então 'export' em vez do 'standalone' que o develop usa
+  // pro Docker -- os dois são mutuamente exclusivos.
   output: 'export',
   basePath: '/Assistente_veterinario',
   assetPrefix: '/Assistente_veterinario',
