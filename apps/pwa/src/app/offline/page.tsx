@@ -1,4 +1,4 @@
-export const metadata = { title: 'Sem conexão — VetEquine' };
+export const metadata = { title: 'Sem conexão — Quíron Equine' };
 
 export default function OfflinePage(): React.ReactElement {
   return (

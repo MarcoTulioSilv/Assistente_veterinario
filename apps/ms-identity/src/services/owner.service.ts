@@ -4,8 +4,8 @@ import type {
   UUID,
   Paginated,
   Owner,
-} from '@vetequine/shared-types';
-import { AppError } from '@vetequine/shared-middlewares';
+} from '@quironequine/shared-types';
+import { AppError } from '@quironequine/shared-middlewares';
 import type { OwnerRepository } from '../repositories/owner.repository';
 import type { PlanService } from './plan.service';
 import type { CreateOwnerInput, UpdateOwnerInput, ListOwnersInput } from '../schemas/owner.schema';

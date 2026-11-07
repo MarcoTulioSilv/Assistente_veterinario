@@ -1,0 +1,54 @@
+name: Seed staging
+
+# Recria os dados de homologação (Clínica Equina Modelo + tenant de
+# isolamento) no staging — apaga e recria SÓ esses dois tenants. Manual e com
+# confirmação: os stakeholders podem estar mexendo nos dados.
+#
+# O Postgres do servidor só escuta no localhost; o seed chega por túnel SSH.
+on:
+  workflow_dispatch:
+    inputs:
+      confirmar:
+        description: 'Digite "homologacao" para apagar e recriar os dados de homologação'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    environment: staging
+    if: inputs.confirmar == 'homologacao'
+    env:
+      USER_AT_HOST: ${{ vars.STAGING_USER }}@${{ vars.STAGING_HOST }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # O seed usa o cliente Prisma de cada serviço e as regras dos services.
+      - run: |
+          for s in ms-identity ms-inventory ms-clinical ms-reporting; do
+            npx prisma generate --schema "apps/$s/prisma/schema.prisma"
+          done
+          npm run build -w @quironequine/shared-types
+
+      - name: Túnel SSH até o Postgres
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "${{ secrets.STAGING_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "${{ secrets.STAGING_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          ssh -f -N -o ExitOnForwardFailure=yes -L 15432:127.0.0.1:5432 "$USER_AT_HOST"
+
+      - name: Seed
+        env:
+          PG: postgresql://quironequine:${{ secrets.STAGING_POSTGRES_PASSWORD }}@127.0.0.1:15432
+          SEED_PASSWORD: ${{ secrets.STAGING_SEED_PASSWORD }}
+        run: |
+          DATABASE_URL_IDENTITY="$PG/identity" DATABASE_URL_INVENTORY="$PG/inventory" \
+          DATABASE_URL_CLINICAL="$PG/clinical" DATABASE_URL_REPORTING="$PG/reporting" \
+            npx tsx scripts/seed-homologacao.ts

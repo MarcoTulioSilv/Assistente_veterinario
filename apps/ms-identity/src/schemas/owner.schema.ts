@@ -16,7 +16,6 @@ export const createOwnerSchema = z.object({
   address: z.string().max(500).optional(),
   city: z.string().max(100).optional(),
   state: z.string().length(2).optional(),
-  propertyIds: z.array(z.string().uuid()).optional(),
 });
 
 export const updateOwnerSchema = createOwnerSchema.partial();

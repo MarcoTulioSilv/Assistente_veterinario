@@ -1,4 +1,4 @@
-import type { ErrorCode } from '@vetequine/shared-types';
+import type { ErrorCode } from '@quironequine/shared-types';
 
 /** Erro de aplicação com código padronizado e status HTTP */
 export class AppError extends Error {

@@ -1,4 +1,4 @@
-import { createServiceLogger } from '@vetequine/shared-middlewares';
+import { createServiceLogger } from '@quironequine/shared-middlewares';
 import { createApp } from './app';
 import { disconnectPrisma } from './prisma';
 

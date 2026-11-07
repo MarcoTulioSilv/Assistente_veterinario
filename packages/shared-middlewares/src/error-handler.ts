@@ -1,5 +1,5 @@
 import type { Request, Response, NextFunction } from 'express';
-import type { ApiError } from '@vetequine/shared-types';
+import type { ApiError } from '@quironequine/shared-types';
 import { AppError } from './errors';
 import { logger } from './logger';
 

@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
-  const passwordHash = await bcrypt.hash('vetequine123', 12);
+  const passwordHash = await bcrypt.hash('quironequine123', 12);
 
   const tenant = await prisma.tenant.upsert({
     where: { slug: 'clinica-demo' },
@@ -19,11 +19,11 @@ async function main(): Promise<void> {
   });
 
   const user = await prisma.user.upsert({
-    where: { email: 'demo@vetequine.com.br' },
+    where: { email: 'demo@quironequine.com.br' },
     update: {},
     create: {
       tenantId: tenant.id,
-      email: 'demo@vetequine.com.br',
+      email: 'demo@quironequine.com.br',
       passwordHash,
       role: 'admin',
       fullName: 'Veterinário Demo',
@@ -43,7 +43,7 @@ async function main(): Promise<void> {
       crmvState: 'GO',
       cpfCnpj: '000.000.000-00',
       phone: '(64) 99999-0000',
-      email: 'demo@vetequine.com.br',
+      email: 'demo@quironequine.com.br',
     },
   });
 
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
 
   console.warn('Seed concluído:');
   console.warn(`  Tenant:  ${tenant.name} (${tenant.slug})`);
-  console.warn(`  Login:   demo@vetequine.com.br / vetequine123`);
+  console.warn(`  Login:   demo@quironequine.com.br / quironequine123`);
   console.warn(`  Dados:   1 propriedade, 1 proprietário, 2 animais`);
 }
 

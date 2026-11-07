@@ -1,3 +1,4 @@
+import path from 'node:path';
 import type { NextConfig } from 'next';
 
 /**
@@ -14,7 +15,17 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  transpilePackages: ['@vetequine/shared-types'],
+  transpilePackages: ['@quironequine/shared-types'],
+  // Imagem bem menor no Dockerfile: só o server.js + os node_modules
+  // realmente usados, em vez do node_modules inteiro do workspace
+  // (apps/pwa/Dockerfile). outputFileTracingRoot sobe pra raiz do monorepo
+  // -- sem isso o tracing erra as dependências hoisted em node_modules/ da
+  // raiz (npm workspaces).
+  output: 'standalone',
+  outputFileTracingRoot: path.join(__dirname, '../..'),
+  // Next 16.3+ gera AGENTS.md/CLAUDE.md sozinho a cada `next dev` -- o
+  // CLAUDE.md real do projeto é mantido à mão na raiz do monorepo.
+  agentRules: false,
 
   async headers() {
     return [

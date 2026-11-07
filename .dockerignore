@@ -1,0 +1,24 @@
+# Contexto de build do Docker — o mesmo do checkout limpo do CI.
+#
+# Sem este arquivo, `docker build .` local mandava o repositório inteiro pro
+# daemon: o node_modules de todos os workspaces (com binários do Windows,
+# inclusive o motor do Prisma), caches do Next e do Turbo, e o .env com os
+# segredos. Nada disso pode entrar numa imagem — o npm ci e o prisma generate
+# rodam DENTRO do build, pra plataforma certa.
+
+**/node_modules
+**/dist
+**/coverage
+**/.next
+**/.turbo
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo
+
+.env
+.env.*
+!.env.example
+
+.git
+.github
+Documentação

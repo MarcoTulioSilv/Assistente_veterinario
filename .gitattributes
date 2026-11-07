@@ -1,0 +1,5 @@
+# Scripts shell sempre com LF, inclusive em checkout no Windows (onde
+# core.autocrlf=true converteria para CRLF): o bash quebra com "\r" no fim
+# da linha — "$'\r': command not found". Ex.: infra/staging/*.sh, que o
+# servidor executa e o generate-env.sh, que roda no Git Bash.
+*.sh text eol=lf
