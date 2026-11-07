@@ -59,6 +59,20 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO quironequine_app;
 
+-- ─── 3b. Historico de migrations fora do alcance da aplicacao ─────
+-- O GRANT ON ALL TABLES acima pega tambem a _prisma_migrations, que a
+-- aplicacao nunca usa. Com INSERT/DELETE nela, uma falha que permitisse
+-- SQL arbitrario poderia adulterar o historico (marcar como aplicada uma
+-- migration que nao rodou). Menor privilegio: so o dono das migrations
+-- (quironequine) mexe nela. Revisao de seguranca da Sprint 8.
+DO $$
+BEGIN
+  IF to_regclass('public._prisma_migrations') IS NOT NULL THEN
+    REVOKE ALL ON TABLE _prisma_migrations FROM quironequine_app;
+  END IF;
+END
+$$;
+
 -- ─── 4. Funcoes de auth pre-tenant (SECURITY DEFINER) ─────────────
 -- So EXECUTE, nunca SELECT direto -- ver ADR-004 e a migration
 -- 20260813192902_auth_refresh_and_lookup. So existem no banco do
@@ -67,8 +81,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'auth_lookup_by_email') THEN
-    GRANT EXECUTE ON FUNCTION auth_lookup_by_email(TEXT)    TO quironequine_app;
-    GRANT EXECUTE ON FUNCTION auth_tenant_id_for_user(UUID) TO quironequine_app;
+    GRANT EXECUTE ON FUNCTION auth_lookup_by_email(TEXT)          TO quironequine_app;
+    GRANT EXECUTE ON FUNCTION auth_tenant_id_for_session(UUID)    TO quironequine_app;
   END IF;
 END
 $$;

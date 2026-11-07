@@ -18,7 +18,8 @@ function toUpdateDto(values: ProductFormValues): UpdateProductDto {
     batch: values.batch || undefined,
     unit: values.unit as UpdateProductDto['unit'],
     category: values.category as UpdateProductDto['category'],
-    dosesPerUnit: parseOptionalNumber(values.dosesPerUnit ?? ''),
+    mlPerUnit: parseOptionalNumber(values.mlPerUnit ?? ''),
+    applicationMl: parseOptionalNumber(values.applicationMl ?? ''),
     costPriceCents: parseBRLToCents(values.costPrice),
     markupPercent: parseOptionalNumber(values.markupPercent ?? ''),
     expiryDate: values.expiryDate || undefined,
@@ -296,6 +297,9 @@ export default function EditProductPage(): React.ReactElement | null {
           <h1 className="mt-2 text-xl font-bold text-primary-800">{product.name}</h1>
           <p className="mt-1 text-sm text-slate-500">
             {product.quantityInStock} {product.unit} em estoque · Venda: {formatCentsToBRL(product.salePriceCents)}
+            {product.pricePerMlCents !== null && (
+              <> · {formatCentsToBRL(product.pricePerMlCents)}/ml</>
+            )}
           </p>
           <div className="mt-2 flex gap-2">
             {product.isLowStock && (
@@ -317,7 +321,8 @@ export default function EditProductPage(): React.ReactElement | null {
             batch: product.batch ?? '',
             unit: product.unit,
             category: product.category,
-            dosesPerUnit: product.dosesPerUnit !== null ? String(product.dosesPerUnit) : '',
+            mlPerUnit: product.mlPerUnit !== null ? String(product.mlPerUnit) : '',
+            applicationMl: product.applicationMl !== null ? String(product.applicationMl) : '',
             costPrice: (product.costPriceCents / 100).toFixed(2).replace('.', ','),
             markupPercent: String(product.markupPercent),
             expiryDate: product.expiryDate ? product.expiryDate.slice(0, 10) : '',

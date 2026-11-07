@@ -26,11 +26,11 @@ export interface CreateVaccinationData {
   vaccineBatch: string | null;
   appliedBy: string | null;
   animalIds: string[];
-  dosesPerAnimal: number;
+  mlPerAnimal: number | null;
   appliedAt: Date;
   doseIntervalDays: number | null;
   nextDoseAt: Date | null;
-  pricePerDoseCents: number;
+  pricePerMlCents: number;
   laborCents: number;
   displacementKm: number;
   displacementRateCents: number;
@@ -209,11 +209,11 @@ function toDomain(row: VaccinationRow): Vaccination {
     vaccineBatch: row.vaccineBatch,
     appliedBy: row.appliedBy,
     animalIds: row.animals.map((a) => a.animalId),
-    dosesPerAnimal: row.dosesPerAnimal.toNumber(),
+    mlPerAnimal: row.mlPerAnimal ? row.mlPerAnimal.toNumber() : null,
     appliedAt: row.appliedAt.toISOString(),
     doseIntervalDays: row.doseIntervalDays,
     nextDoseAt: row.nextDoseAt ? row.nextDoseAt.toISOString() : null,
-    pricePerDoseCents: row.pricePerDoseCents,
+    pricePerMlCents: row.pricePerMlCents,
     laborCents: row.laborCents,
     displacementKm: row.displacementKm.toNumber(),
     displacementRateCents: row.displacementRateCents,

@@ -33,28 +33,40 @@ export const BOOSTER_DUE_SOON_DAYS = 7;
  */
 const MAX_FUTURE_MS = DAY_MS;
 
-/** Total de doses aplicadas — é o que o MS2 baixa (convertido em unidades). */
-export function totalDoses(dosesPerAnimal: number, animals: number): number {
-  return dosesPerAnimal * animals;
+/** Total de ml aplicados — é o que o MS2 baixa (convertido em frascos). */
+export function totalMl(mlPerAnimal: number, animals: number): number {
+  return mlPerAnimal * animals;
 }
 
 /**
- * RF-VAC-003: valor da vacina (preço por dose × doses) + mão de obra + km
- * rodado (RN-011). Centavos inteiros; a vacina arredonda uma vez, no fim.
+ * RF-VAC-003: valor da vacina (preço por ml × ml aplicados) + mão de obra +
+ * km rodado (RN-011). Centavos inteiros; a vacina arredonda uma vez, no fim.
  */
 export function calculateVaccinationTotalCents(input: {
-  pricePerDoseCents: number;
-  doses: number;
+  pricePerMlCents: number;
+  ml: number;
   laborCents: number;
   displacementKm: number;
   displacementRateCents: number;
 }): number {
   return calculateTotalCents({
-    items: [{ totalCents: Math.round(input.pricePerDoseCents * input.doses) }],
+    items: [{ totalCents: Math.round(input.pricePerMlCents * input.ml) }],
     laborCents: input.laborCents,
     displacementKm: input.displacementKm,
     displacementRateCents: input.displacementRateCents,
   });
+}
+
+/**
+ * Aplicação da clínica sempre tem o volume (schema e CHECK no banco) — a
+ * guarda só transforma um furo nessa garantia em erro claro, em vez de uma
+ * baixa de zero ml.
+ */
+function clinicMl(vaccination: Vaccination): number {
+  if (vaccination.mlPerAnimal === null) {
+    throw new Error(`Vacinação ${vaccination.id} da clínica sem ml por animal`);
+  }
+  return vaccination.mlPerAnimal;
 }
 
 /** RF-VAC-005: aplicação + intervalo do produto. Sem intervalo, sem próxima dose. */
@@ -133,7 +145,7 @@ export function buildVaccinationAppliedEvent(
       vaccinationId: vaccination.id,
       ownerId: vaccination.ownerId,
       productId: vaccination.productId,
-      totalDoses: totalDoses(vaccination.dosesPerAnimal, vaccination.animalIds.length),
+      totalMl: totalMl(clinicMl(vaccination), vaccination.animalIds.length),
       totalCostCents: vaccination.totalCents,
       performedAt: vaccination.appliedAt,
     },
@@ -229,13 +241,13 @@ export class VaccinationService implements IVaccinationService {
         origin: 'clinic',
         productId,
         appliedBy: null,
-        pricePerDoseCents: data.pricePerDoseCents,
+        pricePerMlCents: data.pricePerMlCents,
         laborCents,
         displacementKm,
         displacementRateCents,
         totalCents: calculateVaccinationTotalCents({
-          pricePerDoseCents: data.pricePerDoseCents,
-          doses: totalDoses(common.dosesPerAnimal, common.animalIds.length),
+          pricePerMlCents: data.pricePerMlCents,
+          ml: totalMl(data.mlPerAnimal, common.animalIds.length),
           laborCents,
           displacementKm,
           displacementRateCents,
@@ -262,7 +274,7 @@ export class VaccinationService implements IVaccinationService {
         origin: 'external',
         productId: data.productId ?? null,
         appliedBy: data.appliedBy ?? null,
-        pricePerDoseCents: 0,
+        pricePerMlCents: 0,
         laborCents: 0,
         displacementKm: 0,
         displacementRateCents: 0,
@@ -293,7 +305,7 @@ type CommonVaccinationData = Pick<
   | 'vaccineName'
   | 'vaccineBatch'
   | 'animalIds'
-  | 'dosesPerAnimal'
+  | 'mlPerAnimal'
   | 'appliedAt'
   | 'doseIntervalDays'
   | 'nextDoseAt'
@@ -310,7 +322,7 @@ function commonData(data: CreateVaccinationInput, appliedAt: Date): CommonVaccin
     vaccineName: data.vaccineName,
     vaccineBatch: data.vaccineBatch ?? null,
     animalIds: [...new Set(data.animalIds)],
-    dosesPerAnimal: data.dosesPerAnimal ?? 1,
+    mlPerAnimal: data.mlPerAnimal ?? null,
     appliedAt,
     doseIntervalDays,
     nextDoseAt: calculateNextDoseAt(appliedAt, doseIntervalDays),

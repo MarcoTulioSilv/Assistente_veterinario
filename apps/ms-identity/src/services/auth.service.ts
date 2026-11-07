@@ -1,12 +1,21 @@
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { SignJWT } from 'jose';
 import { TOTP, Secret } from 'otpauth';
-import type { IAuthService, AuthTokens, UUID, UserRole, TenantPlan } from '@quironequine/shared-types';
-import { AppError, getJwtSecret } from '@quironequine/shared-middlewares';
+import type { IAuthService, AuthTokens, UserRole, TenantPlan } from '@quironequine/shared-types';
+import { AppError, createServiceLogger, getJwtSecret } from '@quironequine/shared-middlewares';
 import type { AuthRepository, AuthLookupRow } from '../repositories/auth.repository';
-import { hashPassword, comparePassword, DUMMY_BCRYPT_HASH } from '../lib/password';
+import { comparePassword, DUMMY_BCRYPT_HASH } from '../lib/password';
+
+const log = createServiceLogger('auth-service');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Janela em que um refresh token recém-rotacionado ainda é aceito: duas
+ * abas renovando juntas, ou a resposta do refresh que se perdeu na rede e o
+ * app tenta de novo. Fora dela, reapresentar o token é tratado como roubo.
+ */
+export const REFRESH_REUSE_GRACE_MS = 30_000;
 
 /** Converte strings tipo "15m"/"7d"/"30s" em milissegundos. */
 function parseDurationMs(input: string): number {
@@ -18,32 +27,49 @@ function parseDurationMs(input: string): number {
 }
 
 interface RefreshTokenParts {
-  userId: string;
+  sessionId: string;
   secret: string;
 }
 
-/** Refresh token opaco: "<userId>.<segredo>". userId é o seletor
- *  (não-secreto, só localiza o registro); segredo é a prova de posse. */
-function parseRefreshToken(token: string): RefreshTokenParts {
+/** Refresh token opaco: "<sessionId>.<segredo>". O id da sessão é o
+ *  seletor (não-secreto, só localiza a linha); o segredo é a prova de posse. */
+function parseRefreshToken(token: string): RefreshTokenParts | null {
   const dot = token.indexOf('.');
-  if (dot === -1) throw AppError.unauthorized('Refresh token inválido');
-  const userId = token.slice(0, dot);
+  if (dot === -1) return null;
+  const sessionId = token.slice(0, dot);
   const secret = token.slice(dot + 1);
-  if (!UUID_RE.test(userId) || secret.length === 0) {
-    throw AppError.unauthorized('Refresh token inválido');
-  }
-  return { userId, secret };
+  if (!UUID_RE.test(sessionId) || secret.length === 0) return null;
+  return { sessionId, secret };
 }
 
-interface IssuedTokens {
-  accessToken: string;
+/**
+ * SHA-256 do segredo do refresh (auditoria, M-04). São 32 bytes aleatórios,
+ * não uma senha: não há dicionário a atrasar, e bcrypt ali custava ~300 ms
+ * de CPU a cada renovação, de cada usuário, a cada 15 minutos.
+ */
+export function hashRefreshSecret(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex');
+}
+
+interface NewCredentials {
+  sessionId: string;
   refreshToken: string;
-  expiresIn: number;
+  secretHash: string;
+}
+
+function newCredentials(): NewCredentials {
+  const sessionId = randomUUID();
+  const secret = randomBytes(32).toString('base64url');
+  return { sessionId, refreshToken: `${sessionId}.${secret}`, secretHash: hashRefreshSecret(secret) };
 }
 
 /**
  * Lógica de negócio — Dev 1 é o dono.
  * Implementa a interface IAuthService publicada em shared-types.
+ *
+ * Sessão por aparelho (auditoria de 06/11/2026, A-03): cada login abre uma
+ * linha em `user_sessions`, cada refresh troca a linha pela próxima da
+ * mesma família, e o logout revoga só a deste aparelho.
  */
 export class AuthService implements IAuthService {
   constructor(private readonly repo: AuthRepository) {}
@@ -62,23 +88,16 @@ export class AuthService implements IAuthService {
       this.assertValidTotp(row.totpSecret, totpCode);
     }
 
-    const tokens = await this.issueTokens({
-      id: row.id,
-      tenantId: row.tenantId,
-      role: row.role,
-      plan: row.tenantPlan,
+    const credentials = newCredentials();
+    await this.repo.startSession(row.tenantId, row.id, {
+      id: credentials.sessionId,
+      secretHash: credentials.secretHash,
+      expiresAt: this.refreshExpiresAt(),
     });
 
-    const refreshTokenHash = await this.hashRefreshSecret(tokens.refreshToken);
-    await this.repo.recordSuccessfulLogin(
-      row.tenantId,
-      row.id,
-      refreshTokenHash,
-      this.refreshExpiresAt(),
-    );
-
     return {
-      ...tokens,
+      ...(await this.issueAccessToken({ id: row.id, tenantId: row.tenantId, role: row.role, plan: row.tenantPlan })),
+      refreshToken: credentials.refreshToken,
       user: {
         id: row.id,
         email,
@@ -91,44 +110,62 @@ export class AuthService implements IAuthService {
   }
 
   async refresh(refreshToken: string): Promise<AuthTokens> {
-    const { userId, tenantId, user } = await this.resolveRefreshToken(refreshToken);
+    const parts = parseRefreshToken(refreshToken);
+    if (!parts) throw AppError.unauthorized('Refresh token inválido');
 
-    const tokens = await this.issueTokens({
-      id: userId,
-      tenantId,
-      role: user.role,
-      plan: user.tenantPlan,
+    const tenantId = await this.repo.findTenantIdForSession(parts.sessionId);
+    if (!tenantId) throw AppError.unauthorized('Sessão inválida');
+
+    const next = newCredentials();
+    const result = await this.repo.rotateSession(tenantId, {
+      sessionId: parts.sessionId,
+      secretHash: hashRefreshSecret(parts.secret),
+      next: { id: next.sessionId, secretHash: next.secretHash, expiresAt: this.refreshExpiresAt() },
+      graceMs: REFRESH_REUSE_GRACE_MS,
     });
-    const refreshTokenHash = await this.hashRefreshSecret(tokens.refreshToken);
-    await this.repo.rotateRefreshToken(tenantId, userId, refreshTokenHash, this.refreshExpiresAt());
 
-    return {
-      ...tokens,
-      user: {
-        id: userId,
-        email: user.email,
-        fullName: user.fullName,
-        role: user.role,
-        plan: user.tenantPlan,
-        tenantId,
-      },
-    };
-  }
-
-  async logout(userId: UUID): Promise<void> {
-    const tenantId = await this.repo.findTenantIdForUser(userId);
-    if (!tenantId) return;
-    await this.repo.clearRefreshToken(tenantId, userId);
+    switch (result.outcome) {
+      case 'rotated':
+      case 'grace': {
+        const { user } = result;
+        return {
+          ...(await this.issueAccessToken({ id: user.id, tenantId, role: user.role, plan: user.tenantPlan })),
+          refreshToken: next.refreshToken,
+          user: {
+            id: user.id,
+            email: user.email,
+            fullName: user.fullName,
+            role: user.role,
+            plan: user.tenantPlan,
+            tenantId,
+          },
+        };
+      }
+      case 'reuse':
+        log.warn(
+          { tenantId, userId: result.userId, sessionId: parts.sessionId },
+          'Refresh token reutilizado fora da tolerância — sessão do aparelho revogada',
+        );
+        throw AppError.unauthorized('Sessão encerrada por segurança. Entre de novo.');
+      case 'expired':
+        throw AppError.unauthorized('Sessão expirada');
+      default:
+        throw AppError.unauthorized('Sessão inválida');
+    }
   }
 
   /**
-   * Resolve e valida a posse de um refresh token — usado pelo controller
-   * de /auth/logout, já que IAuthService.logout(userId) não recebe o
-   * token em si (não dá pra verificar o segredo dentro dele).
+   * Revoga a sessão deste aparelho. Idempotente e silencioso: token
+   * malformado, de sessão inexistente ou já revogada não é erro — o
+   * aparelho sai de qualquer jeito, e a resposta não confirma nada a quem
+   * tenta adivinhar.
    */
-  async verifyRefreshToken(refreshToken: string): Promise<{ userId: UUID }> {
-    const { userId } = await this.resolveRefreshToken(refreshToken);
-    return { userId };
+  async logout(refreshToken: string): Promise<void> {
+    const parts = parseRefreshToken(refreshToken);
+    if (!parts) return;
+    const tenantId = await this.repo.findTenantIdForSession(parts.sessionId);
+    if (!tenantId) return;
+    await this.repo.revokeSession(tenantId, parts.sessionId, hashRefreshSecret(parts.secret));
   }
 
   // ─── Internos ─────────────────────────────────────────────────────
@@ -148,37 +185,12 @@ export class AuthService implements IAuthService {
     }
   }
 
-  private async resolveRefreshToken(refreshToken: string): Promise<{
-    userId: string;
-    tenantId: string;
-    user: { role: UserRole; fullName: string; email: string; tenantPlan: TenantPlan };
-  }> {
-    const { userId, secret } = parseRefreshToken(refreshToken);
-
-    const tenantId = await this.repo.findTenantIdForUser(userId);
-    if (!tenantId) throw AppError.unauthorized('Sessão inválida');
-
-    const user = await this.repo.findById(tenantId, userId);
-    if (!user || user.status !== 'active' || user.tenantStatus !== 'active') {
-      throw AppError.unauthorized('Sessão inválida');
-    }
-    if (!user.refreshTokenHash || !user.refreshTokenExpiresAt || user.refreshTokenExpiresAt < new Date()) {
-      throw AppError.unauthorized('Sessão expirada');
-    }
-    const secretOk = await comparePassword(secret, user.refreshTokenHash);
-    if (!secretOk) {
-      throw AppError.unauthorized('Sessão inválida');
-    }
-
-    return { userId, tenantId, user };
-  }
-
-  private async issueTokens(user: {
+  private async issueAccessToken(user: {
     id: string;
     tenantId: string;
     role: UserRole;
     plan: TenantPlan;
-  }): Promise<IssuedTokens> {
+  }): Promise<{ accessToken: string; expiresIn: number }> {
     const accessExpiry = process.env['JWT_ACCESS_EXPIRES_IN'] ?? '15m';
     const accessToken = await new SignJWT({ tid: user.tenantId, role: user.role, plan: user.plan })
       .setProtectedHeader({ alg: 'HS256' })
@@ -187,15 +199,7 @@ export class AuthService implements IAuthService {
       .setExpirationTime(accessExpiry)
       .sign(getJwtSecret());
 
-    const secret = randomBytes(32).toString('base64url');
-    const refreshToken = `${user.id}.${secret}`;
-
-    return { accessToken, refreshToken, expiresIn: Math.floor(parseDurationMs(accessExpiry) / 1000) };
-  }
-
-  private async hashRefreshSecret(refreshToken: string): Promise<string> {
-    const secret = refreshToken.slice(refreshToken.indexOf('.') + 1);
-    return hashPassword(secret);
+    return { accessToken, expiresIn: Math.floor(parseDurationMs(accessExpiry) / 1000) };
   }
 
   private refreshExpiresAt(): Date {

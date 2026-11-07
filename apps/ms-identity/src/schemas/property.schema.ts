@@ -12,7 +12,9 @@ export const createPropertySchema = z.object({
   zipCode: z.string().max(10).optional(),
   latitude: z.coerce.number().min(-90).max(90).optional(),
   longitude: z.coerce.number().min(-180).max(180).optional(),
-  ownerIds: z.array(z.string().uuid()).optional(),
+  // Teto: todo array vindo de requisição tem limite (zod 3 acumula um erro por
+  // item inválido — GHSA-mrhx-c7xc-m3w5, ver .audit-ci.json).
+  ownerIds: z.array(z.string().uuid()).max(100).optional(),
 });
 
 export const updatePropertySchema = createPropertySchema.partial();

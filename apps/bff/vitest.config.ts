@@ -1,8 +1,7 @@
 import { defineConfig } from 'vitest/config';
 
-// BFF ainda nao tem testes (so index.ts, sobe o server no import -- precisa
-// refatorar pra exportar createApp() antes de testar, como os outros servicos).
-// passWithNoTests evita falha de CI por "nenhum arquivo de teste encontrado".
+// O index.ts sobe o server no import, entao os testes cobrem modulos
+// separados (rate-limit.ts). passWithNoTests fica como rede de seguranca.
 export default defineConfig({
   test: {
     environment: 'node',

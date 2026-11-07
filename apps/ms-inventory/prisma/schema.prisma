@@ -61,7 +61,11 @@ model Product {
   batch           String?         @db.VarChar(100)
   unit            ProductUnit
   quantityInStock Decimal         @default(0) @map("quantity_in_stock") @db.Decimal(10, 3)
-  dosesPerUnit    Decimal?        @map("doses_per_unit") @db.Decimal(10, 3)
+  /// Medicamento e vacina são cobrados e baixados por ml (reunião de
+  /// 2026-11-03): ml por unidade de compra, e o volume de aplicação da vacina
+  /// por animal. CHECKs na migration.
+  mlPerUnit       Decimal?        @map("ml_per_unit") @db.Decimal(10, 3)
+  applicationMl   Decimal?        @map("application_ml") @db.Decimal(10, 3)
 
   // RN-004: valores SEMPRE em centavos (INTEGER) — ADR-001 §5.6
   costPriceCents  Int             @map("cost_price_cents")

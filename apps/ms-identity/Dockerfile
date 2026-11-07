@@ -42,6 +42,13 @@ COPY --from=builder /app/apps/ms-identity/dist ./apps/ms-identity/dist
 COPY --from=builder /app/apps/ms-identity/prisma ./apps/ms-identity/prisma
 COPY --from=builder /app/apps/ms-identity/node_modules ./apps/ms-identity/node_modules
 
+# Fotos de animais e laudos (LocalStorageAdapter grava em apps/ms-identity/
+# uploads). Em staging esse diretório é um volume — e volume nomeado herda o
+# dono do diretório da imagem na primeira montagem. Sem criá-lo aqui com o
+# usuário do processo, o Docker o cria como root e todo upload falha com
+# EACCES.
+RUN mkdir -p /app/apps/ms-identity/uploads && chown quironequine:nodejs /app/apps/ms-identity/uploads
+
 WORKDIR /app/apps/ms-identity
 USER quironequine
 EXPOSE 3001

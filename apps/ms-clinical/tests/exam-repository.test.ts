@@ -145,7 +145,10 @@ describe('ExamService.registerCollection — atomicidade (ADR-002)', () => {
       service.sendToAnalysis(ctxA, pedido.id),
     ]);
 
-    expect(resultados.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    // As duas podem dar certo: se a coleta terminar antes, enviar ao
+    // laboratório a partir de `collected` é transição válida. O que não pode
+    // é a cobrança fechar duas vezes.
+    expect(resultados.some((r) => r.status === 'fulfilled')).toBe(true);
     expect((await eventosDe(TENANT_A)).filter((name) => name === 'exam.charged')).toHaveLength(1);
   });
 

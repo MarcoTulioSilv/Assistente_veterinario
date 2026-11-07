@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui';
-import { clearSession } from '@/lib/api';
+import { api, clearSession } from '@/lib/api';
 import { cn } from '@/lib/cn';
 
 const NAV_ITEMS = [
@@ -28,6 +28,10 @@ export function AppHeader(): React.ReactElement {
   const router = useRouter();
 
   function handleLogout(): void {
+    // Não espera o resultado: sem rede, o usuário sai do mesmo jeito. O
+    // servidor revoga a sessão deste aparelho (pedidos-para-joao.md, item 2).
+    const refreshToken = sessionStorage.getItem('refreshToken');
+    if (refreshToken) void api.auth.logout(refreshToken).catch(() => {});
     clearSession();
     router.replace('/login');
   }

@@ -2,7 +2,12 @@ import type { IStockService, RequestContext, UUID, Paginated, Product, StockCons
 import { AppError } from '@quironequine/shared-middlewares';
 import type { ProductRepository } from '../repositories/product.repository';
 import type { MovementRepository, StockMovementRecord } from '../repositories/movement.repository';
-import type { CreateProductInput, UpdateProductInput, ListProductsInput } from '../schemas/product.schema';
+import {
+  unitAllowedForCategory,
+  type CreateProductInput,
+  type UpdateProductInput,
+  type ListProductsInput,
+} from '../schemas/product.schema';
 import type { CreateMovementInput, ListMovementsInput } from '../schemas/movement.schema';
 
 /**
@@ -26,6 +31,12 @@ export class StockService implements IStockService {
 
   async create(ctx: RequestContext, data: CreateProductInput): Promise<Product> {
     requireVaccineForInterval(data.category, data.doseIntervalDays);
+    requireValidMl({
+      category: data.category,
+      unit: data.unit,
+      mlPerUnit: data.mlPerUnit ?? null,
+      applicationMl: data.applicationMl ?? null,
+    });
     return this.products.create(ctx, data);
   }
 
@@ -34,13 +45,31 @@ export class StockService implements IStockService {
     if (!existing) throw AppError.notFound('Produto não encontrado');
 
     const category = data.category ?? existing.category;
-    // Produto que deixa de ser vacina perde o intervalo junto — senão ficaria
-    // um intervalo órfão que o PATCH seguinte rejeitaria sem motivo aparente.
-    const changes =
-      category !== 'vaccine' && data.doseIntervalDays === undefined && existing.doseIntervalDays !== null
-        ? { ...data, doseIntervalDays: null }
-        : data;
+    // Produto que deixa de ser vacina perde o intervalo e o volume de
+    // aplicação junto — senão ficaria um valor órfão que o PATCH seguinte
+    // rejeitaria sem motivo aparente.
+    const changes = { ...data };
+    if (category !== 'vaccine') {
+      if (data.doseIntervalDays === undefined && existing.doseIntervalDays !== null) changes.doseIntervalDays = null;
+      if (data.applicationMl === undefined && existing.applicationMl !== null) changes.applicationMl = null;
+    }
     requireVaccineForInterval(category, changes.doseIntervalDays);
+
+    // Num PATCH parcial, as regras que cruzam campos valem para o produto
+    // como vai FICAR: trocar só a categoria também confere a unidade e o ml
+    // que já estavam gravados.
+    const unit = data.unit ?? existing.unit;
+    if (!unitAllowedForCategory(category, unit)) {
+      throw AppError.validation('Unidade incompatível com a categoria', [
+        { field: 'unit', message: `Unidade "${unit}" não é válida para a categoria "${category}"` },
+      ]);
+    }
+    requireValidMl({
+      category,
+      unit,
+      mlPerUnit: changes.mlPerUnit !== undefined ? changes.mlPerUnit : existing.mlPerUnit,
+      applicationMl: changes.applicationMl !== undefined ? changes.applicationMl : existing.applicationMl,
+    });
 
     return this.products.update(ctx, id, changes);
   }
@@ -53,8 +82,10 @@ export class StockService implements IStockService {
 
   /**
    * RN-003: baixa idempotente disparada por evento do broker
-   * (appointment.done, exam.collected). O motivo do movimento sai do tipo da
-   * origem — sem referência, é atendimento (contrato antigo).
+   * (appointment.done, exam.collected, vaccination.applied). `qty` vem em ml
+   * nos produtos usados por ml e sai na unidade de estoque (toStockUnits). O
+   * motivo do movimento sai do tipo da origem — sem referência, é
+   * atendimento (contrato antigo).
    */
   async deduct(
     ctx: RequestContext,
@@ -65,10 +96,16 @@ export class StockService implements IStockService {
   ): Promise<void> {
     const existing = await this.products.findById(ctx, productId);
     if (!existing) throw AppError.notFound('Produto não encontrado');
+    // A vacinação manda ml. Vacina gravada antes da troca para ml (sem
+    // `mlPerUnit`) baixaria ml como se fossem frascos — falha à vista, para
+    // alguém completar o cadastro, em vez de errar o estoque calada.
+    if (reference?.referenceType === 'vaccination' && existing.unit !== 'ml' && existing.mlPerUnit === null) {
+      throw AppError.validation(`Vacina "${existing.name}" sem ml por unidade cadastrado — baixa não feita`);
+    }
 
     await this.movements.record(ctx, productId, {
       type: 'out',
-      quantity: qty,
+      quantity: toStockUnits(qty, existing.mlPerUnit),
       reason: reference?.referenceType ?? 'appointment',
       idempotencyKey,
       referenceId: reference?.referenceId ?? null,
@@ -95,6 +132,48 @@ export class StockService implements IStockService {
     params: ListMovementsInput,
   ): Promise<{ data: StockMovementRecord[]; total: number }> {
     return this.movements.list(ctx, productId, params);
+  }
+}
+
+/**
+ * Ml → unidade de estoque: 25 ml de um frasco de 50 baixam meio frasco. Sem
+ * conversão, a quantidade já está na unidade de estoque. Arredonda em 3
+ * casas, a precisão da coluna de quantidade — e nunca deixa um uso real
+ * virar baixa zero.
+ */
+export function toStockUnits(quantity: number, mlPerUnit: number | null): number {
+  const units = Math.round((quantity / (mlPerUnit ?? 1)) * 1000) / 1000;
+  return Math.max(units, 0.001);
+}
+
+function invalid(field: string, message: string): AppError {
+  return AppError.validation(message, [{ field, message }]);
+}
+
+/**
+ * Reunião de 2026-11-03: medicamento e vacina são cobrados por ml.
+ * - ml por unidade: só medicamento e vacina, e nunca em produto comprado em ml;
+ * - vacina precisa ser usável por ml (comprada em ml ou com `mlPerUnit`):
+ *   a vacinação registra ml por animal;
+ * - volume de aplicação: só vacina.
+ */
+function requireValidMl(p: {
+  category: Product['category'];
+  unit: Product['unit'];
+  mlPerUnit: number | null;
+  applicationMl: number | null;
+}): void {
+  if (p.mlPerUnit !== null && p.category === 'supply') {
+    throw invalid('mlPerUnit', 'Insumo não é cobrado por ml — deixe o ml por unidade em branco');
+  }
+  if (p.mlPerUnit !== null && p.unit === 'ml') {
+    throw invalid('mlPerUnit', 'O produto já é comprado em ml — deixe o ml por unidade em branco');
+  }
+  if (p.category === 'vaccine' && p.unit !== 'ml' && p.mlPerUnit === null) {
+    throw invalid('mlPerUnit', 'Informe quantos ml tem cada unidade da vacina — a vacinação é registrada em ml');
+  }
+  if (p.applicationMl !== null && p.category !== 'vaccine') {
+    throw invalid('applicationMl', 'Volume de aplicação só se aplica a vacina');
   }
 }
 

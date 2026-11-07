@@ -9,7 +9,8 @@ const base = {
   doseIntervalDays: z.number().int().min(1).max(3650).nullable().optional(),
   /** Individual ou seleção múltipla — ao menos um animal. */
   animalIds: z.array(z.string().uuid()).min(1).max(500),
-  dosesPerAnimal: z.number().positive().max(100).optional(),
+  /** Ml por animal — opcional só no registro externo. */
+  mlPerAnimal: z.number().positive().max(1000).optional(),
   appliedAt: z.string().datetime(),
   notes: z.string().max(2000).optional(),
 };
@@ -19,8 +20,9 @@ const clinicVaccinationSchema = z.object({
   ...base,
   origin: z.literal('clinic'),
   productId: z.string().uuid(),
+  mlPerAnimal: z.number().positive().max(1000),
   // Cópias do produto do MS2 — ver CreateClinicVaccinationDto em shared-types.
-  pricePerDoseCents: z.number().int().min(0),
+  pricePerMlCents: z.number().int().min(0),
   laborCents: z.number().int().min(0).optional(),
   displacementKm: z.number().min(0).optional(),
   displacementRateCents: z.number().int().min(0).optional(),
