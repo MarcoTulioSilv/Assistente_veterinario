@@ -101,6 +101,10 @@ jobs:
               infra/staging/deploy.sh infra/staging/backup.sh "$USER_AT_HOST:$APP_PATH/"
           scp infra/staging/postgres-init/*.sql "$USER_AT_HOST:$APP_PATH/postgres-init/"
           scp infra/postgres-init/01-create-app-role.sql "$USER_AT_HOST:$APP_PATH/role.sql"
+          # O scp leva a permissão do repositório, e um commit feito no Windows
+          # (core.filemode=false) grava os .sh sem o bit de execução.
+          # shellcheck disable=SC2029
+          ssh "$USER_AT_HOST" "chmod 755 '$APP_PATH/deploy.sh' '$APP_PATH/backup.sh'"
 
       # O token do job (só leitura de pacotes) expira junto com o job, e vai
       # pela ENTRADA do ssh — na linha de comando ficaria visível na lista de
