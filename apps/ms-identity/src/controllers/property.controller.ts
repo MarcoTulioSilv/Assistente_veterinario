@@ -3,7 +3,7 @@ import { PropertyRepository } from '../repositories/property.repository';
 import { PropertyService } from '../services/property.service';
 import { GeoService } from '../services/geo.service';
 import { PlanService } from '../services/plan.service';
-import { NominatimMapsAdapter } from '../adapters/nominatim-maps-adapter';
+import { mapsAdapter } from '../adapters/shared-instances';
 import { validate } from '../schemas/validate';
 import { createPropertySchema, updatePropertySchema, listPropertiesSchema } from '../schemas/property.schema';
 
@@ -13,12 +13,12 @@ import { createPropertySchema, updatePropertySchema, listPropertiesSchema } from
  */
 export const propertyRouter = Router();
 
-// Injeção de dependências — NominatimMapsAdapter é o MapsAdapter real
-// (ver adapters/nominatim-maps-adapter.ts; MockMapsAdapter em maps-adapter.ts
-// segue existindo pros testes).
+// Injeção de dependências — mapsAdapter é o MapsAdapter real (NominatimMapsAdapter,
+// ver adapters/shared-instances.ts; MockMapsAdapter em maps-adapter.ts segue
+// existindo pros testes).
 const service = new PropertyService(
   new PropertyRepository(),
-  new GeoService(new NominatimMapsAdapter()),
+  new GeoService(mapsAdapter),
   new PlanService(),
 );
 

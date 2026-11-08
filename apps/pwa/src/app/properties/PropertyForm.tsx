@@ -4,6 +4,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { Button, Input, Select } from '@/components/ui';
 import { BR_STATES } from '@/lib/br-states';
 import { formatCep } from '@/lib/masks';
+import { CityCombobox } from './CityCombobox';
 import { propertyFormSchema, type PropertyFormValues } from './schema';
 
 type FieldErrors = Partial<Record<keyof PropertyFormValues, string>>;
@@ -18,6 +19,8 @@ interface PropertyFormProps {
   footer?: ReactNode;
   /** Avisa o CEP atual pra quem estiver renderizando o mapa via `children`. */
   onZipCodeChange?: (zipCode: string) => void;
+  /** Erro da busca automática de CEP no mapa (ex: "CEP não encontrado"), vindo de quem renderiza o mapa via `children`. */
+  zipCodeError?: string | null;
 }
 
 export function PropertyForm({
@@ -28,6 +31,7 @@ export function PropertyForm({
   children,
   footer,
   onZipCodeChange,
+  zipCodeError,
 }: PropertyFormProps): React.ReactElement {
   const [name, setName] = useState(defaultValues?.name ?? '');
   const [address, setAddress] = useState(defaultValues?.address ?? '');
@@ -82,7 +86,7 @@ export function PropertyForm({
         hint={!fieldErrors.address ? activationHint : undefined}
       />
       <div className="grid grid-cols-2 gap-3">
-        <Input label="Cidade" value={city} onChange={(e) => setCity(e.target.value)} error={fieldErrors.city} />
+        <CityCombobox value={city} onChange={setCity} state={state} error={fieldErrors.city} />
         <Select
           label="Estado"
           placeholder="UF"
@@ -101,7 +105,7 @@ export function PropertyForm({
           setZipCode(formatted);
           onZipCodeChange?.(formatted);
         }}
-        error={fieldErrors.zipCode}
+        error={fieldErrors.zipCode ?? zipCodeError ?? undefined}
       />
       {children}
       <Button type="submit" loading={submitting} className="mt-2 w-full">

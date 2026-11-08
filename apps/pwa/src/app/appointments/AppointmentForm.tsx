@@ -17,10 +17,10 @@ import {
 import { TYPE_LABELS } from './labels';
 import { AnimalClinicalEditor } from './AnimalClinicalEditor';
 
-// Leaflet mexe em `window` direto -- só pode existir no client (mesmo
-// padrão de properties/new/page.tsx).
+// O mapa ativo (Leaflet ou Google, ver map-config.ts) mexe em `window`
+// direto -- só pode existir no client (mesmo padrão de properties/new/page.tsx).
 const LocationPicker = dynamic(
-  () => import('../properties/LocationPicker').then((m) => m.LocationPicker),
+  () => import('../properties/map-config').then((m) => m.ActiveLocationPicker),
   { ssr: false, loading: () => <div className="h-56 animate-pulse rounded-md bg-slate-100" /> },
 );
 
