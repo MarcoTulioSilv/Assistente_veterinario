@@ -165,7 +165,7 @@ Em **Settings → Variables**, cadastre também `STAGING_API_DOMAIN` (e `STAGING
 ## 6. Rotina
 
 - **Deploy:** todo merge na `staging` implanta sozinho. Também dá para rodar à mão em **Actions → Deploy staging → Run workflow**.
-- **Voltar uma versão:** no servidor, `cd /opt/quironequine && ./deploy.sh <commit-anterior>`. As imagens ficam no registry com a tag do commit. Atenção: **migration não é desfeita**. Uma versão anterior que não conheça a coluna nova continua funcionando só se a mudança foi aditiva.
+- **Voltar uma versão:** no servidor, `cd /opt/quironequine && ./deploy.sh <commit-anterior>`. As imagens ficam no registry com a tag do commit. No disco do servidor ficam só as imagens da versão no ar e de uma anterior: o `deploy.sh` apaga as outras depois de subir os serviços (sem isso, cada deploy deixava mais 6 imagens). Voltar para a anterior é imediato; para uma mais velha, o `deploy.sh` baixa de novo do registry. Atenção: **migration não é desfeita**. Uma versão anterior que não conheça a coluna nova continua funcionando só se a mudança foi aditiva.
 - **Logs:** `docker compose --env-file .env.staging logs -f ms-clinical` (ou `bff`, `caddy`...).
 - **Situação:** `docker compose --env-file .env.staging ps` (todos devem estar `healthy` ou `running`).
 - **Recriar os dados de homologação:** rode o workflow **Seed staging** de novo. Ele apaga e recria **só** os tenants de homologação.

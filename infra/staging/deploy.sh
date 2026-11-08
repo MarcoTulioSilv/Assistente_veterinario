@@ -16,6 +16,10 @@ TAG="${1:?uso: ./deploy.sh <tag-da-imagem>}"
 ENV_FILE=.env.staging
 [ -f "$ENV_FILE" ] || { echo "Falta $ENV_FILE (ver o manual de implantação)"; exit 1; }
 
+# A tag que estava no ar fica guardada: as imagens dela são poupadas na
+# limpeza do fim, para voltar uma versão sem baixar nada.
+PREV_TAG="$(grep '^IMAGE_TAG=' "$ENV_FILE" | cut -d= -f2- || true)"
+
 # A tag implantada fica registrada no .env.staging: um `docker compose up`
 # manual depois sobe a MESMA versão, não a última publicada.
 if grep -q '^IMAGE_TAG=' "$ENV_FILE"; then
@@ -62,5 +66,30 @@ printf "ALTER ROLE quironequine_app PASSWORD :'pwd';\n" |
 echo "▶ Subindo os serviços (aguardando os health checks)"
 compose up -d --wait --remove-orphans
 
+# ─── Limpeza de imagens ──────────────────────────────────────────
+# Cada deploy baixa 6 imagens novas com a tag do commit. O `image prune`
+# sozinho só apaga imagem SEM tag, então as dos deploys anteriores ficavam
+# no disco para sempre. Aqui saem as imagens do projeto (quironequine-*)
+# com qualquer tag que não seja a atual nem a anterior. Só roda depois dos
+# health checks (set -e): deploy que falhou não apaga nada. Imagem em uso
+# por algum contêiner o Docker recusa apagar — o `|| true` só ignora isso.
+images() { docker image ls --filter "reference=${REGISTRY}/quironequine-*" --format '{{.Repository}}:{{.Tag}}'; }
+# Reaplicar a mesma tag (ou o primeiro deploy) não tem "anterior" útil:
+# guarda então a mais recente das outras (a lista vem da mais nova para a
+# mais velha).
+if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "$TAG" ]; then
+  PREV_TAG="$(images | sed 's/.*://' | grep -v -x -e "$TAG" -e '<none>' | head -n 1 || true)"
+fi
+echo "▶ Limpando imagens antigas (mantém $TAG e ${PREV_TAG:-nenhuma anterior})"
+images |
+  while IFS= read -r ref; do
+    tag="${ref##*:}"
+    if [ "$tag" = "$TAG" ] || [ "$tag" = "$PREV_TAG" ] || [ "$tag" = "<none>" ]; then
+      continue
+    fi
+    docker image rm "$ref" > /dev/null 2>&1 || true
+  done
+# Sem tag: camadas órfãs e imagens antigas de postgres/redis/caddy
+# substituídas por um pull mais novo da mesma tag.
 docker image prune -f > /dev/null
 echo "✔ Staging no ar com a versão $TAG"
