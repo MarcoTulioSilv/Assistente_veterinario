@@ -4,6 +4,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { Button, Input, Select } from '@/components/ui';
 import { BR_STATES } from '@/lib/br-states';
 import { formatCep } from '@/lib/masks';
+import { CityCombobox } from './CityCombobox';
 import { propertyFormSchema, type PropertyFormValues } from './schema';
 
 type FieldErrors = Partial<Record<keyof PropertyFormValues, string>>;
@@ -85,7 +86,7 @@ export function PropertyForm({
         hint={!fieldErrors.address ? activationHint : undefined}
       />
       <div className="grid grid-cols-2 gap-3">
-        <Input label="Cidade" value={city} onChange={(e) => setCity(e.target.value)} error={fieldErrors.city} />
+        <CityCombobox value={city} onChange={setCity} state={state} error={fieldErrors.city} />
         <Select
           label="Estado"
           placeholder="UF"
