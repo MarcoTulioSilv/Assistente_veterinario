@@ -10,9 +10,10 @@ import { api, ApiClientError, hasSession } from '@/lib/api';
 import { PropertyForm } from '../PropertyForm';
 import type { PropertyFormValues } from '../schema';
 
-// Leaflet mexe em `window` direto -- só pode existir no client.
+// O mapa ativo (Leaflet ou Google, ver map-config.ts) mexe em `window`
+// direto -- só pode existir no client.
 const LocationPicker = dynamic(
-  () => import('../LocationPicker').then((m) => m.LocationPicker),
+  () => import('../map-config').then((m) => m.ActiveLocationPicker),
   { ssr: false, loading: () => <div className="h-56 animate-pulse rounded-md bg-slate-100" /> },
 );
 
