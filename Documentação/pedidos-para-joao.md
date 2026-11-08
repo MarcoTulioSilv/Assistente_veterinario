@@ -107,5 +107,19 @@ Decisão do Marco: **a única forma de mudar um animal de propriedade é a trans
 
 ---
 
+## Fotos e laudos com link temporário (auditoria M-03)
+
+Antes, qualquer pessoa com o link de uma foto ou de um **laudo** abria o arquivo, sem login e para sempre (e link vaza fácil: WhatsApp, histórico do navegador). Agora a API devolve os links de arquivo **assinados**, válidos por **15 minutos**: `.../api/v1/uploads/<tenant>/general/<arquivo>.png?exp=...&sig=...`. Sem assinatura, ou com o prazo vencido, o arquivo responde 404.
+
+**O que muda para a PWA:**
+- **Na maior parte, nada.** `photoUrl`, `sketchUrl`, `logoUrl`, `resultFileUrl` e a `url` do `POST /uploads` já chegam assinados; é só usar no `<img src>` ou no link, como hoje.
+- **Salvar o formulário com o link assinado está certo:** o servidor tira a assinatura antes de gravar. Não precisa limpar nada.
+- **Link de laudo numa tela aberta há mais de 15 minutos não abre.** No botão "ver laudo", busque o exame de novo (`GET /exams/:id`) e abra o `resultFileUrl` que vier, em vez de usar o que está na tela.
+- **Não guarde links de arquivo** (estado persistido, `localStorage`, cache de API no service worker): eles vencem. A imagem que o navegador já baixou continua na tela.
+- **Link de arquivo de outra clínica é recusado** com 422 ("O arquivo não pertence a esta clínica"). Só acontece se alguém colar um link na mão.
+- O `logoUrl` aceita link externo como antes; esse não é assinado.
+
+---
+
 ## Depois que a sua parte entrar
 O Marco abre a PR `develop → staging` com o servidor e a PWA juntos, e avisa os stakeholders de que **todo mundo vai precisar entrar de novo uma vez**: o refresh token antigo, que estava no `sessionStorage`, deixa de valer.

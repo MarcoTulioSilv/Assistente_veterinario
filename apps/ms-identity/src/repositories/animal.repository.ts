@@ -2,7 +2,7 @@ import type { Animal as PrismaAnimal } from '@prisma/client';
 import type { RequestContext, UUID, Paginated, Animal } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
 import { assertTenantReferences } from './tenant-references';
-import { changedFields, writeAudit } from '@quironequine/shared-middlewares';
+import { changedFields, ownUploadUrl, signUploadUrl, writeAudit } from '@quironequine/shared-middlewares';
 import type { CreateAnimalInput, UpdateAnimalInput, ListAnimalsInput } from '../schemas/animal.schema';
 
 /**
@@ -59,8 +59,9 @@ export class AnimalRepository {
           coat: data.coat ?? null,
           birthDate: data.birthDate ? new Date(data.birthDate) : null,
           castrated: data.castrated ?? false,
-          photoUrl: data.photoUrl ?? null,
-          sketchUrl: data.sketchUrl ?? null,
+          // M-03: grava a URL sem assinatura; arquivo de outro tenant é 422.
+          photoUrl: ownUploadUrl(data.photoUrl, ctx.tenantId, 'photoUrl') ?? null,
+          sketchUrl: ownUploadUrl(data.sketchUrl, ctx.tenantId, 'sketchUrl') ?? null,
           propertyId: data.propertyId ?? null,
           ownerId: data.ownerId ?? null,
           // RF-CAD-025: cadastro parcial (nome + dados descritivos) fica 'pending'
@@ -75,7 +76,12 @@ export class AnimalRepository {
 
   async update(ctx: RequestContext, id: UUID, data: UpdateAnimalInput): Promise<Animal> {
     return withTenant(ctx.tenantId, async (tx) => {
-      const { birthDate, ...rest } = data;
+      const { birthDate, photoUrl, sketchUrl, ...fields } = data;
+      const rest = {
+        ...fields,
+        ...(photoUrl !== undefined ? { photoUrl: ownUploadUrl(photoUrl, ctx.tenantId, 'photoUrl') } : {}),
+        ...(sketchUrl !== undefined ? { sketchUrl: ownUploadUrl(sketchUrl, ctx.tenantId, 'sketchUrl') } : {}),
+      };
       await assertTenantReferences(tx, { propertyIds: [data.propertyId], ownerIds: [data.ownerId] });
       const row = await tx.animal.update({
         where: { id },
@@ -135,8 +141,9 @@ function toDomain(row: PrismaAnimal): Animal {
     coat: row.coat,
     birthDate: row.birthDate ? row.birthDate.toISOString() : null,
     castrated: row.castrated,
-    photoUrl: row.photoUrl,
-    sketchUrl: row.sketchUrl,
+    // M-03: a resposta leva a URL assinada, de curta duração.
+    photoUrl: signUploadUrl(row.photoUrl, row.tenantId),
+    sketchUrl: signUploadUrl(row.sketchUrl, row.tenantId),
     status: row.status,
     propertyId: row.propertyId,
     ownerId: row.ownerId,

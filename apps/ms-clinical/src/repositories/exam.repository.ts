@@ -14,7 +14,7 @@ import type {
   ExamStatus,
   DomainEvent,
 } from '@quironequine/shared-types';
-import { AppError, changedFields, writeAudit } from '@quironequine/shared-middlewares';
+import { AppError, changedFields, signUploadUrl, writeAudit } from '@quironequine/shared-middlewares';
 import { prisma, withTenant } from '../prisma';
 import { enqueueOutboxEvent } from './outbox.repository';
 import type { ListExamRequestsInput } from '../schemas/exam.schema';
@@ -360,7 +360,7 @@ function toDomain(row: ExamRow): ExamRequest {
     lotSize: row.lotSize,
     status: row.status,
     expectedResultAt: row.expectedResultAt ? row.expectedResultAt.toISOString() : null,
-    resultFileUrl: row.resultFileUrl,
+    resultFileUrl: signUploadUrl(row.resultFileUrl, row.tenantId), // M-03: URL de curta duração
     resultUploadedAt: row.resultUploadedAt ? row.resultUploadedAt.toISOString() : null,
     paidDirectlyByClient: row.paidDirectlyByClient,
     unitPriceCents: row.unitPriceCents,

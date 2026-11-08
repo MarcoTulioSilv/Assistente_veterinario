@@ -12,7 +12,7 @@ import type {
   ExamDeletedPayload,
   DomainEvent,
 } from '@quironequine/shared-types';
-import { AppError } from '@quironequine/shared-middlewares';
+import { AppError, ownUploadUrl } from '@quironequine/shared-middlewares';
 import type {
   ExamRepository,
   ExamRequestItemData,
@@ -350,7 +350,12 @@ export class ExamService implements IExamService {
     if (existing.status === 'draft') throw AppError.conflict('Emita o pedido antes de anexar o resultado');
 
     const now = new Date();
-    const data = { status: 'result_available' as const, resultFileUrl, resultUploadedAt: now };
+    // M-03: grava a URL sem assinatura; laudo de outro tenant é 422.
+    const data = {
+      status: 'result_available' as const,
+      resultFileUrl: ownUploadUrl(resultFileUrl, ctx.tenantId, 'resultFileUrl'),
+      resultUploadedAt: now,
+    };
 
     const updated =
       existing.status === 'requested'
