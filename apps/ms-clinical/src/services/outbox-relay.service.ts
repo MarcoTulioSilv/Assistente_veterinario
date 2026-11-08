@@ -1,5 +1,5 @@
 import type { DomainEvent } from '@quironequine/shared-types';
-import { createServiceLogger } from '@quironequine/shared-middlewares';
+import { createServiceLogger, safeErrorMessage } from '@quironequine/shared-middlewares';
 import type { PendingOutboxRow } from '../repositories/outbox.repository';
 
 const log = createServiceLogger('outbox-relay');
@@ -42,7 +42,8 @@ export async function drainOutboxOnce(deps: OutboxRelayDeps, limit = 50): Promis
       result.published += 1;
     } catch (err) {
       result.failed += 1;
-      const message = err instanceof Error ? err.message : String(err);
+      // Vai para o banco (last_error): sem mensagem de erro do Prisma (M-05).
+      const message = safeErrorMessage(err);
       log.error(
         { outboxId: row.id, event: row.event.name, attempts: row.attempts, err },
         'Falha ao publicar evento do outbox — segue pendente para o próximo ciclo',

@@ -5,3 +5,4 @@ export * from './error-handler';
 export * from './errors';
 export * from './audit';
 export * from './upload-url';
+export * from './safe-error';

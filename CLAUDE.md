@@ -125,7 +125,7 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 ## Conventions
 
 - **TypeScript strict**, no `any` (ESLint error). `noUncheckedIndexedAccess` is on.
-- **No `console.log`** in service code — use `createServiceLogger()`. Console is allowed in seeds and `scripts/**`. Don't log personal data (names, CPF, addresses) or raw Prisma error messages.
+- **No `console.log`** in service code — use `createServiceLogger()`. Console is allowed in seeds and `scripts/**`. Don't log personal data (names, CPF, addresses) or raw Prisma error messages: the logger's `err` serializer (`shared-middlewares/src/safe-error.ts`) already strips Prisma messages from any `log.x({ err })`; text you store elsewhere (e.g. outbox `last_error`) goes through `safeErrorMessage(err)`.
 - **Uploaded files** (`ms-identity` `/uploads`, served only with a signed URL — `shared-middlewares/src/upload-url.ts`): the DB stores the canonical unsigned URL (`ownUploadUrl` on writes, which also rejects another tenant's file), and every response signs it with `signUploadUrl(url, row.tenantId)` (15 min, HMAC with `UPLOAD_URL_SECRET` or a key derived from `JWT_SECRET`). A new field holding a file URL needs both.
 - **Money in cents**, integer. **Medication and vaccine quantities in ml** (stakeholder decision, Nov/2026): `Product.mlPerUnit` converts ml to stock units in `StockService.deduct`.
 - **Soft delete** (`deletedAt`) on every table with personal data; never a physical `DELETE` (LGPD). The runtime role has **no `DELETE`** (`01-create-app-role.sql`): only the MS3 link/item tables rewritten while a quote is a draft are granted it (section 3c) — a new table that really needs it goes in that list. Integration tests clean up through the migration connection (`DATABASE_URL_*`, see `tests/admin-db.ts` in MS3/MS6), never through the app role.
@@ -141,12 +141,11 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 
 ## Pending: security audit (06/11/2026)
 
-The report lives outside the repo (ask Marco for it). Done: A-02 (per-client rate limit in the BFF), A-03 (per-device sessions, atomic rotation, real logout — server and PWA), M-04 for the refresh token. Pending, in the audit's suggested order:
+The report lives outside the repo (ask Marco for it). Server side of A-02, A-03, M-01 to M-06 is done (branch `fix/SEG-001-auditoria-servidor`). Still open:
 
-1. Refresh token in an `HttpOnly` cookie: server side done on `develop`; the PWA side and A-01 (service worker caches personal data keyed only by URL and keeps it after logout) are with João (`pedidos-para-joao.md`). **Don't open `develop → staging` until the PWA side lands** — until then the PWA on `develop` can't refresh.
-2. ~~M-01~~ and ~~M-06~~: done (composite FKs in MS1; no `DELETE` for the app role; `audit_log` written in MS1/MS3/MS6).
-3. ~~M-02~~ (lockout 5 failures → 1…15 min, TOTP replay blocked, single login error message) and ~~M-04~~ (passwords in Node's `scrypt`, bcrypt hashes rehashed on login — ADR-004 rev. 1.3): done. Sign-up e-mail confirmation waits for MS5. ~~M-03~~: done (signed upload URLs, below). Pending: M-05 (personal data and raw Prisma messages in logs).
-5. B-01 to B-08, I-01, I-02.
+1. **PWA side (João, `Documentação/pedidos-para-joao.md`)**: refresh token via `credentials: 'include'` (the server already accepts only the cookie), A-01 (service worker caches personal data keyed only by URL and keeps it after logout), re-fetching an exam before opening its report link, dropping `propertyId` from `updateAnimalSchema`. **Don't open `develop → staging` until the PWA side lands** — until then the PWA on `develop` can't refresh.
+2. Sign-up e-mail confirmation (M-02) waits for MS5 (no e-mail sending yet).
+3. B-01 to B-08, I-01, I-02. MS2/MS3 have no composite tenant FKs yet (they validate references in the service).
 
 Product gaps found alongside: clinic sign-up screen (the API exists), password change, real password reset (today it's a mock).
 

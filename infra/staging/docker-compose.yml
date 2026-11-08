@@ -13,8 +13,19 @@
 # ══════════════════════════════════════════════════════════════════
 name: quironequine-staging
 
+# Rotação de log (auditoria M-05): sem isso o docker logs cresce sem
+# limite no disco. 5 arquivos de 10 MB por contêiner; os logs não guardam
+# dado pessoal (serializador de erro do shared-middlewares), e o que está
+# aqui some sozinho conforme gira.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '5'
+
 x-app: &app
   restart: unless-stopped
+  logging: *logging
   networks: [internal]
   depends_on:
     postgres:
@@ -39,6 +50,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *logging
     networks: [internal]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-quironequine}
@@ -60,6 +72,7 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    logging: *logging
     networks: [internal]
     # AOF: o broker (BullMQ) guarda jobs e o agendamento dos lembretes —
     # reiniciar o container não pode perder evento.
@@ -111,6 +124,7 @@ services:
   bff:
     image: ${REGISTRY}/quironequine-bff:${IMAGE_TAG:-staging}
     restart: unless-stopped
+    logging: *logging
     networks: [internal]
     depends_on: [ms-identity, ms-inventory, ms-clinical, ms-reporting]
     environment:
@@ -131,12 +145,14 @@ services:
   pwa:
     image: ${REGISTRY}/quironequine-pwa:${IMAGE_TAG:-staging}
     restart: unless-stopped
+    logging: *logging
     networks: [internal]
     depends_on: [bff]
 
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    logging: *logging
     networks: [internal]
     depends_on: [bff, pwa]
     ports:
