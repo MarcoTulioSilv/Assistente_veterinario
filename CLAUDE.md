@@ -143,7 +143,7 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 
 The report lives outside the repo (ask Marco for it). Server side of A-02, A-03, M-01 to M-06 is done (branch `fix/SEG-001-auditoria-servidor`). Still open:
 
-1. **PWA side (João, `Documentação/pedidos-para-joao.md`)**: refresh token via `credentials: 'include'` (the server already accepts only the cookie), A-01 (service worker caches personal data keyed only by URL and keeps it after logout), re-fetching an exam before opening its report link, dropping `propertyId` from `updateAnimalSchema`. **Don't open `develop → staging` until the PWA side lands** — until then the PWA on `develop` can't refresh.
+1. **PWA side (João, `Documentação/pedidos-para-joao.md`)**: refresh token via `credentials: 'include'` (the server already accepts only the cookie), A-01 (service worker caches personal data keyed only by URL and keeps it after logout), re-fetching an exam before opening its report link, and the `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` ARG in `apps/pwa/Dockerfile` (the workflow already passes it). **Don't open `develop → staging` until the PWA side lands** — until then the PWA on `develop` can't refresh.
 2. Sign-up e-mail confirmation (M-02) waits for MS5 (no e-mail sending yet).
 3. B-01 to B-08, I-01, I-02. MS2/MS3 have no composite tenant FKs yet (they validate references in the service).
 
