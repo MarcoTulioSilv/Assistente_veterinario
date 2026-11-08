@@ -29,9 +29,9 @@ export function AppHeader(): React.ReactElement {
 
   function handleLogout(): void {
     // Não espera o resultado: sem rede, o usuário sai do mesmo jeito. O
-    // servidor revoga a sessão deste aparelho (pedidos-para-joao.md, item 2).
-    const refreshToken = sessionStorage.getItem('refreshToken');
-    if (refreshToken) void api.auth.logout(refreshToken).catch(() => {});
+    // servidor revoga a sessão deste aparelho pelo cookie HttpOnly
+    // (pedidos-para-joao.md) -- nada pra ler do sessionStorage mais.
+    void api.auth.logout().catch(() => {});
     clearSession();
     router.replace('/login');
   }

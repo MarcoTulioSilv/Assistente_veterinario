@@ -8,6 +8,8 @@ import type { Page } from '@playwright/test';
  * precisam validar. Em vez disso, injeta um JWT válido direto no
  * sessionStorage antes da navegação (mesma claim shape exigida por
  * authMiddleware: `sub`/`tid`, ver packages/shared-middlewares/src/auth.ts).
+ * Sem refreshToken: desde a auditoria de 06/11/2026 ele vive só no cookie
+ * HttpOnly qe_refresh, que estes testes de UI não precisam simular.
  *
  * tenantId aleatório a cada chamada: RLS isola por tenant, então cada
  * teste (ou `test.describe`) que chama isto ganha um tenant "vazio"
@@ -33,13 +35,9 @@ export async function loginAs(
     .setExpirationTime('2h')
     .sign(new TextEncoder().encode(secret));
 
-  await page.addInitScript(
-    ([accessToken, refreshToken]) => {
-      window.sessionStorage.setItem('accessToken', accessToken);
-      window.sessionStorage.setItem('refreshToken', refreshToken);
-    },
-    [token, `e2e-refresh-${userId}`],
-  );
+  await page.addInitScript((accessToken) => {
+    window.sessionStorage.setItem('accessToken', accessToken);
+  }, token);
 
   return { tenantId, userId };
 }

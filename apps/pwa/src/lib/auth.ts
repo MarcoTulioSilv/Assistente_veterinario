@@ -1,5 +1,5 @@
-import type { AuthTokens } from '@quironequine/shared-types';
-import { api, ApiClientError, setSession } from './api';
+import type { AuthSession } from '@quironequine/shared-types';
+import { api, ApiClientError, clearApiCache, setSession } from './api';
 import { mockLogin } from './mock-auth';
 
 /**
@@ -13,16 +13,21 @@ export async function login(
   email: string,
   password: string,
   totpCode?: string,
-): Promise<AuthTokens> {
+): Promise<AuthSession> {
+  // Limpa o cache de API de uma sessão anterior ANTES de logar -- cobre o
+  // caso de alguém sair sem usar "Sair" num aparelho compartilhado (auditoria
+  // A-01): sem isso, o próximo login ainda vê os dados do usuário anterior
+  // offline.
+  await clearApiCache();
   try {
-    const tokens = await api.auth.login(email, password, totpCode);
-    setSession(tokens);
-    return tokens;
+    const session = await api.auth.login(email, password, totpCode);
+    setSession(session);
+    return session;
   } catch (err) {
     if (err instanceof ApiClientError && err.status === 501) {
-      const tokens = await mockLogin(email, password);
-      setSession(tokens);
-      return tokens;
+      const session = await mockLogin(email, password);
+      setSession(session);
+      return session;
     }
     throw err;
   }

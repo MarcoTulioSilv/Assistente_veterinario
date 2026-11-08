@@ -1,18 +1,19 @@
-import type { AuthTokens } from '@quironequine/shared-types';
+import type { AuthSession } from '@quironequine/shared-types';
 import { ApiClientError } from './api';
 
 /**
  * Mock de IAuthService (packages/shared-types) — MS1 /auth/login retorna 501
  * até o Dev 1 entregar o AuthService real (ONBOARDING.md §9, "contrato entre
  * os dois"). Troca prevista: substituir mockLogin por api.auth.login na tela
- * de login quando o endpoint real estiver pronto.
+ * de login quando o endpoint real estiver pronto. Sem refreshToken (desde a
+ * auditoria de 06/11/2026, ele vai só no cookie HttpOnly -- não existe nada
+ * pra mockar aqui).
  */
 
 const MOCK_CREDENTIALS = { email: 'dev@quironequine.com.br', password: 'senha123' };
 
-const MOCK_TOKENS: AuthTokens = {
+const MOCK_SESSION: AuthSession = {
   accessToken: 'mock-access-token',
-  refreshToken: 'mock-refresh-token',
   expiresIn: 3600,
   user: {
     id: '00000000-0000-0000-0000-000000000001',
@@ -26,11 +27,11 @@ const MOCK_TOKENS: AuthTokens = {
 
 const MOCK_LATENCY_MS = 600;
 
-export async function mockLogin(email: string, password: string): Promise<AuthTokens> {
+export async function mockLogin(email: string, password: string): Promise<AuthSession> {
   await new Promise((resolve) => setTimeout(resolve, MOCK_LATENCY_MS));
 
   if (email === MOCK_CREDENTIALS.email && password === MOCK_CREDENTIALS.password) {
-    return MOCK_TOKENS;
+    return MOCK_SESSION;
   }
 
   throw new ApiClientError(401, {
