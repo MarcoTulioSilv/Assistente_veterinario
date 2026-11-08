@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import { prisma, withTenant } from '../src/prisma';
+import { admin, purgeTenants } from './admin-db';
 
 const TENANT_A = 'c1000000-0000-0000-0000-000000000000';
 const TENANT_B = 'c2000000-0000-0000-0000-000000000000';
@@ -27,9 +28,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const tenantId of [TENANT_A, TENANT_B]) {
-    await withTenant(tenantId, (tx) => tx.examType.deleteMany({}));
-  }
+  await purgeTenants(TENANT_A, TENANT_B); // conexão de migração: a app não tem DELETE (M-06)
+  await admin.$disconnect();
   await prisma.$disconnect();
 });
 

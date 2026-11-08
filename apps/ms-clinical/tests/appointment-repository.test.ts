@@ -14,6 +14,7 @@ import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { RequestContext } from '@quironequine/shared-types';
 import { prisma, withTenant } from '../src/prisma';
+import { admin, purgeTenants } from './admin-db';
 import { AppointmentRepository } from '../src/repositories/appointment.repository';
 import { AppointmentService } from '../src/services/appointment.service';
 import { deriveEventIdempotencyKey } from '../src/services/billing';
@@ -58,15 +59,12 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-  for (const tenantId of [TENANT_A, TENANT_B]) {
-    await withTenant(tenantId, async (tx) => {
-      await tx.outboxEvent.deleteMany({});
-      await tx.appointment.deleteMany({});
-    });
-  }
+  // Pela conexão de migração: a role da aplicação não tem DELETE (M-06).
+  await purgeTenants(TENANT_A, TENANT_B);
 });
 
 afterAll(async () => {
+  await admin.$disconnect();
   await prisma.$disconnect();
 });
 
@@ -497,5 +495,45 @@ describe('Exclusão de atendimento finalizado — cancela a pendência', () => {
     await expect(repo.softDelete(ctxA, criado.id, 'draft', null)).rejects.toThrow(/mudou de estado/);
 
     expect(await service.findById(ctxA, criado.id)).not.toBeNull();
+  });
+});
+
+describe('audit_log do prontuário (auditoria M-06)', () => {
+  const auditRows = (recordId: string) =>
+    admin.auditLog.findMany({ where: { tenantId: TENANT_A, recordId }, orderBy: { createdAt: 'asc' } });
+
+  it('criar e editar gravam quem fez e os nomes dos campos, sem o conteúdo da ficha', async () => {
+    const created = await service.create(ctxA, novoInput({ procedureDescription: 'Cólica grave, sigilo' }));
+    await service.update(ctxA, created.id, { laborCents: 20000 });
+
+    const rows = await auditRows(created.id);
+    expect(rows.map((r) => [r.action, r.tableName, r.userId])).toEqual([
+      ['create', 'appointments', ctxA.userId],
+      ['update', 'appointments', ctxA.userId],
+    ]);
+    expect(JSON.stringify(rows)).not.toContain('Cólica');
+  });
+
+  it('a tela de detalhe registra a leitura; a checagem interna do service, não', async () => {
+    const created = await service.create(ctxA, novoInput());
+
+    await repo.findById(ctxA, created.id); // checagem interna (antes de editar/excluir)
+    expect((await auditRows(created.id)).filter((r) => r.action === 'read')).toHaveLength(0);
+
+    await service.findById(ctxA, created.id); // GET /appointments/:id
+    const reads = (await auditRows(created.id)).filter((r) => r.action === 'read');
+    expect(reads).toHaveLength(1);
+    expect(reads[0]!.userId).toBe(ctxA.userId);
+  });
+
+  it('o histórico do animal registra uma leitura apontando para o animal', async () => {
+    const animalId = randomUUID();
+    await service.create(ctxA, novoInput({ animalIds: [animalId] }));
+
+    await service.listByAnimal(ctxA, animalId, { page: 1, limit: 20 });
+    const reads = await auditRows(animalId);
+    expect(reads.map((r) => [r.action, r.tableName, r.newValues])).toEqual([
+      ['read', 'appointments', { source: 'history:animal' }],
+    ]);
   });
 });

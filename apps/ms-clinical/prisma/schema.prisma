@@ -502,3 +502,25 @@ model Prescription {
   @@index([appointmentId, animalId])
   @@map("prescriptions")
 }
+
+// ─── AUDIT_LOG (auditoria M-06; LGPD art. 37) ─────────────────────
+// Mesmo formato do audit_log do MS1, gravado por writeAudit()
+// (shared-middlewares) na transação do withTenant. Só os nomes dos campos,
+// nunca os valores. user_id sem FK: os usuários vivem no MS1. A role da
+// aplicação só tem SELECT/INSERT aqui (01-create-app-role.sql, 3d).
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String   @db.VarChar(100)
+  tableName String   @map("table_name") @db.VarChar(100)
+  recordId  String   @map("record_id") @db.Uuid
+  oldValues Json?    @map("old_values")
+  newValues Json?    @map("new_values")
+  ipAddress String?  @map("ip_address") @db.Inet
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, tableName, recordId])
+  @@map("audit_log")
+}

@@ -165,5 +165,6 @@ describe('Row-Level Security — isolamento entre tenants', () => {
 async function cleanup(): Promise<void> {
   await admin.owner.deleteMany({ where: { tenantId: { in: [TENANT_A, TENANT_B] } } });
   await admin.property.deleteMany({ where: { tenantId: { in: [TENANT_A, TENANT_B] } } });
+  await admin.auditLog.deleteMany({ where: { tenantId: { in: [TENANT_A, TENANT_B] } } });
   await admin.tenant.deleteMany({ where: { id: { in: [TENANT_A, TENANT_B] } } });
 }

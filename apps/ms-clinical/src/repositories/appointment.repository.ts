@@ -17,7 +17,7 @@ import type {
   MedicalRecord,
   DomainEvent,
 } from '@quironequine/shared-types';
-import { AppError } from '@quironequine/shared-middlewares';
+import { AppError, changedFields, writeAudit } from '@quironequine/shared-middlewares';
 import { withTenant } from '../prisma';
 import { enqueueOutboxEvent } from './outbox.repository';
 import type { ListAppointmentsInput, MedicalRecordInput } from '../schemas/appointment.schema';
@@ -98,8 +98,21 @@ export class AppointmentRepository {
     ctx: RequestContext,
     animalId: UUID,
     params: ListAppointmentsInput,
+    opts: { audit?: boolean } = {},
   ): Promise<Paginated<Appointment>> {
-    return this.paginate(ctx, params, { animals: { some: { animalId } } });
+    const page = await this.paginate(ctx, params, { animals: { some: { animalId } } });
+    if (opts.audit && page.data.length > 0) {
+      // Histórico do animal: um registro por consulta, apontando para o animal.
+      await withTenant(ctx.tenantId, (tx) =>
+        writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, {
+          action: 'read',
+          table: 'appointments',
+          recordId: animalId,
+          source: 'history:animal',
+        }),
+      );
+    }
+    return page;
   }
 
   private async paginate(
@@ -131,9 +144,17 @@ export class AppointmentRepository {
     });
   }
 
-  async findById(ctx: RequestContext, id: UUID): Promise<Appointment | null> {
+  /**
+   * `audit: true` registra a leitura no audit_log (M-06: quem abriu o
+   * prontuário/laudo). Só a tela de detalhe pede; as checagens internas do
+   * service (antes de editar/excluir) não são leitura do usuário.
+   */
+  async findById(ctx: RequestContext, id: UUID, opts: { audit?: boolean } = {}): Promise<Appointment | null> {
     return withTenant(ctx.tenantId, async (tx) => {
       const row = await tx.appointment.findFirst({ where: { id, deletedAt: null }, include: INCLUDE });
+      if (row && opts.audit) {
+        await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'read', table: 'appointments', recordId: id });
+      }
       return row ? toDomain(row) : null;
     });
   }
@@ -179,6 +200,7 @@ export class AppointmentRepository {
         include: INCLUDE,
       });
 
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'create', table: 'appointments', recordId: row.id, fields: changedFields(data) });
       return toDomain(row);
     });
   }
@@ -258,6 +280,7 @@ export class AppointmentRepository {
         include: INCLUDE,
       });
 
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'update', table: 'appointments', recordId: id, fields: changedFields(data) });
       return toDomain(row);
     });
   }
@@ -288,6 +311,7 @@ export class AppointmentRepository {
         throw AppError.conflict('Atendimento já finalizado ou inexistente');
       }
 
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'finish', table: 'appointments', recordId: id });
       await enqueueOutboxEvent(tx, ctx.tenantId, event);
 
       const row = await tx.appointment.findFirstOrThrow({ where: { id }, include: INCLUDE });
@@ -320,6 +344,7 @@ export class AppointmentRepository {
         throw AppError.conflict('Atendimento mudou de estado ou já foi excluído — tente de novo');
       }
 
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'delete', table: 'appointments', recordId: id });
       if (event) await enqueueOutboxEvent(tx, ctx.tenantId, event);
     });
   }

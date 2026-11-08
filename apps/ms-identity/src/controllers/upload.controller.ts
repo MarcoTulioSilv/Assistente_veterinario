@@ -1,16 +1,16 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { UPLOAD_IMAGE_EXTENSIONS, UPLOAD_MAX_FILE_SIZE_BYTES } from '@quironequine/shared-types';
-import { AppError } from '@quironequine/shared-middlewares';
+import { AppError, signUploadUrl } from '@quironequine/shared-middlewares';
 import { LocalStorageAdapter } from '../adapters/local-storage-adapter';
 import { sniffImageMimeType } from '../lib/image-sniff';
 
 /**
  * Camada HTTP — Dev 2 é o dono.
- * Rota protegida (montada depois de authMiddleware em app.ts) — mas os
- * arquivos ficam servidos estaticamente em /uploads ANTES do authMiddleware
- * (ver app.ts), sem autenticação: uma <img src> não consegue mandar
- * Authorization, mesmo padrão de qualquer object storage público.
+ * Rota protegida (montada depois de authMiddleware em app.ts). A leitura
+ * dos arquivos fica antes do authMiddleware, porque uma <img src> não manda
+ * Authorization, mas só com URL assinada e no prazo (auditoria M-03,
+ * requireSignedUpload em app.ts).
  */
 export const uploadRouter = Router();
 
@@ -85,7 +85,9 @@ uploadRouter.post('/', (req, res, next) => {
         mimeType: sniffedMimeType,
         originalName: req.file.originalname,
       })
-      .then((url) => res.status(201).json({ url }))
+      // URL assinada (M-03): a tela mostra a prévia já; ao salvar o formulário,
+      // o servidor guarda a versão sem assinatura.
+      .then((url) => res.status(201).json({ url: signUploadUrl(url, req.ctx.tenantId) }))
       .catch(next);
   });
 });

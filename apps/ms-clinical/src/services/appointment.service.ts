@@ -128,7 +128,7 @@ export class AppointmentService implements IAppointmentService {
   }
 
   async findById(ctx: RequestContext, id: UUID): Promise<Appointment | null> {
-    return this.repo.findById(ctx, id);
+    return this.repo.findById(ctx, id, { audit: true }); // tela de detalhe: registra a leitura (M-06)
   }
 
   /** RF-ATD-011 */
@@ -137,7 +137,7 @@ export class AppointmentService implements IAppointmentService {
     animalId: UUID,
     params: ListAppointmentsInput,
   ): Promise<Paginated<Appointment>> {
-    return this.repo.listByAnimal(ctx, animalId, params);
+    return this.repo.listByAnimal(ctx, animalId, params, { audit: true });
   }
 
   async create(ctx: RequestContext, data: CreateAppointmentInput): Promise<Appointment> {

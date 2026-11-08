@@ -12,6 +12,7 @@ import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { DomainEvent } from '@quironequine/shared-types';
 import { prisma, withTenant } from '../src/prisma';
+import { admin, purgeTenants } from './admin-db';
 import {
   enqueueOutboxEvent,
   fetchPendingOutbox,
@@ -66,16 +67,13 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-  for (const tenantId of [TENANT_A, TENANT_B]) {
-    await withTenant(tenantId, async (tx) => {
-      await tx.outboxEvent.deleteMany({});
-      await tx.appointment.deleteMany({});
-    });
-  }
+  // Pela conexão de migração: a role da aplicação não tem DELETE (M-06).
+  await purgeTenants(TENANT_A, TENANT_B);
 });
 
 afterAll(async () => {
   await closeEventsQueue();
+  await admin.$disconnect();
   await prisma.$disconnect();
 });
 

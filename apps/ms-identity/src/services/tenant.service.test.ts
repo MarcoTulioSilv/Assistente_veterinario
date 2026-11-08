@@ -63,7 +63,7 @@ describe('TenantService.register', () => {
     expect(register).toHaveBeenCalledTimes(1);
     const [, passwordHash] = register.mock.calls[0] as [unknown, string];
     expect(passwordHash).not.toBe(registerInput.password);
-    expect(passwordHash.startsWith('$2')).toBe(true); // formato bcrypt
+    expect(passwordHash.startsWith('scrypt$')).toBe(true); // formato scrypt (M-04)
   });
 
   it('retorna o TenantProfile lido logo após o registro', async () => {

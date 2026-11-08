@@ -131,5 +131,6 @@ async function cleanup(): Promise<void> {
   if (createdTenantIds.length === 0) return;
   await admin.veterinarian.deleteMany({ where: { tenantId: { in: createdTenantIds } } });
   await admin.user.deleteMany({ where: { tenantId: { in: createdTenantIds } } });
+  await admin.auditLog.deleteMany({ where: { tenantId: { in: createdTenantIds } } });
   await admin.tenant.deleteMany({ where: { id: { in: createdTenantIds } } });
 }

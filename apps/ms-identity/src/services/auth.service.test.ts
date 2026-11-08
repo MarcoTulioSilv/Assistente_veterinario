@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeAll } from 'vitest';
 import bcrypt from 'bcryptjs';
 import { TOTP, Secret } from 'otpauth';
 import { AuthService, hashRefreshSecret, REFRESH_REUSE_GRACE_MS } from './auth.service';
+import { hashPassword, verifyPassword } from '../lib/password';
 import type { AuthRepository, AuthLookupRow, SessionUser } from '../repositories/auth.repository';
 
 const TENANT_ID = '11111111-1111-1111-1111-111111111111';
@@ -25,6 +26,9 @@ const baseLookupRow: () => AuthLookupRow = () => ({
   userStatus: 'active',
   tenantPlan: 'basic',
   tenantStatus: 'active',
+  failedLoginCount: 0,
+  lockedUntil: null,
+  totpLastStep: null,
 });
 
 const SESSION_USER: SessionUser = {
@@ -43,14 +47,15 @@ function fakeRepo(overrides: Partial<AuthRepository> = {}): AuthRepository {
     startSession: vi.fn().mockResolvedValue(undefined),
     rotateSession: vi.fn().mockResolvedValue({ outcome: 'rotated', user: SESSION_USER }),
     revokeSession: vi.fn().mockResolvedValue(undefined),
+    registerLoginFailure: vi.fn().mockResolvedValue({ failedLoginCount: 1, lockedUntil: null }),
+    claimTotpStep: vi.fn().mockResolvedValue(true),
     ...overrides,
   } as unknown as AuthRepository;
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   process.env['JWT_SECRET'] = 'test-secret-com-mais-de-32-caracteres-aqui';
-  process.env['BCRYPT_ROUNDS'] = '4'; // rounds baixo só pra teste rodar rápido
-  PASSWORD_HASH = bcrypt.hashSync(PASSWORD, 4);
+  PASSWORD_HASH = await hashPassword(PASSWORD); // scrypt com os parâmetros atuais
   TOTP_SECRET = new Secret().base32;
 });
 
@@ -59,70 +64,62 @@ function validTotpCode(): string {
 }
 
 describe('AuthService.login', () => {
+  const INVALID = /Credenciais inválidas/;
+  const withRow = (row: Partial<AuthLookupRow>) =>
+    fakeRepo({ findAuthByEmail: vi.fn().mockResolvedValue({ ...baseLookupRow(), ...row }) });
+
   it('rejeita e-mail inexistente com mensagem genérica', async () => {
     const repo = fakeRepo({ findAuthByEmail: vi.fn().mockResolvedValue(null) });
-    const service = new AuthService(repo);
-
-    await expect(service.login('naoexiste@x.com', PASSWORD)).rejects.toThrow(/Credenciais inválidas/);
+    await expect(new AuthService(repo).login('naoexiste@x.com', PASSWORD)).rejects.toThrow(INVALID);
+    expect(repo.registerLoginFailure).not.toHaveBeenCalled();
   });
 
-  it('rejeita senha errada com a mesma mensagem genérica de e-mail inexistente', async () => {
+  it('senha errada: mesma mensagem e conta uma falha (M-02)', async () => {
     const repo = fakeRepo();
-    const service = new AuthService(repo);
-
-    await expect(service.login(EMAIL, 'senha-errada')).rejects.toThrow(/Credenciais inválidas/);
+    await expect(new AuthService(repo).login(EMAIL, 'senha-errada')).rejects.toThrow(INVALID);
+    expect(repo.registerLoginFailure).toHaveBeenCalledWith(TENANT_ID, USER_ID);
+    expect(repo.startSession).not.toHaveBeenCalled();
   });
 
-  it('rejeita usuário com status inativo', async () => {
-    const repo = fakeRepo({
-      findAuthByEmail: vi.fn().mockResolvedValue({ ...baseLookupRow(), userStatus: 'inactive' }),
-    });
-    const service = new AuthService(repo);
-
-    await expect(service.login(EMAIL, PASSWORD)).rejects.toThrow(/Conta inativa/);
+  it('conta bloqueada: recusa mesmo com a senha certa, sem contar falha nova nem abrir sessão', async () => {
+    const repo = withRow({ failedLoginCount: 5, lockedUntil: new Date(Date.now() + 60_000) });
+    await expect(new AuthService(repo).login(EMAIL, PASSWORD)).rejects.toThrow(INVALID);
+    expect(repo.registerLoginFailure).not.toHaveBeenCalled();
+    expect(repo.startSession).not.toHaveBeenCalled();
   });
 
-  it('rejeita tenant com status diferente de active', async () => {
-    const repo = fakeRepo({
-      findAuthByEmail: vi.fn().mockResolvedValue({ ...baseLookupRow(), tenantStatus: 'suspended' }),
-    });
-    const service = new AuthService(repo);
-
-    await expect(service.login(EMAIL, PASSWORD)).rejects.toThrow(/Conta inativa/);
+  it('bloqueio vencido: a senha certa entra de novo', async () => {
+    const repo = withRow({ failedLoginCount: 5, lockedUntil: new Date(Date.now() - 1000) });
+    await expect(new AuthService(repo).login(EMAIL, PASSWORD)).resolves.toHaveProperty('accessToken');
+    expect(repo.startSession).toHaveBeenCalled();
   });
 
-  it('exige totpCode quando a conta tem 2FA habilitado', async () => {
-    const repo = fakeRepo({
-      findAuthByEmail: vi
-        .fn()
-        .mockResolvedValue({ ...baseLookupRow(), totpEnabled: true, totpSecret: TOTP_SECRET }),
-    });
-    const service = new AuthService(repo);
-
-    await expect(service.login(EMAIL, PASSWORD)).rejects.toThrow(/Código TOTP obrigatório/);
+  it.each([
+    ['usuário inativo', { userStatus: 'inactive' as const }],
+    ['clínica suspensa', { tenantStatus: 'suspended' as const }],
+  ])('%s: mesma mensagem genérica, sem contar falha (a senha estava certa)', async (_caso, row) => {
+    const repo = withRow(row);
+    await expect(new AuthService(repo).login(EMAIL, PASSWORD)).rejects.toThrow(INVALID);
+    expect(repo.registerLoginFailure).not.toHaveBeenCalled();
   });
 
-  it('rejeita totpCode incorreto', async () => {
-    const repo = fakeRepo({
-      findAuthByEmail: vi
-        .fn()
-        .mockResolvedValue({ ...baseLookupRow(), totpEnabled: true, totpSecret: TOTP_SECRET }),
-    });
-    const service = new AuthService(repo);
-
-    await expect(service.login(EMAIL, PASSWORD, '000000')).rejects.toThrow(/Código TOTP inválido/);
+  it('exige totpCode quando a conta tem 2FA habilitado (só depois da senha certa)', async () => {
+    const repo = withRow({ totpEnabled: true, totpSecret: TOTP_SECRET });
+    await expect(new AuthService(repo).login(EMAIL, PASSWORD)).rejects.toThrow(/Código TOTP obrigatório/);
   });
 
-  it('aceita login com totpCode correto e retorna AuthTokens', async () => {
-    const repo = fakeRepo({
-      findAuthByEmail: vi
-        .fn()
-        .mockResolvedValue({ ...baseLookupRow(), totpEnabled: true, totpSecret: TOTP_SECRET }),
-    });
-    const service = new AuthService(repo);
+  it('totpCode incorreto: mensagem genérica e conta no mesmo bloqueio da senha', async () => {
+    const repo = withRow({ totpEnabled: true, totpSecret: TOTP_SECRET });
+    await expect(new AuthService(repo).login(EMAIL, PASSWORD, '000000')).rejects.toThrow(INVALID);
+    expect(repo.registerLoginFailure).toHaveBeenCalledWith(TENANT_ID, USER_ID);
+  });
 
-    const result = await service.login(EMAIL, PASSWORD, validTotpCode());
+  it('aceita login com totpCode correto, reserva o passo e retorna AuthTokens', async () => {
+    const repo = withRow({ totpEnabled: true, totpSecret: TOTP_SECRET });
+    const result = await new AuthService(repo).login(EMAIL, PASSWORD, validTotpCode());
 
+    const step = new TOTP({ secret: Secret.fromBase32(TOTP_SECRET) }).counter();
+    expect(repo.claimTotpStep).toHaveBeenCalledWith(TENANT_ID, USER_ID, step);
     expect(result.user).toEqual({
       id: USER_ID,
       email: EMAIL,
@@ -133,6 +130,39 @@ describe('AuthService.login', () => {
     });
     expect(result.accessToken.split('.')).toHaveLength(3); // JWT bem formado
     expect(result.expiresIn).toBe(15 * 60);
+  });
+
+  it('código TOTP já usado (passo não é maior que o último aceito) é recusado sem consultar o banco', async () => {
+    const step = new TOTP({ secret: Secret.fromBase32(TOTP_SECRET) }).counter();
+    const repo = withRow({ totpEnabled: true, totpSecret: TOTP_SECRET, totpLastStep: step });
+    await expect(new AuthService(repo).login(EMAIL, PASSWORD, validTotpCode())).rejects.toThrow(INVALID);
+    expect(repo.claimTotpStep).not.toHaveBeenCalled();
+    expect(repo.registerLoginFailure).toHaveBeenCalled();
+  });
+
+  it('dois logins simultâneos com o mesmo código: o que perde a reserva é recusado', async () => {
+    const repo = fakeRepo({
+      findAuthByEmail: vi.fn().mockResolvedValue({ ...baseLookupRow(), totpEnabled: true, totpSecret: TOTP_SECRET }),
+      claimTotpStep: vi.fn().mockResolvedValue(false),
+    });
+    await expect(new AuthService(repo).login(EMAIL, PASSWORD, validTotpCode())).rejects.toThrow(INVALID);
+    expect(repo.startSession).not.toHaveBeenCalled();
+  });
+
+  it('senha certa num hash bcrypt antigo: entra e o hash scrypt novo vai junto com a sessão (M-04)', async () => {
+    const repo = withRow({ passwordHash: bcrypt.hashSync(PASSWORD, 4) });
+    await new AuthService(repo).login(EMAIL, PASSWORD);
+
+    const extra = (repo.startSession as ReturnType<typeof vi.fn>).mock.calls[0]![3] as { passwordHash?: string };
+    expect(extra.passwordHash).toMatch(/^scrypt\$/);
+    expect((await verifyPassword(PASSWORD, extra.passwordHash!)).ok).toBe(true);
+  });
+
+  it('hash scrypt atual: não refaz o hash', async () => {
+    const repo = fakeRepo();
+    await new AuthService(repo).login(EMAIL, PASSWORD);
+    const extra = (repo.startSession as ReturnType<typeof vi.fn>).mock.calls[0]![3] as { passwordHash?: string };
+    expect(extra.passwordHash).toBeUndefined();
   });
 
   it('login abre a sessão do aparelho e grava só o SHA-256 do segredo, nunca o token cru', async () => {

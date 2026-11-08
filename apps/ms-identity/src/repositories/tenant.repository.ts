@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { TenantProfile } from '@quironequine/shared-types';
-import { AppError } from '@quironequine/shared-middlewares';
+import { AppError, changedFields, ownUploadUrl, signUploadUrl, writeAudit } from '@quironequine/shared-middlewares';
 import { prisma, withTenant } from '../prisma';
 import type { RegisterTenantInput, UpdateVeterinarianInput } from '../schemas/tenant.schema';
 
@@ -58,7 +58,7 @@ export class TenantRepository {
             // TODO(Dev2/João): logoUrl só aceita URL já hospedada — falta
             // integrar upload real (adapter S3/R2) antes de expor isso na
             // tela de cadastro. Ver ITenantService em shared-types.
-            logoUrl: data.logoUrl ?? null,
+            logoUrl: ownUploadUrl(data.logoUrl, tenant.id, 'logoUrl') ?? null,
           },
         });
 
@@ -96,7 +96,7 @@ export class TenantRepository {
           fullName: data.fullName,
           phone: data.phone,
           email: data.email,
-          logoUrl: data.logoUrl,
+          logoUrl: ownUploadUrl(data.logoUrl, tenantId, 'logoUrl'),
           displacementRateCents: data.displacementRateCents,
         },
       });
@@ -113,6 +113,13 @@ export class TenantRepository {
         });
       }
 
+      await writeAudit(tx, { tenantId, userId }, {
+        action: 'update',
+        table: 'veterinarians',
+        recordId: veterinarian.id,
+        fields: changedFields(data),
+      });
+      
       const tenant = await tx.tenant.findUniqueOrThrow({ where: { id: tenantId } });
       return toProfile(tenant, veterinarian);
     });
@@ -174,7 +181,7 @@ function toProfile(tenant: TenantRow, veterinarian: VeterinarianRow): TenantProf
       cpfCnpj: veterinarian.cpfCnpj,
       phone: veterinarian.phone,
       email: veterinarian.email,
-      logoUrl: veterinarian.logoUrl,
+      logoUrl: signUploadUrl(veterinarian.logoUrl, tenant.id),
       displacementRateCents: veterinarian.displacementRateCents,
     },
   };

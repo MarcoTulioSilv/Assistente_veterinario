@@ -14,6 +14,7 @@ import { describe, it, expect, beforeAll, afterEach, afterAll } from 'vitest';
 import { randomUUID } from 'node:crypto';
 import type { RequestContext, ExamType } from '@quironequine/shared-types';
 import { prisma, withTenant } from '../src/prisma';
+import { admin, purgeTenants } from './admin-db';
 import { ExamRepository } from '../src/repositories/exam.repository';
 import { ExamTypeRepository } from '../src/repositories/exam-type.repository';
 import { ExamService } from '../src/services/exam.service';
@@ -81,18 +82,12 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-  for (const tenantId of [TENANT_A, TENANT_B]) {
-    await withTenant(tenantId, async (tx) => {
-      await tx.outboxEvent.deleteMany({});
-      await tx.examRequestItem.deleteMany({});
-      await tx.examRequestAnimal.deleteMany({});
-      await tx.examRequest.deleteMany({});
-      await tx.examType.deleteMany({});
-    });
-  }
+  // Pela conexão de migração: a role da aplicação não tem DELETE (M-06).
+  await purgeTenants(TENANT_A, TENANT_B);
 });
 
 afterAll(async () => {
+  await admin.$disconnect();
   await prisma.$disconnect();
 });
 

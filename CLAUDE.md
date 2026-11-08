@@ -76,7 +76,7 @@ This is the most important invariant in the codebase (ADR-001 §5.2):
 - `authMiddleware` (`packages/shared-middlewares/src/auth.ts`) verifies the JWT and attaches `req.ctx: RequestContext` (`tenantId`, `userId`, `role`, `plan`, `traceId`).
 - **Every** repository method goes through `withTenant(ctx.tenantId, fn)` (`apps/*/src/prisma.ts`), which opens a transaction and sets `app.current_tenant`; RLS policies filter by `tenant_id = current_tenant_id()`. Repositories never add `WHERE tenantId = ...` themselves.
 - **When something must cross tenants** (login lookup by e-mail, refresh by session id, daily jobs scanning every tenant, the outbox relay): a narrow `SECURITY DEFINER` SQL function that returns only what is needed (ADR-004, ADR-006). **Never** a second Prisma client that bypasses RLS. `ms-clinical/tests/rls-guard.test.ts` fails if a table — including a future one — is left without RLS.
-- Foreign keys are checked by Postgres without RLS: when a write references another row of the same service, prefer composite `(tenant_id, id)` foreign keys (pattern used in MS3 quotes).
+- Foreign keys are checked by Postgres without RLS: a plain FK accepts an id from **another tenant**. When a write references a client-supplied id of the same service, use a composite `(tenant_id, x_id) → (tenant_id, id)` FK (MS1: `fk_composta_tenant` migration; `onDelete: NoAction` instead of `SetNull`, which would null `tenant_id`) **and** check the id inside the same `withTenant` so the client gets 404, not a 500 from the FK (`ms-identity/src/repositories/tenant-references.ts`). MS2/MS3 validate their references in the service (`findById` under RLS) but don't have composite FKs yet.
 - Each microservice owns its own database (database-per-service, ADR-001 §5.1); no cross-service joins. IDs from other services are stored without FK.
 
 ### Events (ADR-002)
@@ -85,7 +85,7 @@ Redis + BullMQ, one queue per consumer (fan-out in the publisher). Events and su
 
 ### Auth sessions (ADR-004 rev. 1.1)
 
-Access token: HS256 JWT, 15 min. Refresh token: opaque `<sessionId>.<secret>`, one row per device in `user_sessions` (SHA-256 of the secret only). Refresh rotates with a conditional UPDATE; a just-rotated token is accepted for 30 s (two tabs, retries), after that reuse revokes the whole family. Logout revokes only that device's session and always returns 204.
+Access token: HS256 JWT, 15 min. Refresh token: opaque `<sessionId>.<secret>`, one row per device in `user_sessions` (SHA-256 of the secret only). It travels **only** in the `qe_refresh` cookie (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`, set by `ms-identity/src/lib/refresh-cookie.ts`): login/refresh respond `AuthSession` (no refresh token in the body), refresh/logout take no body, and a failed refresh clears the cookie. The PWA must call the auth routes with `credentials: 'include'`. Refresh rotates with a conditional UPDATE; a just-rotated token is accepted for 30 s (two tabs, retries), after that reuse revokes the whole family. Logout revokes only that device's session and always returns 204. Login: passwords hashed with Node's `scrypt` (`ms-identity/src/lib/password.ts`; legacy bcrypt accepted and rehashed on success); per-account progressive lockout and TOTP replay protection; every post-form failure returns the same message (`LOGIN_FAILED_MESSAGE`).
 
 ### Layering inside each microservice (`apps/ms-<name>/src/`)
 
@@ -125,9 +125,11 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 ## Conventions
 
 - **TypeScript strict**, no `any` (ESLint error). `noUncheckedIndexedAccess` is on.
-- **No `console.log`** in service code — use `createServiceLogger()`. Console is allowed in seeds and `scripts/**`. Don't log personal data (names, CPF, addresses) or raw Prisma error messages.
+- **No `console.log`** in service code — use `createServiceLogger()`. Console is allowed in seeds and `scripts/**`. Don't log personal data (names, CPF, addresses) or raw Prisma error messages: the logger's `err` serializer (`shared-middlewares/src/safe-error.ts`) already strips Prisma messages from any `log.x({ err })`; text you store elsewhere (e.g. outbox `last_error`) goes through `safeErrorMessage(err)`.
+- **Uploaded files** (`ms-identity` `/uploads`, served only with a signed URL — `shared-middlewares/src/upload-url.ts`): the DB stores the canonical unsigned URL (`ownUploadUrl` on writes, which also rejects another tenant's file), and every response signs it with `signUploadUrl(url, row.tenantId)` (15 min, HMAC with `UPLOAD_URL_SECRET` or a key derived from `JWT_SECRET`). A new field holding a file URL needs both.
 - **Money in cents**, integer. **Medication and vaccine quantities in ml** (stakeholder decision, Nov/2026): `Product.mlPerUnit` converts ml to stock units in `StockService.deduct`.
-- **Soft delete** (`deletedAt`) on every table with personal data; never a physical `DELETE` (LGPD).
+- **Soft delete** (`deletedAt`) on every table with personal data; never a physical `DELETE` (LGPD). The runtime role has **no `DELETE`** (`01-create-app-role.sql`): only the MS3 link/item tables rewritten while a quote is a draft are granted it (section 3c) — a new table that really needs it goes in that list. Integration tests clean up through the migration connection (`DATABASE_URL_*`, see `tests/admin-db.ts` in MS3/MS6), never through the app role.
+- **Audit trail** (`audit_log` in MS1, MS3, MS6; LGPD art. 37): every write to personal, clinical or financial data calls `writeAudit(tx, actor, entry)` (`shared-middlewares`) inside the same `withTenant`, recording who, action, table, record id and the **names** of the fields — never the values (the table is insert-only, so values there could never be erased). Detail screens of medical records/exam reports log reads via `findById(ctx, id, { audit: true })`; internal existence checks don't. Event consumers write `user_id` null plus `source`.
 - **Migrations that change the meaning of existing data**: before go-live it was acceptable to rename/drop (homologation data is reseeded); after go-live, only new column + explicit data migration.
 - **Coverage floor 70%** on `src/services/**` and `src/repositories/**`. Tests colocated as `*.test.ts`; integration tests in `tests/` run against the real Postgres as `quironequine_app`. Vitest (not Jest), ESLint 9 flat config — don't reintroduce Jest or `.eslintrc`.
 - **Commits**: `type(scope): descrição` in pt-BR, scopes are service names (`ms1`, `ms2`, `ms3`, `ms6`, `bff`, `pwa`, `infra`, `ci`, `docs`). Branches: `feature/MS3-012-descricao`, `fix/...`.
@@ -139,13 +141,11 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 
 ## Pending: security audit (06/11/2026)
 
-The report lives outside the repo (ask Marco for it). Done: A-02 (per-client rate limit in the BFF), A-03 (per-device sessions, atomic rotation, real logout — server and PWA), M-04 for the refresh token. Pending, in the audit's suggested order:
+The report lives outside the repo (ask Marco for it). Server side of A-02, A-03, M-01 to M-06 is done (branch `fix/SEG-001-auditoria-servidor`). Still open:
 
-1. Refresh token in an `HttpOnly` cookie, together with A-01 (service worker caches personal data keyed only by URL and keeps it after logout).
-2. M-01 (composite `(tenant_id, id)` foreign keys in MS1 — Postgres checks FKs without RLS) and M-06 (revoke `DELETE` from the app role; actually write `audit_log`).
-3. M-02 (per-account login/TOTP lockout, TOTP replay), M-03 (signed URLs for uploaded exam reports), M-05 (personal data and raw Prisma messages in logs).
-4. Rest of M-04: password hashing off `bcryptjs` (native modules are a problem on the ARM image; Node's built-in `scrypt` with rehash on login is an option).
-5. B-01 to B-08, I-01, I-02.
+1. **PWA side (João, `Documentação/pedidos-para-joao.md`)**: refresh token via `credentials: 'include'` (the server already accepts only the cookie), A-01 (service worker caches personal data keyed only by URL and keeps it after logout), re-fetching an exam before opening its report link, dropping `propertyId` from `updateAnimalSchema`. **Don't open `develop → staging` until the PWA side lands** — until then the PWA on `develop` can't refresh.
+2. Sign-up e-mail confirmation (M-02) waits for MS5 (no e-mail sending yet).
+3. B-01 to B-08, I-01, I-02. MS2/MS3 have no composite tenant FKs yet (they validate references in the service).
 
 Product gaps found alongside: clinic sign-up screen (the API exists), password change, real password reset (today it's a mock).
 

@@ -72,7 +72,8 @@ export class NominatimMapsAdapter implements MapsAdapter {
       });
 
       if (!res.ok) {
-        log.warn({ address, status: res.status }, 'Nominatim respondeu com erro, geocoding indisponível');
+        // Sem o endereço: é dado pessoal do proprietário (auditoria M-05).
+        log.warn({ status: res.status }, 'Nominatim respondeu com erro, geocoding indisponível');
         return null;
       }
 
@@ -86,7 +87,7 @@ export class NominatimMapsAdapter implements MapsAdapter {
 
       return { latitude, longitude };
     } catch (err) {
-      log.warn({ err, address }, 'Falha ao chamar Nominatim (rede/timeout), geocoding indisponível');
+      log.warn({ err }, 'Falha ao chamar Nominatim (rede/timeout), geocoding indisponível');
       return null;
     }
   }
