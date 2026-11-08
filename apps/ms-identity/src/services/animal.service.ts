@@ -27,6 +27,14 @@ export class AnimalService implements IAnimalService {
   async update(ctx: RequestContext, id: UUID, data: UpdateAnimalInput): Promise<Animal> {
     const existing = await this.repo.findById(ctx, id);
     if (!existing) throw AppError.notFound('Animal não encontrado');
+    // RN-010: mudar de propriedade só pela transferência, que grava o
+    // histórico (animal_transfers). A edição aceita o mesmo valor (a tela
+    // reenvia o formulário inteiro), mas recusa a troca.
+    if (data.propertyId !== undefined && data.propertyId !== existing.propertyId) {
+      throw AppError.validation('Para mudar o animal de propriedade, use a transferência.', [
+        { field: 'propertyId', message: 'Use a transferência para mudar de propriedade' },
+      ]);
+    }
     return this.repo.update(ctx, id, data);
   }
 

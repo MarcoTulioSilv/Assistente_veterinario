@@ -95,5 +95,17 @@ Fica a pergunta para você e para o Marco: a lista offline precisa mesmo de CPF 
 
 ---
 
+## Edição de animal não muda a propriedade (RN-010)
+
+Decisão do Marco: **a única forma de mudar um animal de propriedade é a transferência**, que grava o histórico em `animal_transfers`. A edição não pode mudar a propriedade.
+
+**O que já está certo na PWA (conferido):** a tela `apps/pwa/src/app/animals/[id]/page.tsx` e o `api.animals.update` já deixam o `propertyId` de fora, e a troca passa só pelo `api.animals.transfer`. **Mantenha assim.** Se um dia a tela de edição ganhar o campo de propriedade, ele precisa ser só leitura, com um botão que leve à transferência.
+
+**O que mudou no servidor:** `PATCH /api/v1/animals/:id` com um `propertyId` **diferente** do atual agora responde **422** (`VALIDATION_ERROR`, campo `propertyId`, "Para mudar o animal de propriedade, use a transferência."). Mandar o mesmo valor que já está gravado continua aceito.
+
+**O que falta, no seu lado do MS1:** tire o `propertyId` do `updateAnimalSchema` (`apps/ms-identity/src/schemas/animal.schema.ts`). Hoje ele é `createAnimalSchema.partial()` e por isso aceita o campo. Algo como `createAnimalSchema.omit({ propertyId: true }).partial()`. Assim, o contrato já diz que a edição não muda a propriedade, e a regra do serviço fica como segunda barreira. Não tem pressa e pode entrar na mesma PR do cookie.
+
+---
+
 ## Depois que a sua parte entrar
 O Marco abre a PR `develop → staging` com o servidor e a PWA juntos, e avisa os stakeholders de que **todo mundo vai precisar entrar de novo uma vez**: o refresh token antigo, que estava no `sessionStorage`, deixa de valer.
