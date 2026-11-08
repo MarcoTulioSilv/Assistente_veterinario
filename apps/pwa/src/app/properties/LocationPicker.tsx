@@ -5,6 +5,7 @@ import { MapContainer, TileLayer, Marker, useMap, useMapEvents } from 'react-lea
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Button } from '@/components/ui';
+import { api, ApiClientError } from '@/lib/api';
 
 // Os ícones default do Leaflet apontam pra arquivos que o bundler não
 // resolve (problema conhecido leaflet + webpack/turbopack) -- aponta pro
@@ -23,6 +24,8 @@ export interface LocationPickerProps {
   onChange: (coords: { latitude: number; longitude: number }) => void;
   /** CEP (000-000) digitado no formulário -- dispara busca automática no mapa. */
   zipCode?: string;
+  /** Avisa quem estiver renderizando o campo de CEP sobre o erro da busca (ex: "CEP não encontrado"). */
+  onZipCodeError?: (message: string | null) => void;
 }
 
 function ClickToPlace({ onPlace }: { onPlace: (lat: number, lng: number) => void }): null {
@@ -48,34 +51,50 @@ function RecenterOnChange({ value }: { value: { latitude: number; longitude: num
   return null;
 }
 
-export function LocationPicker({ value, onChange, zipCode }: LocationPickerProps): React.ReactElement {
+export function LocationPicker({
+  value,
+  onChange,
+  zipCode,
+  onZipCodeError,
+}: LocationPickerProps): React.ReactElement {
   const [geoError, setGeoError] = useState<string | null>(null);
   const [searchingCep, setSearchingCep] = useState(false);
 
-  // Busca automática no mapa quando o CEP fica completo (000-000) --
-  // Nominatim (mesmo serviço do GeoService no backend, RF-CAD-002).
+  // Busca automática no mapa quando o CEP fica completo (00000-000) -- pelo
+  // BFF/MS1 (auditoria/pedido do João: nada de chamar o Nominatim direto do
+  // navegador), mesmo adapter do GeoService (RF-CAD-002).
   useEffect(() => {
     if (!zipCode || !/^\d{5}-\d{3}$/.test(zipCode)) return;
 
-    const controller = new AbortController();
+    let cancelled = false;
     setSearchingCep(true);
+    onZipCodeError?.(null);
     const timer = setTimeout(() => {
-      fetch(
-        `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(zipCode)}&country=Brazil&format=json&limit=1`,
-        { signal: controller.signal },
-      )
-        .then((res) => (res.ok ? res.json() : []))
-        .then((results: Array<{ lat: string; lon: string }>) => {
-          const first = results[0];
-          if (first) onChange({ latitude: Number(first.lat), longitude: Number(first.lon) });
+      api.geo
+        .geocodeZip(zipCode)
+        .then((result) => {
+          if (cancelled) return;
+          if (result) {
+            onChange(result);
+          } else {
+            onZipCodeError?.('CEP não encontrado');
+          }
         })
-        .catch(() => undefined) // busca automática é auxiliar -- nunca bloqueia o cadastro
-        .finally(() => setSearchingCep(false));
+        .catch((err: unknown) => {
+          if (cancelled) return;
+          // Busca automática é auxiliar -- nunca bloqueia o cadastro, só avisa.
+          const message =
+            err instanceof ApiClientError ? err.body.message : 'Não foi possível buscar o CEP agora';
+          onZipCodeError?.(message);
+        })
+        .finally(() => {
+          if (!cancelled) setSearchingCep(false);
+        });
     }, 600);
 
     return () => {
+      cancelled = true;
       clearTimeout(timer);
-      controller.abort();
       setSearchingCep(false);
     };
   }, [zipCode]);

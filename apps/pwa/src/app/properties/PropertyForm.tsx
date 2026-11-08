@@ -18,6 +18,8 @@ interface PropertyFormProps {
   footer?: ReactNode;
   /** Avisa o CEP atual pra quem estiver renderizando o mapa via `children`. */
   onZipCodeChange?: (zipCode: string) => void;
+  /** Erro da busca automática de CEP no mapa (ex: "CEP não encontrado"), vindo de quem renderiza o mapa via `children`. */
+  zipCodeError?: string | null;
 }
 
 export function PropertyForm({
@@ -28,6 +30,7 @@ export function PropertyForm({
   children,
   footer,
   onZipCodeChange,
+  zipCodeError,
 }: PropertyFormProps): React.ReactElement {
   const [name, setName] = useState(defaultValues?.name ?? '');
   const [address, setAddress] = useState(defaultValues?.address ?? '');
@@ -101,7 +104,7 @@ export function PropertyForm({
           setZipCode(formatted);
           onZipCodeChange?.(formatted);
         }}
-        error={fieldErrors.zipCode}
+        error={fieldErrors.zipCode ?? zipCodeError ?? undefined}
       />
       {children}
       <Button type="submit" loading={submitting} className="mt-2 w-full">
