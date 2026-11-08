@@ -85,7 +85,7 @@ Redis + BullMQ, one queue per consumer (fan-out in the publisher). Events and su
 
 ### Auth sessions (ADR-004 rev. 1.1)
 
-Access token: HS256 JWT, 15 min. Refresh token: opaque `<sessionId>.<secret>`, one row per device in `user_sessions` (SHA-256 of the secret only). It travels **only** in the `qe_refresh` cookie (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`, set by `ms-identity/src/lib/refresh-cookie.ts`): login/refresh respond `AuthSession` (no refresh token in the body), refresh/logout take no body, and a failed refresh clears the cookie. The PWA must call the auth routes with `credentials: 'include'`. Refresh rotates with a conditional UPDATE; a just-rotated token is accepted for 30 s (two tabs, retries), after that reuse revokes the whole family. Logout revokes only that device's session and always returns 204.
+Access token: HS256 JWT, 15 min. Refresh token: opaque `<sessionId>.<secret>`, one row per device in `user_sessions` (SHA-256 of the secret only). It travels **only** in the `qe_refresh` cookie (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`, set by `ms-identity/src/lib/refresh-cookie.ts`): login/refresh respond `AuthSession` (no refresh token in the body), refresh/logout take no body, and a failed refresh clears the cookie. The PWA must call the auth routes with `credentials: 'include'`. Refresh rotates with a conditional UPDATE; a just-rotated token is accepted for 30 s (two tabs, retries), after that reuse revokes the whole family. Logout revokes only that device's session and always returns 204. Login: passwords hashed with Node's `scrypt` (`ms-identity/src/lib/password.ts`; legacy bcrypt accepted and rehashed on success); per-account progressive lockout and TOTP replay protection; every post-form failure returns the same message (`LOGIN_FAILED_MESSAGE`).
 
 ### Layering inside each microservice (`apps/ms-<name>/src/`)
 
@@ -144,8 +144,7 @@ The report lives outside the repo (ask Marco for it). Done: A-02 (per-client rat
 
 1. Refresh token in an `HttpOnly` cookie: server side done on `develop`; the PWA side and A-01 (service worker caches personal data keyed only by URL and keeps it after logout) are with João (`pedidos-para-joao.md`). **Don't open `develop → staging` until the PWA side lands** — until then the PWA on `develop` can't refresh.
 2. ~~M-01~~ and ~~M-06~~: done (composite FKs in MS1; no `DELETE` for the app role; `audit_log` written in MS1/MS3/MS6).
-3. M-02 (per-account login/TOTP lockout, TOTP replay), M-03 (signed URLs for uploaded exam reports), M-05 (personal data and raw Prisma messages in logs).
-4. Rest of M-04: password hashing off `bcryptjs` (native modules are a problem on the ARM image; Node's built-in `scrypt` with rehash on login is an option).
+3. ~~M-02~~ (lockout 5 failures → 1…15 min, TOTP replay blocked, single login error message) and ~~M-04~~ (passwords in Node's `scrypt`, bcrypt hashes rehashed on login — ADR-004 rev. 1.3): done. Sign-up e-mail confirmation waits for MS5. Pending: M-03 (signed URLs for uploaded exam reports), M-05 (personal data and raw Prisma messages in logs).
 5. B-01 to B-08, I-01, I-02.
 
 Product gaps found alongside: clinic sign-up screen (the API exists), password change, real password reset (today it's a mock).

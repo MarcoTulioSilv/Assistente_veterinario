@@ -78,6 +78,16 @@ Fecha o item 3 da A-03: o refresh token não passa mais pelo JavaScript da PWA. 
 
 Nada muda nas funções `SECURITY DEFINER` desta ADR.
 
+## Revisão 1.3: bloqueio de login e senha em scrypt (Nov/2026)
+
+Auditoria M-02 e resto da M-04.
+
+- **`auth_lookup_by_email` devolve mais três colunas:** `failed_login_count`, `locked_until` e `totp_last_step`. Continua só leitura e pré-tenant. As escritas (contar falha, reservar o passo de TOTP, zerar o contador) vão pelo `withTenant()` com RLS, porque o tenant já é conhecido depois do lookup. Nenhuma função `SECURITY DEFINER` nova.
+- **Bloqueio progressivo:** a partir da 5ª falha seguida (senha ou TOTP), 1, 2, 4… minutos, com teto de 15. Durante o bloqueio, a senha nem é conferida: o login compara com um hash fictício, no mesmo tempo. O teto é baixo para que quem sabe o e-mail de alguém não trave a conta da pessoa por muito tempo; o volume já é contido pelo limite por IP do BFF.
+- **TOTP sem reuso:** o passo de 30 s aceito é reservado com um `UPDATE` condicional (`totp_last_step < passo`); o mesmo código não entra duas vezes, nem em paralelo.
+- **Mensagem única** para e-mail inexistente, senha errada, conta bloqueada, conta ou clínica inativa e TOTP errado. Só o pedido de código TOTP é específico, e ele só aparece depois da senha certa.
+- **Senha em `scrypt` nativo do Node** (`N=2^15, r=8, p=3`, formato `scrypt$N$r$p$sal$hash`), fora da thread principal. Hashes bcrypt antigos continuam aceitos e são refeitos no login certo, na mesma transação da sessão. O `bcryptjs` fica só para ler esses hashes; dá para removê-lo quando nenhum `password_hash` começar com `$2`.
+
 ---
 
 ## Histórico
@@ -87,3 +97,4 @@ Nada muda nas funções `SECURITY DEFINER` desta ADR.
 | 1.0 | Ago/2026 | Criação. Decisão de bypass de RLS para o AuthService (Sprint 2). | Marco Túlio |
 | 1.1 | Nov/2026 | `auth_tenant_id_for_user` substituída por `auth_tenant_id_for_session` (sessão por aparelho, auditoria A-03); segredo do refresh em SHA-256 (M-04). | Marco Túlio |
 | 1.2 | Nov/2026 | Refresh token só em cookie HttpOnly, sem corpo no refresh/logout (auditoria A-03, item 3). | Marco Túlio |
+| 1.3 | Nov/2026 | Lookup devolve bloqueio e último passo de TOTP; bloqueio progressivo, TOTP sem reuso, senha em scrypt (M-02, M-04). | Marco Túlio |

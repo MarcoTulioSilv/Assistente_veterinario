@@ -3,8 +3,8 @@ import { SignJWT } from 'jose';
 import { TOTP, Secret } from 'otpauth';
 import type { IAuthService, AuthTokens, UserRole, TenantPlan } from '@quironequine/shared-types';
 import { AppError, createServiceLogger, getJwtSecret } from '@quironequine/shared-middlewares';
-import type { AuthRepository, AuthLookupRow } from '../repositories/auth.repository';
-import { comparePassword, DUMMY_BCRYPT_HASH } from '../lib/password';
+import { LOCK_THRESHOLD, type AuthRepository, type AuthLookupRow } from '../repositories/auth.repository';
+import { dummyPasswordHash, hashPassword, verifyPassword } from '../lib/password';
 
 const log = createServiceLogger('auth-service');
 
@@ -16,6 +16,15 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * app tenta de novo. Fora dela, reapresentar o token é tratado como roubo.
  */
 export const REFRESH_REUSE_GRACE_MS = 30_000;
+
+/**
+ * Resposta única para toda falha de login depois do formulário (auditoria
+ * M-02): e-mail inexistente, senha errada, conta bloqueada, conta ou clínica
+ * inativa e código TOTP errado. Mensagens diferentes contavam a um atacante
+ * que a senha estava certa ou que a conta existia.
+ */
+export const LOGIN_FAILED_MESSAGE =
+  'Credenciais inválidas. Depois de várias tentativas seguidas, a conta fica bloqueada por alguns minutos.';
 
 /** Converte strings tipo "15m"/"7d"/"30s" em milissegundos. */
 function parseDurationMs(input: string): number {
@@ -81,24 +90,36 @@ export class AuthService implements IAuthService {
 
   async login(email: string, password: string, totpCode?: string): Promise<AuthTokens> {
     const row = await this.repo.findAuthByEmail(email);
+    const locked = !!row?.lockedUntil && row.lockedUntil.getTime() > Date.now();
 
-    const passwordOk = await comparePassword(password, row?.passwordHash ?? DUMMY_BCRYPT_HASH);
-    if (!row || !passwordOk) {
-      throw AppError.unauthorized('Credenciais inválidas');
+    // Sem conta, ou bloqueada: compara com um hash fictício e responde igual a
+    // uma senha errada, no mesmo tempo (não revela se a conta existe nem dá
+    // ao atacante como seguir testando senhas durante o bloqueio).
+    const check = await verifyPassword(password, row && !locked ? row.passwordHash : await dummyPasswordHash());
+    if (!row || locked) throw AppError.unauthorized(LOGIN_FAILED_MESSAGE);
+    if (!check.ok) {
+      await this.registerFailure(row);
+      throw AppError.unauthorized(LOGIN_FAILED_MESSAGE);
     }
     if (row.userStatus !== 'active' || row.tenantStatus !== 'active') {
-      throw AppError.unauthorized('Conta inativa');
+      // Senha certa: não conta como falha, mas a resposta é a mesma.
+      log.info({ tenantId: row.tenantId, userId: row.id }, 'Login recusado: usuário ou clínica inativos');
+      throw AppError.unauthorized(LOGIN_FAILED_MESSAGE);
     }
     if (row.totpEnabled) {
-      this.assertValidTotp(row.totpSecret, totpCode);
+      await this.assertValidTotp(row, totpCode);
     }
 
+    // Senha certa num hash antigo (bcrypt): o hash scrypt entra junto com a sessão.
+    const newHash = check.needsRehash ? await hashPassword(password) : undefined;
+
     const credentials = newCredentials();
-    await this.repo.startSession(row.tenantId, row.id, {
-      id: credentials.sessionId,
-      secretHash: credentials.secretHash,
-      expiresAt: this.refreshExpiresAt(),
-    });
+    await this.repo.startSession(
+      row.tenantId,
+      row.id,
+      { id: credentials.sessionId, secretHash: credentials.secretHash, expiresAt: this.refreshExpiresAt() },
+      { passwordHash: newHash },
+    );
 
     return {
       ...(await this.issueAccessToken({ id: row.id, tenantId: row.tenantId, role: row.role, plan: row.tenantPlan })),
@@ -175,18 +196,40 @@ export class AuthService implements IAuthService {
 
   // ─── Internos ─────────────────────────────────────────────────────
 
-  private assertValidTotp(secret: string | null, code: string | undefined): void {
+  private async registerFailure(row: AuthLookupRow): Promise<void> {
+    const { failedLoginCount, lockedUntil } = await this.repo.registerLoginFailure(row.tenantId, row.id);
+    if (lockedUntil && failedLoginCount >= LOCK_THRESHOLD) {
+      log.warn(
+        { tenantId: row.tenantId, userId: row.id, failedLoginCount, lockedUntil },
+        'Conta bloqueada por falhas seguidas de login',
+      );
+    }
+  }
+
+  /**
+   * 2FA (M-02). Só roda depois da senha certa, então o pedido do código pode
+   * ser específico; o código errado, não. Código errado conta no mesmo
+   * bloqueio da senha, e o passo de tempo aceito é reservado: o mesmo código
+   * (ou um mais antigo da janela) não entra de novo.
+   */
+  private async assertValidTotp(row: AuthLookupRow, code: string | undefined): Promise<void> {
     if (!code) {
       throw AppError.validation('Código TOTP obrigatório', [
         { field: 'totpCode', message: 'obrigatório para esta conta' },
       ]);
     }
-    if (!secret) {
-      throw AppError.unauthorized('Conta com 2FA mal configurada');
+    if (!row.totpSecret) {
+      log.error({ tenantId: row.tenantId, userId: row.id }, 'Conta com 2FA ligado e sem segredo TOTP');
+      throw AppError.unauthorized(LOGIN_FAILED_MESSAGE);
     }
-    const totp = new TOTP({ secret: Secret.fromBase32(secret) });
-    if (totp.validate({ token: code, window: 1 }) === null) {
-      throw AppError.unauthorized('Código TOTP inválido');
+
+    const totp = new TOTP({ secret: Secret.fromBase32(row.totpSecret) });
+    const delta = totp.validate({ token: code, window: 1 });
+    const step = delta === null ? null : totp.counter() + delta;
+    const fresh = step !== null && (row.totpLastStep === null || step > row.totpLastStep);
+    if (step === null || !fresh || !(await this.repo.claimTotpStep(row.tenantId, row.id, step))) {
+      await this.registerFailure(row);
+      throw AppError.unauthorized(LOGIN_FAILED_MESSAGE);
     }
   }
 

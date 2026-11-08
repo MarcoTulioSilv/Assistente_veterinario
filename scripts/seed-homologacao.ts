@@ -25,7 +25,7 @@
  * ignora RLS — é seed, não runtime.
  */
 import { randomUUID } from 'node:crypto';
-import bcrypt from 'bcryptjs';
+import { hashPassword } from '../apps/ms-identity/src/lib/password';
 import { PrismaClient as IdentityClient } from '@prisma/client';
 import type { User } from '@prisma/client';
 import { PrismaClient as InventoryClient } from '../apps/ms-inventory/node_modules/.prisma/client-inventory';
@@ -127,7 +127,7 @@ interface Herd {
 }
 
 async function seedIdentity(): Promise<Herd> {
-  const passwordHash = await bcrypt.hash(PASSWORD, 12);
+  const passwordHash = await hashPassword(PASSWORD);
 
   await identity.tenant.create({
     data: { id: CLINICA, name: 'Clínica Equina Modelo', slug: 'homologacao', plan: 'plus', status: 'active', maxOwners: 30 },
@@ -865,7 +865,7 @@ async function seedVaccinations(h: Herd, p: Record<string, StockItem>): Promise<
 
 // ─── 8. Segundo tenant: demonstra o isolamento (RLS) ──────────────
 async function seedNeighbor(): Promise<void> {
-  const passwordHash = await bcrypt.hash(PASSWORD, 12);
+  const passwordHash = await hashPassword(PASSWORD);
   await identity.tenant.create({
     data: { id: VIZINHA, name: 'Haras Vizinho (isolamento)', slug: 'homologacao-isolamento', plan: 'basic', status: 'active', maxOwners: 30 },
   });

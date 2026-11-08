@@ -12,7 +12,22 @@ export interface AuthLookupRow {
   userStatus: 'active' | 'inactive';
   tenantPlan: TenantPlan;
   tenantStatus: 'active' | 'suspended' | 'cancelled';
+  /** Bloqueio progressivo (M-02): falhas seguidas e até quando a conta está bloqueada. */
+  failedLoginCount: number;
+  lockedUntil: Date | null;
+  /** Último passo de TOTP aceito (M-02): impede reusar o mesmo código. */
+  totpLastStep: number | null;
 }
+
+/**
+ * Bloqueio progressivo (auditoria M-02): a partir da LOCK_THRESHOLD-ésima
+ * falha seguida, a conta fica bloqueada por 1, 2, 4... minutos, até
+ * MAX_LOCK_MINUTES. O teto baixo é de propósito: quem sabe o e-mail de
+ * alguém não consegue deixar a conta da pessoa travada por muito tempo, e o
+ * limite por IP do BFF segura o volume.
+ */
+export const LOCK_THRESHOLD = 5;
+export const MAX_LOCK_MINUTES = 15;
 
 /** O que o refresh precisa do usuário para emitir o access token novo. */
 export interface SessionUser {
@@ -55,6 +70,9 @@ interface RawLookupRow {
   user_status: 'active' | 'inactive';
   tenant_plan: TenantPlan;
   tenant_status: 'active' | 'suspended' | 'cancelled';
+  failed_login_count: number;
+  locked_until: Date | null;
+  totp_last_step: bigint | null;
 }
 
 /**
@@ -85,6 +103,9 @@ export class AuthRepository {
       userStatus: row.user_status,
       tenantPlan: row.tenant_plan,
       tenantStatus: row.tenant_status,
+      failedLoginCount: row.failed_login_count,
+      lockedUntil: row.locked_until,
+      totpLastStep: row.totp_last_step === null ? null : Number(row.totp_last_step),
     };
   }
 
@@ -95,13 +116,71 @@ export class AuthRepository {
     return rows[0]?.auth_tenant_id_for_session ?? null;
   }
 
-  /** Login: abre a sessão do aparelho (família nova) e marca o último acesso. */
-  async startSession(tenantId: string, userId: string, session: NewSession): Promise<void> {
+  /**
+   * Login: abre a sessão do aparelho (família nova), marca o último acesso e
+   * zera o contador de falhas. `passwordHash` vem quando a senha certa estava
+   * num hash antigo (bcrypt): o hash novo entra na mesma transação.
+   */
+  async startSession(
+    tenantId: string,
+    userId: string,
+    session: NewSession,
+    extra: { passwordHash?: string } = {},
+  ): Promise<void> {
     await withTenant(tenantId, async (tx) => {
       await tx.userSession.create({
         data: { ...session, tenantId, userId, familyId: session.id },
       });
-      await tx.user.update({ where: { id: userId }, data: { lastLoginAt: new Date() } });
+      await tx.user.update({
+        where: { id: userId },
+        data: {
+          lastLoginAt: new Date(),
+          failedLoginCount: 0,
+          lockedUntil: null,
+          ...(extra.passwordHash ? { passwordHash: extra.passwordHash } : {}),
+        },
+      });
+    });
+  }
+
+  /**
+   * Conta uma falha de login (senha ou TOTP) e, a partir da LOCK_THRESHOLD-ésima
+   * seguida, bloqueia. Num UPDATE só, para que tentativas simultâneas não
+   * percam contagem. Devolve o total de falhas e o fim do bloqueio.
+   */
+  async registerLoginFailure(
+    tenantId: string,
+    userId: string,
+  ): Promise<{ failedLoginCount: number; lockedUntil: Date | null }> {
+    return withTenant(tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ failed_login_count: number; locked_until: Date | null }>>`
+        UPDATE users
+           SET failed_login_count = failed_login_count + 1,
+               locked_until = CASE
+                 WHEN failed_login_count + 1 >= ${LOCK_THRESHOLD}::int
+                 -- LEAST antes do ::int: com muitas falhas, 2^n estouraria o inteiro.
+                 THEN now() + make_interval(mins => LEAST(${MAX_LOCK_MINUTES}::float8, power(2, failed_login_count + 1 - ${LOCK_THRESHOLD}::int))::int)
+                 ELSE locked_until
+               END
+         WHERE id = ${userId}::uuid
+         RETURNING failed_login_count, locked_until`;
+      const row = rows[0];
+      return { failedLoginCount: row?.failed_login_count ?? 0, lockedUntil: row?.locked_until ?? null };
+    });
+  }
+
+  /**
+   * Reserva o passo de TOTP do código aceito: só passa se for maior que o
+   * último reservado. Condicional e atômico — dois logins com o mesmo código
+   * ao mesmo tempo não passam os dois. `false` = código já usado.
+   */
+  async claimTotpStep(tenantId: string, userId: string, step: number): Promise<boolean> {
+    return withTenant(tenantId, async (tx) => {
+      const { count } = await tx.user.updateMany({
+        where: { id: userId, OR: [{ totpLastStep: null }, { totpLastStep: { lt: BigInt(step) } }] },
+        data: { totpLastStep: BigInt(step) },
+      });
+      return count === 1;
     });
   }
 
