@@ -48,14 +48,25 @@ $$;
 -- ─── 3. Permissoes no schema ──────────────────────────────────────
 GRANT USAGE ON SCHEMA public TO quironequine_app;
 
+-- SEM DELETE (auditoria 06/11/2026, M-06): a regra do projeto e soft
+-- delete (deletedAt, LGPD). Com DELETE em tudo, uma falha de logica ou uma
+-- injecao apagaria fisicamente qualquer tabela, inclusive o audit_log, sem
+-- deixar rastro. O REVOKE tira o DELETE dos bancos que ja tinham recebido
+-- (este arquivo roda de novo a cada deploy). DELETE legitimo e concedido
+-- por tabela, na secao 3c.
+--
 -- Tabelas e sequences que JA existem
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO quironequine_app;
+GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO quironequine_app;
+REVOKE DELETE, TRUNCATE ON ALL TABLES IN SCHEMA public FROM quironequine_app;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO quironequine_app;
 
 -- Tabelas e sequences FUTURAS -- as proximas migrations herdam
--- automaticamente, sem precisar rodar este arquivo de novo.
+-- automaticamente, sem precisar rodar este arquivo de novo. Tabela nova
+-- que precise de DELETE entra na lista da secao 3c.
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO quironequine_app;
+  GRANT SELECT, INSERT, UPDATE ON TABLES TO quironequine_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  REVOKE DELETE, TRUNCATE ON TABLES FROM quironequine_app;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO quironequine_app;
 
@@ -69,6 +80,33 @@ DO $$
 BEGIN
   IF to_regclass('public._prisma_migrations') IS NOT NULL THEN
     REVOKE ALL ON TABLE _prisma_migrations FROM quironequine_app;
+  END IF;
+END
+$$;
+
+-- ─── 3c. DELETE so onde e legitimo (M-06) ─────────────────────────
+-- Tabelas de ligacao/itens do MS3, substituidas por inteiro enquanto o
+-- orcamento ou o pedido de exame ainda e editavel (rascunho). Nenhuma tem
+-- dado pessoal proprio: a ficha (medical_records) sai junto pela cascata da
+-- FK, que roda com o privilegio do dono da tabela, sem DELETE da app.
+DO $$
+DECLARE t TEXT;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['appointment_animals', 'appointment_items', 'prescriptions', 'exam_request_animals'] LOOP
+    IF to_regclass('public.' || t) IS NOT NULL THEN
+      EXECUTE format('GRANT DELETE ON TABLE %I TO quironequine_app', t);
+    END IF;
+  END LOOP;
+END
+$$;
+
+-- ─── 3d. audit_log so recebe INSERT (M-06) ───────────────────────
+-- Trilha de auditoria (LGPD art. 37): a aplicacao grava e le, nunca
+-- altera nem apaga.
+DO $$
+BEGIN
+  IF to_regclass('public.audit_log') IS NOT NULL THEN
+    REVOKE UPDATE, DELETE, TRUNCATE ON TABLE audit_log FROM quironequine_app;
   END IF;
 END
 $$;

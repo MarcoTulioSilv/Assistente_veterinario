@@ -66,12 +66,23 @@ export interface ApiError {
 }
 
 // ═══ MS1 — Identity & Registry ════════════════════════════════════
+/**
+ * O que o IAuthService devolve. O refresh token não sai no corpo HTTP: o
+ * controller o grava num cookie HttpOnly e responde só o AuthSession.
+ */
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
   expiresIn: number;
   user: UserSummary;
 }
+
+/**
+ * Resposta HTTP de POST /auth/login e /auth/refresh. O refresh token vai no
+ * cookie `qe_refresh` (HttpOnly, SameSite=Strict, Path=/api/v1/auth); a PWA
+ * nunca o lê, só precisa de `credentials: 'include'` nas chamadas de auth.
+ */
+export type AuthSession = Omit<AuthTokens, 'refreshToken'>;
 
 export interface UserSummary {
   id: UUID;

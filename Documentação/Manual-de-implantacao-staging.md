@@ -151,6 +151,14 @@ Em **Settings → Environments**, crie o ambiente **`staging`** e cadastre:
 
 Em **Settings → Variables**, cadastre também `STAGING_API_DOMAIN` (e `STAGING_PLATFORM`, se for ARM) no nível do **repositório**. O build das imagens usa essas variáveis e roda fora do ambiente `staging`.
 
+**Google Maps (opcional).** Para o mapa de localização usar o Google em vez do Leaflet/OpenStreetMap, cadastre também no nível do **repositório** a variável `STAGING_GOOGLE_MAPS_BROWSER_KEY` com a chave de **navegador** da Maps JavaScript API. É variável, não segredo: a chave vai no código da PWA que o navegador baixa, e quem a protege são as restrições no Google Cloud. Antes de cadastrar, no Google Cloud Console (APIs e serviços → Credenciais → a chave):
+
+- **Restrições de aplicativo → Sites (referenciadores HTTP):** só `https://homolog.<dominio>/*` (e `http://localhost:3100/*`, se a mesma chave for usada no dev).
+- **Restrições de API:** só **Maps JavaScript API**.
+- **Faturamento → Orçamentos e alertas:** um orçamento com alerta, para uma chave abusada não virar conta.
+
+A chave entra na imagem no build: depois de cadastrar ou trocar, só vale no próximo deploy. Sem a variável, ou se o Google falhar no navegador, a PWA usa o Leaflet sozinha.
+
 ## 5. Primeiro deploy
 
 1. Promova a `develop` para a `staging` (PR `develop → staging`, ou push direto na primeira vez).
@@ -165,7 +173,7 @@ Em **Settings → Variables**, cadastre também `STAGING_API_DOMAIN` (e `STAGING
 ## 6. Rotina
 
 - **Deploy:** todo merge na `staging` implanta sozinho. Também dá para rodar à mão em **Actions → Deploy staging → Run workflow**.
-- **Voltar uma versão:** no servidor, `cd /opt/quironequine && ./deploy.sh <commit-anterior>`. As imagens ficam no registry com a tag do commit. Atenção: **migration não é desfeita**. Uma versão anterior que não conheça a coluna nova continua funcionando só se a mudança foi aditiva.
+- **Voltar uma versão:** no servidor, `cd /opt/quironequine && ./deploy.sh <commit-anterior>`. As imagens ficam no registry com a tag do commit. No disco do servidor ficam só as imagens da versão no ar e de uma anterior: o `deploy.sh` apaga as outras depois de subir os serviços (sem isso, cada deploy deixava mais 6 imagens). Voltar para a anterior é imediato; para uma mais velha, o `deploy.sh` baixa de novo do registry. Atenção: **migration não é desfeita**. Uma versão anterior que não conheça a coluna nova continua funcionando só se a mudança foi aditiva.
 - **Logs:** `docker compose --env-file .env.staging logs -f ms-clinical` (ou `bff`, `caddy`...).
 - **Situação:** `docker compose --env-file .env.staging ps` (todos devem estar `healthy` ou `running`).
 - **Recriar os dados de homologação:** rode o workflow **Seed staging** de novo. Ele apaga e recria **só** os tenants de homologação.

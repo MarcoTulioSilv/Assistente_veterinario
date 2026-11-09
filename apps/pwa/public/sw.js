@@ -14,7 +14,7 @@
  * ══════════════════════════════════════════════════════════════════
  */
 
-const VERSION = 'v1';
+const VERSION = 'v2'; // v1 -> v2: força o activate a apagar o cache de API antigo (auditoria A-01)
 const SHELL_CACHE = `quironequine-shell-${VERSION}`;
 const API_CACHE = `quironequine-api-${VERSION}`;
 const OFFLINE_URL = '/offline';

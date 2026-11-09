@@ -73,17 +73,22 @@ model Tenant {
 
 // ─── USERS ────────────────────────────────────────────────────────
 model User {
-  id                    String     @id @default(uuid()) @db.Uuid
-  tenantId              String     @map("tenant_id") @db.Uuid
-  email                 String     @unique @db.VarChar(255)
-  passwordHash          String     @map("password_hash") @db.VarChar(255)
-  role                  UserRole   @default(admin)
-  fullName              String     @map("full_name") @db.VarChar(255)
-  phone                 String?    @db.VarChar(20)
-  totpSecret            String?    @map("totp_secret") @db.VarChar(100)
-  totpEnabled           Boolean    @default(false) @map("totp_enabled")
-  lastLoginAt           DateTime?  @map("last_login_at") @db.Timestamptz
-  status                UserStatus @default(active)
+  id               String     @id @default(uuid()) @db.Uuid
+  tenantId         String     @map("tenant_id") @db.Uuid
+  email            String     @unique @db.VarChar(255)
+  passwordHash     String     @map("password_hash") @db.VarChar(255)
+  role             UserRole   @default(admin)
+  fullName         String     @map("full_name") @db.VarChar(255)
+  phone            String?    @db.VarChar(20)
+  totpSecret       String?    @map("totp_secret") @db.VarChar(100)
+  totpEnabled      Boolean    @default(false) @map("totp_enabled")
+  lastLoginAt      DateTime?  @map("last_login_at") @db.Timestamptz
+  // Bloqueio progressivo de login e TOTP sem reuso (auditoria M-02).
+  failedLoginCount Int        @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?  @map("locked_until") @db.Timestamptz
+  /// Último passo de 30 s de TOTP aceito: código de passo menor ou igual é recusado (reuso).
+  totpLastStep     BigInt?    @map("totp_last_step")
+  status           UserStatus @default(active)
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
@@ -91,7 +96,6 @@ model User {
 
   tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   veterinarian Veterinarian?
-  auditLogs    AuditLog[]
   sessions     UserSession[]
 
   @@index([tenantId])
@@ -181,6 +185,9 @@ model Owner {
   animals    Animal[]
 
   @@unique([tenantId, cpf])
+  // Alvo das FKs compostas (tenant_id, x_id): o Postgres confere FK sem RLS,
+  // então só a chave com tenant garante "mesmo tenant" (auditoria M-01).
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@index([status])
   @@index([fullName])
@@ -210,6 +217,7 @@ model Property {
   transfersFrom AnimalTransfer[] @relation("TransferFrom")
   transfersTo   AnimalTransfer[] @relation("TransferTo")
 
+  @@unique([tenantId, id]) // alvo das FKs compostas (M-01)
   @@index([tenantId])
   @@index([status])
   @@index([name])
@@ -226,8 +234,8 @@ model PropertyOwner {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  owner    Owner    @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: Cascade)
+  owner    Owner    @relation(fields: [tenantId, ownerId], references: [tenantId, id], onDelete: Cascade)
 
   @@unique([propertyId, ownerId])
   @@index([tenantId])
@@ -256,10 +264,13 @@ model Animal {
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
   tenant    Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  property  Property?        @relation(fields: [propertyId], references: [id], onDelete: SetNull)
-  owner     Owner?           @relation(fields: [ownerId], references: [id], onDelete: SetNull)
+  // NoAction, não SetNull: com a chave composta o SET NULL zeraria também o
+  // tenant_id. Não há DELETE físico (soft delete; a role da app nem tem DELETE).
+  property  Property?        @relation(fields: [tenantId, propertyId], references: [tenantId, id], onDelete: NoAction)
+  owner     Owner?           @relation(fields: [tenantId, ownerId], references: [tenantId, id], onDelete: NoAction)
   transfers AnimalTransfer[]
 
+  @@unique([tenantId, id]) // alvo das FKs compostas (M-01)
   @@index([tenantId])
   @@index([propertyId])
   @@index([ownerId])
@@ -278,9 +289,9 @@ model AnimalTransfer {
   transferredAt  DateTime @default(now()) @map("transferred_at") @db.Timestamptz
   notes          String?  @db.Text
 
-  animal       Animal    @relation(fields: [animalId], references: [id], onDelete: Cascade)
-  fromProperty Property? @relation("TransferFrom", fields: [fromPropertyId], references: [id])
-  toProperty   Property  @relation("TransferTo", fields: [toPropertyId], references: [id])
+  animal       Animal    @relation(fields: [tenantId, animalId], references: [tenantId, id], onDelete: Cascade)
+  fromProperty Property? @relation("TransferFrom", fields: [tenantId, fromPropertyId], references: [tenantId, id], onDelete: NoAction)
+  toProperty   Property  @relation("TransferTo", fields: [tenantId, toPropertyId], references: [tenantId, id], onDelete: NoAction)
 
   @@index([tenantId])
   @@index([animalId])
@@ -301,7 +312,8 @@ model AuditLog {
   ipAddress String?  @map("ip_address") @db.Inet
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // Sem FK para users (M-06): com ON DELETE SET NULL, apagar um usuário
+  // apagaria a autoria de tudo o que ele fez. Igual ao audit_log do MS3/MS6.
 
   @@index([tenantId])
   @@index([action])

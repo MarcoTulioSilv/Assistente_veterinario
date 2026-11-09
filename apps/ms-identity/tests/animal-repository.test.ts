@@ -43,6 +43,7 @@ describe('AnimalRepository', () => {
   });
 
   afterAll(async () => {
+    await admin.auditLog.deleteMany({ where: { tenantId: TENANT_ID } });
     await admin.tenant.deleteMany({ where: { id: TENANT_ID } });
     await admin.$disconnect();
     await appPrisma.$disconnect();

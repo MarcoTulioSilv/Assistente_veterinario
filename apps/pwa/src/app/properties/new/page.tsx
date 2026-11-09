@@ -10,9 +10,10 @@ import { api, ApiClientError, hasSession } from '@/lib/api';
 import { PropertyForm } from '../PropertyForm';
 import type { PropertyFormValues } from '../schema';
 
-// Leaflet mexe em `window` direto -- só pode existir no client.
+// O mapa ativo (Leaflet ou Google, ver map-config.ts) mexe em `window`
+// direto -- só pode existir no client.
 const LocationPicker = dynamic(
-  () => import('../LocationPicker').then((m) => m.LocationPicker),
+  () => import('../map-config').then((m) => m.ActiveLocationPicker),
   { ssr: false, loading: () => <div className="h-56 animate-pulse rounded-md bg-slate-100" /> },
 );
 
@@ -38,6 +39,7 @@ export default function NewPropertyPage(): React.ReactElement {
   const [ownerIds, setOwnerIds] = useState<string[]>([]);
   const [coords, setCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [zipCodeForMap, setZipCodeForMap] = useState('');
+  const [zipCodeError, setZipCodeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!hasSession()) {
@@ -89,8 +91,17 @@ export default function NewPropertyPage(): React.ReactElement {
           submitLabel="Cadastrar"
           submittingLabel="Cadastrando"
           onZipCodeChange={setZipCodeForMap}
+          zipCodeError={zipCodeError}
         >
-          <LocationPicker value={coords} onChange={setCoords} zipCode={zipCodeForMap} />
+          <LocationPicker
+            value={coords}
+            onChange={(next) => {
+              setCoords(next);
+              setZipCodeError(null);
+            }}
+            zipCode={zipCodeForMap}
+            onZipCodeError={setZipCodeError}
+          />
           {owners.length > 0 && (
             <div className="flex flex-col gap-1.5">
               <span className="text-sm font-medium text-slate-700">Proprietários vinculados</span>

@@ -1,4 +1,5 @@
 import pino from 'pino';
+import { serializeError } from './safe-error';
 
 const isDev = process.env['NODE_ENV'] !== 'production';
 
@@ -16,10 +17,13 @@ export const logger = pino({
         },
       }
     : {}),
+  // M-05: erro do Prisma sem a mensagem (que traz os argumentos da chamada).
+  serializers: { err: serializeError },
   redact: {
     paths: [
       'req.headers.authorization',
       'req.headers.cookie',
+      'res.headers["set-cookie"]',
       'password',
       'passwordHash',
       'totpSecret',

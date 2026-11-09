@@ -8,16 +8,16 @@ Repository text (comments, commit conventions, docs) is in Portuguese (pt-BR); t
 
 Quíron Equine is a multi-tenant SaaS for equine veterinary practice management, built as an npm workspaces monorepo (Turborepo) with 7 planned microservices, a BFF gateway, and a Next.js PWA. The product's real name is **QuironEqui** (domain `quironequi.com.br`); package, folder, image and database names keep `quironequine` — don't rename them. User-facing text is the PWA's (Dev 2) concern.
 
-Current state (Nov/2026, milestone M2 in homologation with the stakeholders):
+Current state (Nov/2026): milestone M2 is **live on staging** for the stakeholders' homologation — PWA at `https://homolog.quironequi.com.br`, API at `https://api-homolog.quironequi.com.br`.
 
 | Workspace | Service | State |
 |---|---|---|
-| `apps/ms-identity` | MS1 — auth (per-device sessions), tenants/vet profile, owners, properties, animals, uploads, geocoding (Nominatim) and route distance (OSRM) | implemented |
+| `apps/ms-identity` | MS1 — auth (per-device sessions), tenants/vet profile, owners, properties, animals, uploads, geocoding and route distance (public Nominatim/OSRM servers: fine for homologation, not for production) | implemented |
 | `apps/ms-inventory` | MS2 — products, stock movements, expiry/low-stock alerts, stock deduction from domain events (quantities in ml for medication/vaccine) | implemented |
 | `apps/ms-clinical` | MS3 — appointments/quotes (several animals each), exams, vaccinations, outbox, daily reminders | implemented |
 | `apps/ms-reporting` | MS6 — only the financial-pending slice (anticipated from M3) | partial |
 | `apps/bff` | gateway: helmet, CORS, rate limits, reverse proxy | implemented |
-| `apps/pwa` | Next.js 16 PWA | in progress (Dev 2) |
+| `apps/pwa` | Next.js 16 PWA (automatic session refresh, real logout) | in progress (Dev 2) |
 | MS4 scheduling, MS5 notification, MS7 AI voice | — | not started (M3/M4); events for MS5 are already published and wait in its queue |
 
 Treat services that don't exist yet as future work, not bugs. Architecture is governed by **ADR-001** (plus ADR-002 to ADR-006 in `Documentação/ADR/`) and requirements by the **ERS** (referenced throughout the code as e.g. `ADR-001 §5.2`, `ERS §2.6`, `RN-006`, `RNF-MAN-003` — stable identifiers; keep and follow them).
@@ -76,7 +76,7 @@ This is the most important invariant in the codebase (ADR-001 §5.2):
 - `authMiddleware` (`packages/shared-middlewares/src/auth.ts`) verifies the JWT and attaches `req.ctx: RequestContext` (`tenantId`, `userId`, `role`, `plan`, `traceId`).
 - **Every** repository method goes through `withTenant(ctx.tenantId, fn)` (`apps/*/src/prisma.ts`), which opens a transaction and sets `app.current_tenant`; RLS policies filter by `tenant_id = current_tenant_id()`. Repositories never add `WHERE tenantId = ...` themselves.
 - **When something must cross tenants** (login lookup by e-mail, refresh by session id, daily jobs scanning every tenant, the outbox relay): a narrow `SECURITY DEFINER` SQL function that returns only what is needed (ADR-004, ADR-006). **Never** a second Prisma client that bypasses RLS. `ms-clinical/tests/rls-guard.test.ts` fails if a table — including a future one — is left without RLS.
-- Foreign keys are checked by Postgres without RLS: when a write references another row of the same service, prefer composite `(tenant_id, id)` foreign keys (pattern used in MS3 quotes).
+- Foreign keys are checked by Postgres without RLS: a plain FK accepts an id from **another tenant**. When a write references a client-supplied id of the same service, use a composite `(tenant_id, x_id) → (tenant_id, id)` FK (MS1: `fk_composta_tenant` migration; `onDelete: NoAction` instead of `SetNull`, which would null `tenant_id`) **and** check the id inside the same `withTenant` so the client gets 404, not a 500 from the FK (`ms-identity/src/repositories/tenant-references.ts`). MS2/MS3 validate their references in the service (`findById` under RLS) but don't have composite FKs yet.
 - Each microservice owns its own database (database-per-service, ADR-001 §5.1); no cross-service joins. IDs from other services are stored without FK.
 
 ### Events (ADR-002)
@@ -85,7 +85,7 @@ Redis + BullMQ, one queue per consumer (fan-out in the publisher). Events and su
 
 ### Auth sessions (ADR-004 rev. 1.1)
 
-Access token: HS256 JWT, 15 min. Refresh token: opaque `<sessionId>.<secret>`, one row per device in `user_sessions` (SHA-256 of the secret only). Refresh rotates with a conditional UPDATE; a just-rotated token is accepted for 30 s (two tabs, retries), after that reuse revokes the whole family. Logout revokes only that device's session and always returns 204.
+Access token: HS256 JWT, 15 min. Refresh token: opaque `<sessionId>.<secret>`, one row per device in `user_sessions` (SHA-256 of the secret only). It travels **only** in the `qe_refresh` cookie (`HttpOnly; Secure; SameSite=Strict; Path=/api/v1/auth`, set by `ms-identity/src/lib/refresh-cookie.ts`): login/refresh respond `AuthSession` (no refresh token in the body), refresh/logout take no body, and a failed refresh clears the cookie. The PWA must call the auth routes with `credentials: 'include'`. Refresh rotates with a conditional UPDATE; a just-rotated token is accepted for 30 s (two tabs, retries), after that reuse revokes the whole family. Logout revokes only that device's session and always returns 204. Login: passwords hashed with Node's `scrypt` (`ms-identity/src/lib/password.ts`; legacy bcrypt accepted and rehashed on success); per-account progressive lockout and TOTP replay protection; every post-form failure returns the same message (`LOGIN_FAILED_MESSAGE`).
 
 ### Layering inside each microservice (`apps/ms-<name>/src/`)
 
@@ -115,17 +115,37 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 
 `infra/staging/`: one VM (Oracle Cloud, ARM A1) with Docker Compose — Caddy (automatic HTTPS), PWA, BFF, the four services, one Postgres with one DB per service, Redis. `.github/workflows/deploy-staging.yml` builds the images (native ARM runner when `STAGING_PLATFORM=linux/arm64`), pushes to GHCR and runs `infra/staging/deploy.sh` over SSH with a pinned host key. Runtime secrets live only on the server (`.env.staging`, generated by `generate-env.sh`). Full runbook: `Documentação/Manual-de-implantacao-staging.md`.
 
+- **Seed on staging**: *Actions → Seed staging*, run on branch **`staging`** (the `staging` environment only releases its secrets to that branch), typing `homologacao` to confirm. It wipes and recreates only the homologation tenants.
+- The seed password exists only on the server (`.env.staging`) and in the GitHub secret — never write it in the repo or in a conversation.
+- Lessons from the first deploy:
+  - a new `.sh` needs `git update-index --chmod=+x` (Windows doesn't record the executable bit);
+  - secrets pasted from Windows may carry CRLF (the workflows already strip it);
+  - every route the service worker pre-caches (`SHELL_ASSETS` in `apps/pwa/public/sw.js`) must exist, or the SW install fails.
+
 ## Conventions
 
 - **TypeScript strict**, no `any` (ESLint error). `noUncheckedIndexedAccess` is on.
-- **No `console.log`** in service code — use `createServiceLogger()`. Console is allowed in seeds and `scripts/**`. Don't log personal data (names, CPF, addresses) or raw Prisma error messages.
+- **No `console.log`** in service code — use `createServiceLogger()`. Console is allowed in seeds and `scripts/**`. Don't log personal data (names, CPF, addresses) or raw Prisma error messages: the logger's `err` serializer (`shared-middlewares/src/safe-error.ts`) already strips Prisma messages from any `log.x({ err })`; text you store elsewhere (e.g. outbox `last_error`) goes through `safeErrorMessage(err)`.
+- **Uploaded files** (`ms-identity` `/uploads`, served only with a signed URL — `shared-middlewares/src/upload-url.ts`): the DB stores the canonical unsigned URL (`ownUploadUrl` on writes, which also rejects another tenant's file), and every response signs it with `signUploadUrl(url, row.tenantId)` (15 min, HMAC with `UPLOAD_URL_SECRET` or a key derived from `JWT_SECRET`). A new field holding a file URL needs both.
 - **Money in cents**, integer. **Medication and vaccine quantities in ml** (stakeholder decision, Nov/2026): `Product.mlPerUnit` converts ml to stock units in `StockService.deduct`.
-- **Soft delete** (`deletedAt`) on every table with personal data; never a physical `DELETE` (LGPD).
+- **Soft delete** (`deletedAt`) on every table with personal data; never a physical `DELETE` (LGPD). The runtime role has **no `DELETE`** (`01-create-app-role.sql`): only the MS3 link/item tables rewritten while a quote is a draft are granted it (section 3c) — a new table that really needs it goes in that list. Integration tests clean up through the migration connection (`DATABASE_URL_*`, see `tests/admin-db.ts` in MS3/MS6), never through the app role.
+- **Audit trail** (`audit_log` in MS1, MS3, MS6; LGPD art. 37): every write to personal, clinical or financial data calls `writeAudit(tx, actor, entry)` (`shared-middlewares`) inside the same `withTenant`, recording who, action, table, record id and the **names** of the fields — never the values (the table is insert-only, so values there could never be erased). Detail screens of medical records/exam reports log reads via `findById(ctx, id, { audit: true })`; internal existence checks don't. Event consumers write `user_id` null plus `source`.
 - **Migrations that change the meaning of existing data**: before go-live it was acceptable to rename/drop (homologation data is reseeded); after go-live, only new column + explicit data migration.
 - **Coverage floor 70%** on `src/services/**` and `src/repositories/**`. Tests colocated as `*.test.ts`; integration tests in `tests/` run against the real Postgres as `quironequine_app`. Vitest (not Jest), ESLint 9 flat config — don't reintroduce Jest or `.eslintrc`.
 - **Commits**: `type(scope): descrição` in pt-BR, scopes are service names (`ms1`, `ms2`, `ms3`, `ms6`, `bff`, `pwa`, `infra`, `ci`, `docs`). Branches: `feature/MS3-012-descricao`, `fix/...`.
-- **Git flow**: PRs target **`develop`** (never `main`, which is the GitHub default). `develop → staging` by PR triggers the staging deploy. Don't push or open PRs unless asked.
+- **Git flow**: `develop` is the default branch; feature/fix branches → PR to `develop` → PR `develop → staging` (triggers the deploy). `main` only for closed releases. Every PR gets a review before merge. Don't push or open PRs unless asked.
 - **npm and the lockfile**: re-resolving a transitive dependency can silently drop packages from `package-lock.json`. Fix advisories with root `overrides` and check the lock diff (no removed packages) before committing; then `npm ci`.
 - **CI** (`.github/workflows/*.yml`), per service and path-filtered: lint+typecheck → tests against an ephemeral Postgres (`prisma migrate deploy` + role script) → `audit-ci` (blocking) → Docker build + smoke test. Gitleaks scans the history on every PR.
 
 - Mantenha toda interação com o usuário em PT-BR.
+
+## Pending: security audit (06/11/2026)
+
+The report lives outside the repo (ask Marco for it). Server side of A-02, A-03, M-01 to M-06 is done (branch `fix/SEG-001-auditoria-servidor`). Still open:
+
+1. **PWA side (João, `Documentação/pedidos-para-joao.md`)**: refresh token via `credentials: 'include'` (the server already accepts only the cookie), A-01 (service worker caches personal data keyed only by URL and keeps it after logout), re-fetching an exam before opening its report link, and the `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` ARG in `apps/pwa/Dockerfile` (the workflow already passes it). **Don't open `develop → staging` until the PWA side lands** — until then the PWA on `develop` can't refresh.
+2. Sign-up e-mail confirmation (M-02) waits for MS5 (no e-mail sending yet).
+3. B-01 to B-08, I-01, I-02. MS2/MS3 have no composite tenant FKs yet (they validate references in the service).
+
+Product gaps found alongside: clinic sign-up screen (the API exists), password change, real password reset (today it's a mock).
+

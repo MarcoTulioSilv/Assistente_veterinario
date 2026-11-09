@@ -9,6 +9,10 @@ WORKDIR /app
 # no browser) -- precisa estar definida antes do `next build`.
 ARG NEXT_PUBLIC_BFF_URL
 ENV NEXT_PUBLIC_BFF_URL=$NEXT_PUBLIC_BFF_URL
+# Chave de NAVEGADOR do Google Maps (map-config.ts): pública por natureza,
+# restrita por referenciador HTTP no Google Cloud. Vazia = mapa Leaflet/OSM.
+ARG NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
+ENV NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
 
 COPY package*.json turbo.json tsconfig.base.json ./
 COPY packages ./packages

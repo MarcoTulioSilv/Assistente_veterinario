@@ -1,10 +1,10 @@
 import { PrismaClient } from '@prisma/client';
-import bcrypt from 'bcryptjs';
+import { hashPassword } from '../src/lib/password';
 
 const prisma = new PrismaClient();
 
 async function main(): Promise<void> {
-  const passwordHash = await bcrypt.hash('quironequine123', 12);
+  const passwordHash = await hashPassword('quironequine123');
 
   const tenant = await prisma.tenant.upsert({
     where: { slug: 'clinica-demo' },

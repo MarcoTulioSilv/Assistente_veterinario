@@ -31,11 +31,18 @@ async function registerTenant(
   return { email, password };
 }
 
+/** Valor do cookie HttpOnly qe_refresh no contexto do browser -- sessionStorage não o vê mais. */
+async function getRefreshCookie(page: import('@playwright/test').Page): Promise<string | undefined> {
+  const cookies = await page.context().cookies();
+  return cookies.find((c) => c.name === 'qe_refresh')?.value;
+}
+
 /**
  * Cobre a renovação automática de sessão e o logout real (pedidos-para-joao.md,
  * auditoria de 06/11/2026) contra o stack real. Depende do ms-identity no ar
  * com JWT_ACCESS_EXPIRES_IN=1m (ver README dessa suíte / comando usado para
- * rodar manualmente).
+ * rodar manualmente). Desde a auditoria, o refresh token vive só no cookie
+ * HttpOnly qe_refresh -- a PWA nunca o lê, só manda com credentials:'include'.
  */
 test.describe('Sessão', () => {
   test('renova sozinho com o access token vencido (uma chamada só) e o logout revoga o refresh token', async ({
@@ -50,9 +57,9 @@ test.describe('Sessão', () => {
     await page.getByRole('button', { name: 'Entrar' }).click();
     await page.waitForURL('/dashboard');
 
-    const refreshTokenBefore = await page.evaluate(() => sessionStorage.getItem('refreshToken'));
+    const refreshCookieBefore = await getRefreshCookie(page);
     const accessTokenBefore = await page.evaluate(() => sessionStorage.getItem('accessToken'));
-    expect(refreshTokenBefore).toBeTruthy();
+    expect(refreshCookieBefore).toBeTruthy();
 
     // Espera o access token de 1 min vencer antes de navegar de novo --
     // o dashboard dispara 8 chamadas simultâneas no mount (owners/properties/
@@ -73,16 +80,19 @@ test.describe('Sessão', () => {
     expect(refreshCalls).toBe(1);
 
     const accessTokenAfter = await page.evaluate(() => sessionStorage.getItem('accessToken'));
-    const refreshTokenAfter = await page.evaluate(() => sessionStorage.getItem('refreshToken'));
+    const refreshCookieAfter = await getRefreshCookie(page);
     expect(accessTokenAfter).not.toBe(accessTokenBefore);
-    expect(refreshTokenAfter).not.toBe(refreshTokenBefore);
+    expect(refreshCookieAfter).not.toBe(refreshCookieBefore);
 
     // ─── Logout de verdade: revoga a sessão no servidor ────────────────
     await page.getByRole('button', { name: 'Sair' }).click();
     await page.waitForURL('/login');
 
+    // O cookie já saiu do contexto do browser (clearRefreshCookie no servidor,
+    // resposta do /auth/logout) -- reapresenta o valor antigo, à mão, pra
+    // confirmar que o servidor revogou a sessão (não só que o browser esqueceu).
     const refreshRes = await request.post(`${BFF_URL}/auth/refresh`, {
-      data: { refreshToken: refreshTokenAfter },
+      headers: { Cookie: `qe_refresh=${refreshCookieAfter}` },
     });
     expect(refreshRes.status()).toBe(401);
   });

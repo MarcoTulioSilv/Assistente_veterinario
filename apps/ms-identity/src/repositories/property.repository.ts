@@ -1,6 +1,8 @@
 import type { Property as PrismaProperty } from '@prisma/client';
 import type { RequestContext, UUID, Paginated, Property } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
+import { assertTenantReferences } from './tenant-references';
+import { changedFields, writeAudit } from '@quironequine/shared-middlewares';
 import type { CreatePropertyInput, UpdatePropertyInput, ListPropertiesInput } from '../schemas/property.schema';
 
 /**
@@ -50,6 +52,9 @@ export class PropertyRepository {
     coordinates: { latitude: number; longitude: number } | null,
   ): Promise<Property> {
     return withTenant(ctx.tenantId, async (tx) => {
+      // Antes de criar: proprietário de outro tenant (ou inexistente) é 404,
+      // e a propriedade não fica criada pela metade.
+      await assertTenantReferences(tx, { ownerIds: data.ownerIds });
       const row = await tx.property.create({
         data: {
           tenantId: ctx.tenantId,
@@ -67,7 +72,8 @@ export class PropertyRepository {
 
       if (data.ownerIds && data.ownerIds.length > 0) {
         await tx.propertyOwner.createMany({
-          data: data.ownerIds.map((ownerId, index) => ({
+          // Sem repetição: o mesmo dono duas vezes bateria na UNIQUE (property_id, owner_id).
+          data: [...new Set(data.ownerIds)].map((ownerId, index) => ({
             tenantId: ctx.tenantId,
             propertyId: row.id,
             ownerId,
@@ -76,6 +82,7 @@ export class PropertyRepository {
         });
       }
 
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'create', table: 'properties', recordId: row.id, fields: changedFields(data) });
       return toDomain(row);
     });
   }
@@ -99,15 +106,22 @@ export class PropertyRepository {
           ...(coordinates ? { latitude: coordinates.latitude, longitude: coordinates.longitude } : {}),
         },
       });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, {
+        action: 'update',
+        table: 'properties',
+        recordId: id,
+        fields: [...changedFields(rest), ...(coordinates ? ['latitude', 'longitude'] : [])],
+      });
       return toDomain(row);
     });
   }
 
   /** Soft delete — LGPD exige exportação antes de exclusão física */
   async softDelete(ctx: RequestContext, id: UUID): Promise<void> {
-    await withTenant(ctx.tenantId, (tx) =>
-      tx.property.update({ where: { id }, data: { deletedAt: new Date() } }),
-    );
+    await withTenant(ctx.tenantId, async (tx) => {
+      await tx.property.update({ where: { id }, data: { deletedAt: new Date() } });
+      await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'delete', table: 'properties', recordId: id });
+    });
   }
 }
 

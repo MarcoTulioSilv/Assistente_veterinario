@@ -13,3 +13,10 @@ export const getRouteSchema = z.object({
 });
 
 export type GetRouteInput = z.infer<typeof getRouteSchema>;
+
+/** CEP com máscara (00000-000) -- mesmo formato que o PropertyForm já envia. */
+export const geocodeZipSchema = z.object({
+  zipCode: z.string().regex(/^\d{5}-\d{3}$/, 'CEP deve estar no formato 00000-000'),
+});
+
+export type GeocodeZipInput = z.infer<typeof geocodeZipSchema>;

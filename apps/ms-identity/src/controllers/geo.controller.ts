@@ -1,8 +1,10 @@
 import { Router } from 'express';
+import { AppError } from '@quironequine/shared-middlewares';
 import { RouteService } from '../services/route.service';
 import { OsrmRouteAdapter } from '../adapters/osrm-route-adapter';
+import { mapsAdapter } from '../adapters/shared-instances';
 import { validate } from '../schemas/validate';
-import { getRouteSchema, type GetRouteInput } from '../schemas/geo.schema';
+import { getRouteSchema, geocodeZipSchema, type GetRouteInput, type GeocodeZipInput } from '../schemas/geo.schema';
 
 /**
  * Camada HTTP — Dev 2 é o dono.
@@ -32,6 +34,24 @@ geoRouter.get('/route', validate(getRouteSchema, 'query'), async (req, res, next
       res.status(503).json({ code: 'EXTERNAL_SERVICE_ERROR', message: 'Rota indisponível agora' });
       return;
     }
+    res.json(result);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * CEP automático no mapa do cadastro de propriedade (RF-CAD-002, pedido do
+ * João). Antes rodava direto do navegador pro Nominatim; agora passa pelo
+ * BFF/MS1, mesmo adapter do geocoding por endereço. 404 quando o CEP não
+ * resolve (não é erro do cliente nem de rede -- a tela mostra "CEP não
+ * encontrado" e deixa o mapa como estava).
+ */
+geoRouter.get('/geocode', validate(geocodeZipSchema, 'query'), async (req, res, next) => {
+  try {
+    const { zipCode } = req.query as never as GeocodeZipInput;
+    const result = await mapsAdapter.geocode(`${zipCode}, Brasil`);
+    if (!result) throw AppError.notFound('CEP não encontrado');
     res.json(result);
   } catch (e) {
     next(e);

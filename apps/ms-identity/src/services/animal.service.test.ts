@@ -53,6 +53,24 @@ describe('AnimalService.create', () => {
 });
 
 describe('AnimalService.update', () => {
+  it('recusa trocar a propriedade pela edição (RN-010: só pela transferência)', async () => {
+    const update = vi.fn();
+    const service = new AnimalService(fakeRepo({ update }));
+
+    await expect(
+      service.update(ctx, animal.id, { propertyId: '99999999-9999-9999-9999-999999999999' }),
+    ).rejects.toMatchObject({ statusCode: 422, details: [{ field: 'propertyId' }] });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('aceita o mesmo propertyId (a tela reenvia o formulário inteiro)', async () => {
+    const update = vi.fn().mockResolvedValue(animal);
+    const service = new AnimalService(fakeRepo({ update }));
+
+    await service.update(ctx, animal.id, { name: 'Trovão II', propertyId: animal.propertyId! });
+    expect(update).toHaveBeenCalled();
+  });
+
   it('rejeita quando o animal não existe', async () => {
     const service = new AnimalService(fakeRepo({ findById: vi.fn().mockResolvedValue(null) }));
 

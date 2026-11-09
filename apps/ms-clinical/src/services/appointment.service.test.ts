@@ -329,6 +329,6 @@ describe('AppointmentService — delegações simples', () => {
     await service.listByAnimal(ctx, '77777777-7777-7777-7777-777777777777', { page: 1, limit: 20 });
 
     expect(list).toHaveBeenCalledWith(ctx, { page: 1, limit: 20 });
-    expect(listByAnimal).toHaveBeenCalledWith(ctx, '77777777-7777-7777-7777-777777777777', { page: 1, limit: 20 });
+    expect(listByAnimal).toHaveBeenCalledWith(ctx, '77777777-7777-7777-7777-777777777777', { page: 1, limit: 20 }, { audit: true });
   });
 });

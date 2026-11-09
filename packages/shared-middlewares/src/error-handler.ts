@@ -27,6 +27,7 @@ export function errorHandler(
     return;
   }
 
+  // O serializador `err` do logger tira a mensagem de erro do Prisma (M-05).
   logger.error({ traceId, err }, 'Erro não tratado');
   const body: ApiError = {
     code: 'INTERNAL_ERROR',
