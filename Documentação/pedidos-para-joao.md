@@ -103,7 +103,7 @@ Decisão do Marco: **a única forma de mudar um animal de propriedade é a trans
 
 **O que mudou no servidor:** `PATCH /api/v1/animals/:id` com um `propertyId` **diferente** do atual agora responde **422** (`VALIDATION_ERROR`, campo `propertyId`, "Para mudar o animal de propriedade, use a transferência."). Mandar o mesmo valor que já está gravado continua aceito.
 
-**O que falta, no seu lado do MS1:** tire o `propertyId` do `updateAnimalSchema` (`apps/ms-identity/src/schemas/animal.schema.ts`). Hoje ele é `createAnimalSchema.partial()` e por isso aceita o campo. Algo como `createAnimalSchema.omit({ propertyId: true }).partial()`. Assim, o contrato já diz que a edição não muda a propriedade, e a regra do serviço fica como segunda barreira. Não tem pressa e pode entrar na mesma PR do cookie.
+**Sobre tirar o `propertyId` do `updateAnimalSchema`:** fica como está, você tinha razão (PR #52). Com o campo fora do schema, o Zod descartaria o `propertyId` sem avisar e o `PATCH` responderia 200 ignorando a troca; com ele no schema, o serviço responde 422 e a tela sabe o porquê. Nada a fazer aqui.
 
 ---
 
@@ -118,6 +118,29 @@ Antes, qualquer pessoa com o link de uma foto ou de um **laudo** abria o arquivo
 - **Não guarde links de arquivo** (estado persistido, `localStorage`, cache de API no service worker): eles vencem. A imagem que o navegador já baixou continua na tela.
 - **Link de arquivo de outra clínica é recusado** com 422 ("O arquivo não pertence a esta clínica"). Só acontece se alguém colar um link na mão.
 - O `logoUrl` aceita link externo como antes; esse não é assinado.
+
+---
+
+## Google Maps no staging (depois da PR #52)
+
+O Marco tem a chave de navegador do Google Maps. O lado de infra já está pronto (branch `feature/INFRA-003-google-maps-staging`):
+- o `deploy-staging.yml` passa a chave para o build da PWA como `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY`, lida da variável do repositório `STAGING_GOOGLE_MAPS_BROWSER_KEY`;
+- o `turbo.json` leva `NEXT_PUBLIC_*` em conta no cache do build.
+
+**Falta no `apps/pwa/Dockerfile`, que é seu:** declarar a variável no estágio de build, junto da `NEXT_PUBLIC_BFF_URL`. Sem isso, o `docker build` ignora o build-arg, a chave não entra no bundle e o staging continua no Leaflet.
+
+```dockerfile
+ARG NEXT_PUBLIC_BFF_URL
+ENV NEXT_PUBLIC_BFF_URL=$NEXT_PUBLIC_BFF_URL
+# Chave de NAVEGADOR do Google Maps (map-config.ts): pública por natureza,
+# restrita por referenciador HTTP no Google Cloud. Vazia = mapa Leaflet/OSM.
+ARG NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
+ENV NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY
+```
+
+Pode ir na mesma PR do cookie e da A-01, já que o staging só recebe as duas coisas juntas.
+
+**Detalhe pequeno, sem pressa (`geo.controller.ts`):** o 404 de "CEP não encontrado" é montado à mão (`res.status(404).json(...)`) e sai sem `traceId`. Com `throw AppError.notFound('CEP não encontrado')`, ele fica no formato de erro do resto da API. A PWA continua tratando do mesmo jeito: o status é o mesmo 404.
 
 ---
 

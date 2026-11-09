@@ -9,6 +9,9 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      // NEXT_PUBLIC_* entra no bundle da PWA no build: precisa mudar o hash,
+      // senão o cache devolve um build feito com outra URL/chave.
+      "env": ["NEXT_PUBLIC_*"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
     "dev": {

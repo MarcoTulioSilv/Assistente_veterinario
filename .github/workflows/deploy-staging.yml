@@ -53,9 +53,15 @@ jobs:
           tags: |
             ${{ steps.image.outputs.name }}:${{ github.sha }}
             ${{ steps.image.outputs.name }}:staging
-          # Só a PWA usa: a URL da API entra na imagem no build (Next.js).
+          # Só a PWA usa: a URL da API e a chave de navegador do Google Maps
+          # entram na imagem no build (Next.js). A chave é VARIÁVEL do
+          # repositório (este job não usa o environment staging), não segredo:
+          # vai no bundle do navegador de qualquer jeito, e a proteção é a
+          # restrição por referenciador no Google Cloud. Sem ela, a PWA usa o
+          # mapa Leaflet/OSM.
           build-args: |
             NEXT_PUBLIC_BFF_URL=https://${{ vars.STAGING_API_DOMAIN }}/api/v1
+            NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY=${{ vars.STAGING_GOOGLE_MAPS_BROWSER_KEY }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
