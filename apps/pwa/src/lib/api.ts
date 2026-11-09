@@ -7,7 +7,7 @@ import type {
   Product,
   ProductCategory,
   StockMovement,
-  AuthTokens,
+  AuthSession,
   TenantProfile,
   UpdateVeterinarianDto,
   CreateOwnerDto,
@@ -34,20 +34,41 @@ import type {
 
 const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/api/v1';
 
+// Mesmo nome de API_CACHE em public/sw.js (VERSION) — os dois não podem
+// importar um do outro (um é worker, o outro é módulo TS do client), então
+// o nome fica duplicado aqui de propósito. Atualize os dois juntos.
+const API_CACHE_NAME = 'quironequine-api-v2';
+
+/**
+ * Limpa o cache de respostas da API no Cache Storage (auditoria A-01): sem
+ * isso, um aparelho compartilhado mostra, offline, dados do usuário anterior
+ * (nome, CPF, telefone de outra clínica). Chamado no login (antes da sessão
+ * nova) e dentro de clearSession() (logout e falha de refresh) -- nunca a
+ * cada renovação normal de token, que é o mesmo usuário continuando.
+ */
+export async function clearApiCache(): Promise<void> {
+  if (typeof caches === 'undefined') return;
+  await caches.delete(API_CACHE_NAME).catch(() => undefined);
+}
+
 function getToken(): string | null {
   if (typeof window === 'undefined') return null;
   return sessionStorage.getItem('accessToken');
 }
 
-/** Persiste os tokens da sessão após login — chamado pela tela de login */
-export function setSession(tokens: Pick<AuthTokens, 'accessToken' | 'refreshToken'>): void {
-  sessionStorage.setItem('accessToken', tokens.accessToken);
-  sessionStorage.setItem('refreshToken', tokens.refreshToken);
+/**
+ * Persiste a sessão após login/renovação. O refresh token nunca passa por
+ * aqui -- desde a auditoria de 06/11/2026, ele vive só no cookie HttpOnly
+ * `qe_refresh` (Path=/api/v1/auth), que este módulo não lê nem escreve.
+ */
+export function setSession(session: Pick<AuthSession, 'accessToken'>): void {
+  sessionStorage.setItem('accessToken', session.accessToken);
 }
 
 export function clearSession(): void {
   sessionStorage.removeItem('accessToken');
-  sessionStorage.removeItem('refreshToken');
+  sessionStorage.removeItem('refreshToken'); // limpa resíduo de sessões antigas (pré-cookie)
+  void clearApiCache();
 }
 
 /** Usado por telas protegidas para redirecionar a /login sem sessão. */
@@ -106,21 +127,22 @@ const SKIP_REFRESH_PATHS = ['/auth/login', '/auth/refresh', '/auth/logout'];
 let refreshing: Promise<boolean> | null = null;
 
 /**
- * Renova o par de tokens. Uma renovação por vez: se cinco chamadas voltarem
- * 401 juntas (ex: dashboard disparando várias de uma vez), todas esperam a
+ * Renova a sessão. Uma renovação por vez: se cinco chamadas voltarem 401
+ * juntas (ex: dashboard disparando várias de uma vez), todas esperam a
  * MESMA Promise -- sem isso, cada uma tentaria renovar sozinha e as
  * seguintes cairiam com um refresh token que a primeira já tinha invalidado
  * (auditoria de 06/11/2026, pedidos-para-joao.md). Se o fetch rejeitar (sem
  * rede), a rejeição propaga e quem chamou NÃO limpa a sessão.
+ *
+ * Sem corpo e sem ler o sessionStorage: o refresh token vai só no cookie
+ * HttpOnly `qe_refresh`, que o navegador manda sozinho com `credentials:
+ * 'include'` -- este módulo nunca tem acesso a ele.
  */
 function refreshSession(): Promise<boolean> {
   refreshing ??= (async () => {
-    const refreshToken = sessionStorage.getItem('refreshToken');
-    if (!refreshToken) return false;
     const res = await fetch(`${BASE_URL}/auth/refresh`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refreshToken }),
+      credentials: 'include',
     });
     if (!res.ok) return false;
     setSession(await res.json());
@@ -154,16 +176,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 /** Cliente tipado do BFF — Dev 2 é o dono */
 export const api = {
   auth: {
+    // credentials: 'include' nas três -- sem isso o navegador descarta o
+    // Set-Cookie do login (origem diferente) e não manda o cookie no
+    // refresh/logout. O resto da API não usa credentials: 'include' (o
+    // cookie nem viaja, por causa do Path=/api/v1/auth do cookie).
     login: (email: string, password: string, totpCode?: string) =>
-      request<AuthTokens>('/auth/login', {
+      request<AuthSession>('/auth/login', {
         method: 'POST',
+        credentials: 'include',
         body: JSON.stringify({ email, password, totpCode }),
       }),
-    refresh: (refreshToken: string) =>
-      request<AuthTokens>('/auth/refresh', { method: 'POST', body: JSON.stringify({ refreshToken }) }),
     /** Sempre 204 (ver AuthService.logout) -- não precisa tratar erro. */
-    logout: (refreshToken: string) =>
-      request<void>('/auth/logout', { method: 'POST', body: JSON.stringify({ refreshToken }) }),
+    logout: () => request<void>('/auth/logout', { method: 'POST', credentials: 'include' }),
   },
   owners: {
     list: (params?: {
