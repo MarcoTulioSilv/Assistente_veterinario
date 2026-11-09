@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { AppError } from '@quironequine/shared-middlewares';
 import { RouteService } from '../services/route.service';
 import { OsrmRouteAdapter } from '../adapters/osrm-route-adapter';
 import { mapsAdapter } from '../adapters/shared-instances';
@@ -50,10 +51,7 @@ geoRouter.get('/geocode', validate(geocodeZipSchema, 'query'), async (req, res, 
   try {
     const { zipCode } = req.query as never as GeocodeZipInput;
     const result = await mapsAdapter.geocode(`${zipCode}, Brasil`);
-    if (!result) {
-      res.status(404).json({ code: 'NOT_FOUND', message: 'CEP não encontrado' });
-      return;
-    }
+    if (!result) throw AppError.notFound('CEP não encontrado');
     res.json(result);
   } catch (e) {
     next(e);
