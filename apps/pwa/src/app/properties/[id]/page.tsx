@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { useParams, useRouter } from 'next/navigation';
 import type { Property } from '@quironequine/shared-types';
 import { Button, Spinner, useToast } from '@/components/ui';
@@ -9,14 +10,25 @@ import { api, ApiClientError, hasSession } from '@/lib/api';
 import { PropertyForm } from '../PropertyForm';
 import type { PropertyFormValues } from '../schema';
 
+// O mapa ativo (Leaflet ou Google, ver map-config.ts) mexe em `window`
+// direto -- só pode existir no client (mesmo padrão de properties/new/page.tsx).
+const LocationPicker = dynamic(
+  () => import('../map-config').then((m) => m.ActiveLocationPicker),
+  { ssr: false, loading: () => <div className="h-56 animate-pulse rounded-md bg-slate-100" /> },
+);
+
+type Coords = { latitude: number; longitude: number };
+
 /** Converte '' (placeholder de "não preenchido" no formulário) para undefined. */
-function toUpdateDto(values: PropertyFormValues) {
+function toUpdateDto(values: PropertyFormValues, coords: Coords | null) {
   return {
     name: values.name,
     address: values.address || undefined,
     city: values.city || undefined,
     state: values.state || undefined,
     zipCode: values.zipCode || undefined,
+    latitude: coords?.latitude,
+    longitude: coords?.longitude,
   };
 }
 
@@ -29,6 +41,9 @@ export default function EditPropertyPage(): React.ReactElement | null {
   const [property, setProperty] = useState<Property | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [coords, setCoords] = useState<Coords | null>(null);
+  const [zipCodeForMap, setZipCodeForMap] = useState('');
+  const [zipCodeError, setZipCodeError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!hasSession()) {
@@ -40,7 +55,11 @@ export default function EditPropertyPage(): React.ReactElement | null {
     api.properties
       .get(id)
       .then((data) => {
-        if (!cancelled) setProperty(data);
+        if (cancelled) return;
+        setProperty(data);
+        if (data.latitude !== null && data.longitude !== null) {
+          setCoords({ latitude: data.latitude, longitude: data.longitude });
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
@@ -65,7 +84,7 @@ export default function EditPropertyPage(): React.ReactElement | null {
 
   async function handleSubmit(values: PropertyFormValues): Promise<void> {
     try {
-      const updated = await api.properties.update(id, toUpdateDto(values));
+      const updated = await api.properties.update(id, toUpdateDto(values, coords));
       setProperty(updated);
       toast({ title: 'Alterações salvas', variant: 'success' });
     } catch (err) {
@@ -123,7 +142,6 @@ export default function EditPropertyPage(): React.ReactElement | null {
           <h1 className="mt-2 text-xl font-bold text-primary-800">{property.name}</h1>
           <p className="mt-1 text-sm text-slate-500">
             Status: <strong>{property.status === 'active' ? 'Ativa' : 'Pendente'}</strong>
-            {property.latitude && property.longitude ? ' · localização no mapa resolvida' : ''}
           </p>
         </div>
         <PropertyForm
@@ -137,6 +155,8 @@ export default function EditPropertyPage(): React.ReactElement | null {
           onSubmit={handleSubmit}
           submitLabel="Salvar alterações"
           submittingLabel="Salvando"
+          onZipCodeChange={setZipCodeForMap}
+          zipCodeError={zipCodeError}
           footer={
             <Button
               type="button"
@@ -148,7 +168,17 @@ export default function EditPropertyPage(): React.ReactElement | null {
               {deleting ? 'Removendo' : 'Remover propriedade'}
             </Button>
           }
-        />
+        >
+          <LocationPicker
+            value={coords}
+            onChange={(next) => {
+              setCoords(next);
+              setZipCodeError(null);
+            }}
+            zipCode={zipCodeForMap}
+            onZipCodeError={setZipCodeError}
+          />
+        </PropertyForm>
       </div>
     </main>
   );

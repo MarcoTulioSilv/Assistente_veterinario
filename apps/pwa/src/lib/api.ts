@@ -313,6 +313,16 @@ export const api = {
         throw err;
       }
     },
+    // 404 (CEP não encontrado) é um estado válido, não um erro -- a tela
+    // mostra a mensagem ao lado do campo e deixa o mapa como estava.
+    geocodeZip: async (zipCode: string) => {
+      try {
+        return await request<GeoPoint>(`/geo/geocode?${buildQuery({ zipCode })}`);
+      } catch (err) {
+        if (err instanceof ApiClientError && err.status === 404) return null;
+        throw err;
+      }
+    },
   },
   vaccinations: {
     list: (params?: { page?: number; limit?: number; animalId?: string }) =>
