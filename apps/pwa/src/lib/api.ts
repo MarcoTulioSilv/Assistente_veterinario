@@ -37,7 +37,7 @@ const BASE_URL = process.env['NEXT_PUBLIC_BFF_URL'] ?? 'http://localhost:3000/ap
 // Mesmo nome de API_CACHE em public/sw.js (VERSION) — os dois não podem
 // importar um do outro (um é worker, o outro é módulo TS do client), então
 // o nome fica duplicado aqui de propósito. Atualize os dois juntos.
-const API_CACHE_NAME = 'quironequine-api-v2';
+const API_CACHE_NAME = 'quironequine-api-v3';
 
 /**
  * Limpa o cache de respostas da API no Cache Storage (auditoria A-01): sem
@@ -54,6 +54,32 @@ export async function clearApiCache(): Promise<void> {
 function getToken(): string | null {
   if (typeof window === 'undefined') return null;
   return sessionStorage.getItem('accessToken');
+}
+
+function base64UrlDecode(input: string): string {
+  const padded = input.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(input.length / 4) * 4, '=');
+  return atob(padded);
+}
+
+/**
+ * `tenantId:userId` do access token (claims `tid`/`sub`, mesmo formato que
+ * authMiddleware exige no servidor) -- usado só pra escopar o cache do
+ * service worker por usuário (A-01, parte "desejável" do pedido), nunca pra
+ * decidir autorização (isso é sempre o servidor). Decodifica o JWT local,
+ * sem validar assinatura -- não precisa: o valor só vira uma chave de cache,
+ * um token forjado no máximo embaralha o próprio cache de quem o forjou.
+ */
+function cacheScope(): string | null {
+  const token = getToken();
+  const payloadB64 = token?.split('.')[1];
+  if (!payloadB64) return null;
+  try {
+    const payload = JSON.parse(base64UrlDecode(payloadB64)) as { sub?: string; tid?: string };
+    if (!payload.sub || !payload.tid) return null;
+    return `${payload.tid}:${payload.sub}`;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -99,9 +125,14 @@ function buildHeaders(init?: RequestInit): HeadersInit {
   // FormData (upload de arquivo) precisa que o browser defina Content-Type
   // sozinho (com o boundary do multipart) — setar manualmente quebra o parse.
   const isFormData = init?.body instanceof FormData;
+  const scope = cacheScope();
   return {
     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    // Lido só pelo service worker (A-01) pra nunca servir, do cache
+    // offline, a resposta de outro usuário/tenant no mesmo aparelho --
+    // ver sw.js. Sem efeito nenhum no servidor.
+    ...(scope ? { 'X-Cache-Scope': scope } : {}),
     ...init?.headers,
   };
 }

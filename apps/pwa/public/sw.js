@@ -14,7 +14,7 @@
  * ══════════════════════════════════════════════════════════════════
  */
 
-const VERSION = 'v2'; // v1 -> v2: força o activate a apagar o cache de API antigo (auditoria A-01)
+const VERSION = 'v3'; // v2 -> v3: chave do cache de API passa a levar X-Cache-Scope (auditoria A-01)
 const SHELL_CACHE = `quironequine-shell-${VERSION}`;
 const API_CACHE = `quironequine-api-${VERSION}`;
 const OFFLINE_URL = '/offline';
@@ -80,8 +80,25 @@ self.addEventListener('fetch', (event) => {
 });
 
 // ─── Estrategias ──────────────────────────────────────────────────
+
+/**
+ * Chave de cache escopada por usuário (auditoria A-01, item "desejável"):
+ * api.ts manda X-Cache-Scope: <tenantId>:<userId> em toda chamada. Sem o
+ * escopo na chave, dois usuários do mesmo aparelho (ou dois tenants)
+ * compartilhariam a mesma entrada pra mesma URL -- o próximo, offline, veria
+ * os dados do anterior mesmo com o cache "certo" pra aquela rota. Também
+ * fecha a corrida do logout: uma resposta que grava no cache bem depois do
+ * clearApiCache() cai no escopo de QUEM fez a chamada (o usuário que saiu),
+ * nunca no do próximo que logar -- o escopo dele é outro, nunca bate.
+ */
+function scopedKey(request) {
+  const scope = request.headers.get('X-Cache-Scope');
+  return scope ? `${request.url}#scope=${scope}` : request.url;
+}
+
 async function networkFirst(request, cacheName) {
   const cache = await caches.open(cacheName);
+  const key = scopedKey(request);
 
   try {
     const controller = new AbortController();
@@ -90,12 +107,12 @@ async function networkFirst(request, cacheName) {
     clearTimeout(timeout);
 
     if (response.ok) {
-      cache.put(request, response.clone());
+      cache.put(key, response.clone());
       void trimCache(cacheName, API_CACHE_LIMIT);
     }
     return response;
   } catch {
-    const cached = await cache.match(request);
+    const cached = await cache.match(key);
     if (cached) {
       const headers = new Headers(cached.headers);
       headers.set('X-QuironEquine-From-Cache', 'true');
