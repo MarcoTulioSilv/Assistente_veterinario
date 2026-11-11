@@ -178,6 +178,30 @@ A chave entra na imagem no build: depois de cadastrar ou trocar, só vale no pr�
 - **Situação:** `docker compose --env-file .env.staging ps` (todos devem estar `healthy` ou `running`).
 - **Recriar os dados de homologação:** rode o workflow **Seed staging** de novo. Ele apaga e recria **só** os tenants de homologação.
 
+### 6.1 Conferir logs e disco
+
+No servidor, como `deploy`:
+
+```bash
+cd /opt/quironequine
+dc() { docker compose --env-file .env.staging "$@"; }
+
+dc ps                                        # todos "running (healthy)"?
+dc logs --since 1h --tail 100 ms-identity    # um serviço; troque o nome
+dc logs -f bff                               # acompanhar ao vivo (Ctrl+C sai)
+dc logs --since 24h --no-log-prefix 2>&1 | grep -E '"level":(50|60)' | tail -n 30   # erros (Pino: 50 = error, 60 = fatal)
+```
+
+Os logs não trazem dado pessoal: erro do Prisma sai só com tipo e código (`safe-error.ts`). Cada contêiner guarda no máximo 5 arquivos de 10 MB:
+
+```bash
+docker inspect --format '{{.Name}} {{.HostConfig.LogConfig.Type}} {{json .HostConfig.LogConfig.Config}}' $(dc ps -q)
+sudo sh -c 'du -sh /var/lib/docker/containers/*/*-json.log' | sort -h | tail -n 5
+df -h /                                      # disco livre
+docker system df                             # imagens, contêineres, volumes
+docker image ls --format '{{.Repository}}:{{.Tag}}  {{.Size}}' | grep quironequine   # só a versão atual e uma anterior
+```
+
 ## 7. Backup e restauração
 
 **Agendar** (uma vez, no servidor, como `deploy`): `crontab -e` e acrescente
@@ -187,6 +211,25 @@ A chave entra na imagem no build: depois de cadastrar ou trocar, só vale no pr�
 ```
 
 O backup gera um `pg_dump` de cada banco e um `.tar.gz` dos uploads em `backups/AAAAMMDD-HHMM/`, e guarda 14 dias. Staging tem só dados de homologação, recriáveis pelo seed. A cópia fora do servidor fica para produção.
+
+**Conferir se está rodando** (no servidor, como `deploy`):
+
+```bash
+cd /opt/quironequine
+crontab -l | grep backup.sh                  # o agendamento existe?
+tail -n 10 backups/backup.log                # uma linha "backup ok" por noite
+ls -1d backups/2* | tail -n 5                # pastas dos últimos dias
+
+ULTIMO=$(ls -1d backups/2* | tail -n 1); echo "$ULTIMO"; ls -lh "$ULTIMO"   # 4 .dump + uploads.tar.gz, nenhum com 0 byte
+tar -tzf "$ULTIMO/uploads.tar.gz" | grep -vc '/$'                            # arquivos no backup...
+docker run --rm -v quironequine-staging_uploads:/u:ro alpine sh -c 'find /u -type f | wc -l'   # ...e no volume (devem bater)
+for db in identity inventory clinical reporting; do
+  printf '%s: ' "$db"
+  docker compose --env-file .env.staging exec -T postgres pg_restore --list < "$ULTIMO/$db.dump" | grep -c 'TABLE DATA'
+done                                         # tabelas com dados em cada dump (nenhum 0)
+```
+
+Se o `crontab -l` não mostrar nada, o agendamento não foi feito: acrescente a linha acima e rode `./backup.sh` uma vez à mão para conferir.
 
 **Restaurar um banco** (ex.: `clinical`):
 ```bash
