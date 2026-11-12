@@ -16,7 +16,7 @@ Levantado na `develop` (commit `f5fa804`), para não planejar o que já está pr
 | Fila `domain-events-notification` | Acumula desde que o staging subiu (ADR-002, ponta solta nº 3). | Ao subir, o MS5 receberia lembretes vencidos. Precisa de regra de descarte (Sprint 10). |
 | Fatia financeira do MS6 (v1.3) | `financial_records` + consumo de 6 eventos (abre e cancela pendência) + `GET /financial` (filtro por status e proprietário), `GET /financial/by-source`, `POST /financial/:id/register-payment`. | Falta: filtro por período (RF-REL-003), saídas avulsas (RF-REL-002), fluxo de caixa (RF-REL-001) e dashboard (RF-REL-005). |
 | Compras de estoque no caixa | `stock_movements` não guarda valor. `stock.deducted` está declarado sem uso (ADR-002, ponta solta nº 2). | Por decisão de 12/11, sem entrada automática: rota própria no MS6 (Sprint 11). `stock.deducted` é removido. |
-| "Agendar retorno" (RF-ATD-010) | Previsto como placeholder na Sprint 5, **mas não existe na PWA**. | Por decisão de 12/11, o retorno é definido no próprio atendimento (Sprint 9). |
+| "Agendar retorno" (RF-ATD-010) | Previsto como placeholder na Sprint 5, **mas não existe na PWA**. | Por decisão de 12/11, o retorno é opcional e usa a rota "agendar visita" do MS4, que também tem tela própria (Sprint 9). |
 | `requirePlus` / `requireRole` | Existem em `shared-middlewares`, **sem nenhum uso**. `PlanService.assertUserLimit()` e `isPlus()` também não são chamados fora dos testes. | Hoje só o limite de 30 cadastros diferencia os planos. `requirePlus` na Sprint 11, `requireRole` na Sprint 12. |
 | Usuários e assistentes (RF-CAD-032) | `User.role` aceita `assistant` e o limite (1 no Básico, 3 no Plus) existe, mas **não há rota para criar usuário**. | Sprint 12, com a revisão pelo veterinário. |
 | Configurações (RF-CFG) | RF-CFG-002 (valor do km) e RF-CFG-003 (dados do veterinário): prontos em `PATCH /tenants/me`. RF-CFG-004: limites **por produto** prontos; **globais** não. RF-CFG-001: substituído em 20/10/2026 (confirmado em 12/11). RF-CFG-005 (raio do geofence): não existe. | A tela de Configurações reúne o que existe e acrescenta limites globais, raio, dias sem visita e preferências de notificação. |
@@ -39,7 +39,7 @@ Levantado na `develop` (commit `f5fa804`), para não planejar o que já está pr
 | 5 | Pendência para o geofence (RN-008) | Retorno agendado ainda não concluído, ou proprietário sem visita há mais de N dias (N configurável). |
 | 6 | Contas de WhatsApp e e-mail | Canais implementados, mas desligados até as contas existirem. |
 | 7 | Destinatário | Nenhuma notificação vai para o proprietário. Todas vão para o veterinário. |
-| 8 | Data do retorno | Definida no próprio atendimento. |
+| 8 | Retorno | Opcional, oferecido ao finalizar o atendimento. Usa a rota "agendar visita" do MS4, que o veterinário também usa a qualquer momento, em tela própria. |
 | 9 | Compra de estoque no fluxo de caixa | Não entra automaticamente. Criar uma rota de entrada de compra de estoque; a regra será definida na próxima reunião. |
 | 10 | Assistente | Todo dado inserido pelo assistente (atendimentos, lançamentos de estoque etc.) é revisado pelo veterinário. O veterinário pode desativar a revisão manualmente. |
 | 11 | Saídas avulsas e fluxo de caixa | Só no Plus. O Básico tem a listagem. |
@@ -74,22 +74,22 @@ contas existirem.
 
 ### Sprint 9 — Semanas 17 e 18: Agenda (MS4)
 
-Objetivo: agenda mensal e semanal com lembrete por horário, atividades do dia no dashboard e retorno
-definido no próprio atendimento, que vai para a agenda ao finalizar. Os lembretes já são publicados e
-esperam na fila do MS5, como os do M2.
+Objetivo: agenda mensal e semanal com lembrete por horário, atividades do dia no dashboard e
+agendamento de visita, em tela própria ou como retorno opcional ao finalizar o atendimento. Os lembretes
+já são publicados e esperam na fila do MS5, como os do M2.
 
 | Dev 1 — Marco Tulio (Back / DB) | Dev 2 — Joao Paiva (UI / Back) |
 |---|---|
 | Scaffolding de `apps/ms-scheduling` (porta 3004) no padrão dos outros serviços; CI (`ms-scheduling.yml`) e `rls-guard` desde o primeiro commit | Telas do M2 que faltam: exames, vacinação e registro de pagamento (ver `pedidos-para-joao.md`) |
 | Schema MS4: `schedule_events` (data/hora, tipo de atividade, proprietário, propriedade, animais, observações, status, origem), `event_reminders` e `audit_log`, com RLS (RF-AGD-001/002/004) | Controllers MS4 (Zod): criar, editar, cancelar, concluir, listar por intervalo e "hoje"; rota `/api/v1/schedule` no BFF |
 | ScheduleService: CRUD, listagem por mês/semana, eventos do dia em ordem cronológica no fuso de São Paulo (RF-AGD-003, RN-011) | Tela Agenda: visões mensal e semanal, formulário com Proprietário antes de Propriedade (RN-001) e lembretes por horário |
-| Retorno (RF-ATD-010, RF-AGD-006): campo `returnAt` no atendimento (MS3, editável no rascunho) e no `appointment.done`, junto com propriedade e animais; o MS4 assina o evento e cria o retorno na agenda, idempotente | Campo "Retorno" (data e hora) no formulário de atendimento; o retorno aparece na agenda depois de finalizar |
+| Rota "agendar visita" (`POST /schedule/visits`): proprietário, propriedade, animais, data/hora, observações e origem opcional. O retorno (RF-ATD-010, RF-AGD-006) usa a mesma rota com origem no atendimento, no máximo um retorno por atendimento | Tela própria "Agendar visita" e retorno opcional ao finalizar o atendimento: o mesmo formulário, pré-preenchido com proprietário, propriedade e animais do atendimento |
 | Última visita por proprietário (para o geofence da Sprint 11): o MS4 registra a data a partir de `appointment.done` e `vaccination.applied`, com carga inicial única a partir do MS3 | Dashboard: atividades do dia por horário (RF-AGD-003, RN-011), no lugar do placeholder da Sprint 2 |
-| Job de lembretes (`upsertJobScheduler`, a cada 5 min): varredura entre tenants por `SECURITY DEFINER` (ADR-006), publica `schedule.reminder_due` com chave idempotente por (evento, antecedência). Contratos do MS4 e do MS5 publicados em shared-types | Testes E2E: criar evento, ver no dia, retorno definido no atendimento aparece na agenda |
-| Testes unitários: ScheduleService, retorno, última visita e job de lembretes (≥ 70%) | |
+| Job de lembretes (`upsertJobScheduler`, a cada 5 min): varredura entre tenants por `SECURITY DEFINER` (ADR-006), publica `schedule.reminder_due` com chave idempotente por (evento, antecedência). Contratos do MS4 e do MS5 publicados em shared-types | Testes E2E: criar evento, ver no dia, agendar visita pela tela própria e como retorno de um atendimento |
+| Testes unitários: ScheduleService, visita e retorno, última visita e job de lembretes (≥ 70%) | |
 
-**Entregável Sprint 9:** agenda mensal e semanal, atividades do dia no dashboard, retorno definido no
-atendimento e levado para a agenda. Telas de exames, vacinação e pagamento na PWA.
+**Entregável Sprint 9:** agenda mensal e semanal, atividades do dia no dashboard, visitas agendadas em
+tela própria ou como retorno opcional do atendimento. Telas de exames, vacinação e pagamento na PWA.
 
 ### Sprint 10 — Semanas 19 e 20: Notificações (MS5)
 
@@ -198,8 +198,9 @@ Objetivo: deploy em staging, correções pós-testes, apresentação formal e li
   convite) vão em evento com token de vida curta e `removeOnComplete`; o MS5 envia.
 - **ADR-008 (Sprint 12):** modelo da revisão dos dados do assistente.
 - **ADR-002, revisão 1.5:** payloads de `schedule.reminder_due` e `geofence.triggered`; o MS4 passa a
-  assinar `appointment.done` e `vaccination.applied`; `appointment.done` ganha `propertyId`,
-  `animalIds` e `returnAt`; `payment.registered` deixa de ter destino no MS5; `stock.deducted` sai.
+  assinar `appointment.done` e `vaccination.applied` (última visita, sem mudar os payloads);
+  `payment.registered` deixa de ter destino no MS5; `stock.deducted` sai. O retorno não passa pelo
+  broker: é uma chamada à rota "agendar visita".
 - **ADR-001:** §3 — as Configurações ficam com o serviço dono de cada dado (MS1, MS2, MS4, MS5), não no
   Reporting; §5.3 — `payment.registered` não notifica mais o proprietário.
 
