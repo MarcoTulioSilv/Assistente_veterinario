@@ -45,7 +45,7 @@ x-common-env: &common-env
 
 services:
   # Um servidor Postgres com um BANCO por serviço (identity, inventory,
-  # clinical, scheduling, reporting) — continua database-per-service (ADR-001 §5.1),
+  # clinical, scheduling, notification, reporting) — continua database-per-service (ADR-001 §5.1),
   # com isolamento por banco e por role; economiza a memória de 4 servidores.
   postgres:
     image: postgres:16-alpine
@@ -92,6 +92,10 @@ services:
       <<: *common-env
       PORT_MS_IDENTITY: 3001
       DATABASE_URL_IDENTITY_APP: postgresql://quironequine_app:${APP_DB_PASSWORD:?defina APP_DB_PASSWORD}@postgres:5432/identity
+      # Rota interna que o MS5 consulta (ADR-007). O deploy.sh gera o token.
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN:?defina INTERNAL_SERVICE_TOKEN}
+      # Confirmação de e-mail do cadastro (M-02): desligada até existir a conta de e-mail.
+      EMAIL_VERIFICATION_ENABLED: 'false'
       # Base das URLs públicas de upload (fotos, laudos).
       PUBLIC_BFF_URL: https://${API_DOMAIN:?defina API_DOMAIN}
     volumes:
@@ -121,6 +125,26 @@ services:
       PORT_MS_SCHEDULING: 3004
       DATABASE_URL_SCHEDULING_APP: postgresql://quironequine_app:${APP_DB_PASSWORD}@postgres:5432/scheduling
 
+  ms-notification:
+    <<: *app
+    image: ${REGISTRY}/quironequine-ms-notification:${IMAGE_TAG:-staging}
+    environment:
+      <<: *common-env
+      PORT_MS_NOTIFICATION: 3005
+      DATABASE_URL_NOTIFICATION_APP: postgresql://quironequine_app:${APP_DB_PASSWORD}@postgres:5432/notification
+      MS_IDENTITY_URL: http://ms-identity:3001
+      INTERNAL_SERVICE_TOKEN: ${INTERNAL_SERVICE_TOKEN}
+      # Web Push: o deploy.sh gera o par de chaves. O adapter é do Dev 2;
+      # sem ele, o push fica desligado e a caixa de entrada funciona.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: mailto:${ACME_EMAIL:-}
+      # Telas da PWA que recebem o token dos e-mails da conta.
+      APP_URL: https://${APP_DOMAIN}
+      # Desligados até existirem as contas (decisão de 12/11/2026).
+      WHATSAPP_ENABLED: 'false'
+      EMAIL_ENABLED: 'false'
+
   ms-reporting:
     <<: *app
     image: ${REGISTRY}/quironequine-ms-reporting:${IMAGE_TAG:-staging}
@@ -134,7 +158,7 @@ services:
     restart: unless-stopped
     logging: *logging
     networks: [internal]
-    depends_on: [ms-identity, ms-inventory, ms-clinical, ms-scheduling, ms-reporting]
+    depends_on: [ms-identity, ms-inventory, ms-clinical, ms-scheduling, ms-notification, ms-reporting]
     environment:
       <<: *common-env
       PORT_BFF: 3000
@@ -142,6 +166,7 @@ services:
       MS_INVENTORY_URL: http://ms-inventory:3002
       MS_CLINICAL_URL: http://ms-clinical:3003
       MS_SCHEDULING_URL: http://ms-scheduling:3004
+      MS_NOTIFICATION_URL: http://ms-notification:3005
       MS_REPORTING_URL: http://ms-reporting:3006
       # Origem liberada no CORS: o endereço da PWA.
       NEXT_PUBLIC_APP_URL: https://${APP_DOMAIN:?defina APP_DOMAIN}

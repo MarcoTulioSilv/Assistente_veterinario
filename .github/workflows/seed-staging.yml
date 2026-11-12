@@ -31,7 +31,7 @@ jobs:
       - run: npm ci
       # O seed usa o cliente Prisma de cada serviço e as regras dos services.
       - run: |
-          for s in ms-identity ms-inventory ms-clinical ms-scheduling ms-reporting; do
+          for s in ms-identity ms-inventory ms-clinical ms-scheduling ms-notification ms-reporting; do
             npx prisma generate --schema "apps/$s/prisma/schema.prisma"
           done
           npm run build -w @quironequine/shared-types
@@ -61,5 +61,5 @@ jobs:
         run: |
           DATABASE_URL_IDENTITY="$PG/identity" DATABASE_URL_INVENTORY="$PG/inventory" \
           DATABASE_URL_CLINICAL="$PG/clinical" DATABASE_URL_REPORTING="$PG/reporting" \
-          DATABASE_URL_SCHEDULING="$PG/scheduling" \
+          DATABASE_URL_SCHEDULING="$PG/scheduling" DATABASE_URL_NOTIFICATION="$PG/notification" \
             npx tsx scripts/seed-homologacao.ts
