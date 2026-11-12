@@ -58,6 +58,17 @@ function checkEvent(event: ScheduleEventData, errors: FieldError[]): void {
   }
 }
 
+/**
+ * Nenhum lembrete no passado: o instante de cada um (início − antecedência)
+ * tem de ser agora ou depois. Evento passado pode existir (registrar uma
+ * visita feita), mas sem lembrete.
+ */
+export function checkRemindersNotPast(startsAt: Date, minutes: number[], now: Date, errors: FieldError[]): void {
+  if (minutes.some((m) => startsAt.getTime() - m * 60 * 1000 < now.getTime())) {
+    errors.push({ field: 'reminderMinutesBefore', message: 'Lembrete cairia no passado' });
+  }
+}
+
 function throwIfErrors(errors: FieldError[]): void {
   if (errors.length > 0) throw AppError.validation('Evento da agenda inválido', errors);
 }
@@ -67,6 +78,7 @@ export function toEventData(
   activityType: ScheduleActivityType,
   dto: Omit<CreateScheduleEventDto, 'activityType'>,
   sourceAppointmentId: UUID | null,
+  now: Date,
 ): ScheduleEventData {
   const errors: FieldError[] = [];
   const startsAt = parseDate(dto.startsAt, 'startsAt', errors);
@@ -86,6 +98,7 @@ export function toEventData(
     sourceAppointmentId,
   };
   checkEvent(data, errors);
+  checkRemindersNotPast(data.startsAt, data.reminderMinutesBefore, now, errors);
   throwIfErrors(errors);
   return data;
 }
@@ -138,7 +151,7 @@ export class ScheduleService implements IScheduleService {
 
   async create(ctx: RequestContext, data: CreateScheduleEventDto): Promise<ScheduleEvent> {
     const { activityType, ...rest } = data;
-    return this.repo.create(ctx, toEventData(activityType, rest, null));
+    return this.repo.create(ctx, toEventData(activityType, rest, null, this.now()));
   }
 
   /**
@@ -149,7 +162,7 @@ export class ScheduleService implements IScheduleService {
    */
   async scheduleVisit(ctx: RequestContext, data: ScheduleVisitDto): Promise<ScheduleEvent> {
     const { sourceAppointmentId, ...rest } = data;
-    return this.repo.create(ctx, toEventData('visit', rest, sourceAppointmentId ?? null));
+    return this.repo.create(ctx, toEventData('visit', rest, sourceAppointmentId ?? null, this.now()));
   }
 
   /** Só em `scheduled`. Valida o evento como ficará depois da edição. */
@@ -174,20 +187,27 @@ export class ScheduleService implements IScheduleService {
     }
     throwIfErrors(errors);
 
+    const startsAt = patch.startsAt ?? new Date(current.startsAt);
+    const reminders = patch.reminderMinutesBefore ?? current.reminderMinutesBefore;
     checkEvent(
       {
         activityType: current.activityType,
-        startsAt: patch.startsAt ?? new Date(current.startsAt),
+        startsAt,
         endsAt: patch.endsAt !== undefined ? patch.endsAt : current.endsAt ? new Date(current.endsAt) : null,
         ownerId: patch.ownerId !== undefined ? patch.ownerId : current.ownerId,
         propertyId: patch.propertyId !== undefined ? patch.propertyId : current.propertyId,
         animalIds: patch.animalIds ?? current.animalIds,
         notes: null,
-        reminderMinutesBefore: patch.reminderMinutesBefore ?? current.reminderMinutesBefore,
+        reminderMinutesBefore: reminders,
         sourceAppointmentId: current.sourceAppointmentId,
       },
       errors,
     );
+    // Só quando horário ou lembretes mudam: corrigir a observação de um evento
+    // cujo lembrete já disparou continua possível.
+    if (patch.startsAt !== undefined || patch.reminderMinutesBefore !== undefined) {
+      checkRemindersNotPast(startsAt, reminders, this.now(), errors);
+    }
     throwIfErrors(errors);
 
     const updated = await this.repo.update(ctx, id, patch);

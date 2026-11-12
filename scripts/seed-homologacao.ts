@@ -978,7 +978,9 @@ async function seedSchedule(h: Herd): Promise<{ events: number; today: number; v
         propertyId: s.property?.id ?? null,
         animalIds: s.returnOf?.animalIds ?? (s.property ? animalsOf(s.property).slice(0, 2) : []),
         notes: s.notes ?? null,
-        reminderMinutesBefore: s.reminders ?? [],
+        // Mesma regra do ScheduleService: lembrete não cai no passado. Os eventos
+        // de hoje cedo ficam sem o lembrete que já teria disparado.
+        reminderMinutesBefore: (s.reminders ?? []).filter((m) => s.at.getTime() - m * 60 * 1000 >= Date.now()),
         sourceAppointmentId: s.returnOf?.id ?? null,
         createdBy: s.vet.userId,
         completedAt: s.status === 'done' ? s.at : null,

@@ -50,7 +50,7 @@ Declare `/day`, `/returns/:appointmentId` e `/visits` antes de `/:id`.
 - `activityType`: `'appointment' | 'visit' | 'vaccination' | 'exam' | 'other'` (só no `POST /schedule`; a visita não manda).
 - `startsAt`, `endsAt`, `from`, `to`: data ISO com fuso (`z.string().datetime({ offset: true })`); `endsAt` aceita `null`.
 - `ownerId`, `propertyId`, `sourceAppointmentId`: UUID; `ownerId`/`propertyId` aceitam `null` (só faz sentido em `other`; o service recusa nos outros tipos).
-- `animalIds`: array de UUID com `.max(50)`. `reminderMinutesBefore`: inteiros de 0 a `SCHEDULE_LIMITS.maxReminderMinutesBefore`, `.max(SCHEDULE_LIMITS.maxReminders)`. Todo array com `.max`, por causa do Zod 3 (GHSA-mrhx-c7xc-m3w5).
+- `animalIds`: array de UUID com `.max(50)`. `reminderMinutesBefore`: inteiros de 0 a `SCHEDULE_LIMITS.maxReminderMinutesBefore`, `.max(SCHEDULE_LIMITS.maxReminders)`. Nenhum lembrete pode cair no passado (início − antecedência ≥ agora): o service devolve 422 em `reminderMinutesBefore`. Na tela, esconda ou desabilite as antecedências que já passaram; evento no passado (registrar uma visita feita) vai sem lembrete. Todo array com `.max`, por causa do Zod 3 (GHSA-mrhx-c7xc-m3w5).
 - `notes`: `.max(2000)`, aceita `null`. `status` (filtro): `'scheduled' | 'done' | 'cancelled'`.
 - Intervalo da listagem: até `SCHEDULE_LIMITS.maxListDays` (62) dias.
 

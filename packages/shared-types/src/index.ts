@@ -1065,7 +1065,11 @@ export interface ScheduleEvent {
   propertyId: UUID | null;
   animalIds: UUID[];
   notes: string | null;
-  /** RF-AGD-004: minutos antes de `startsAt`, em ordem crescente, sem repetição. */
+  /**
+   * RF-AGD-004: minutos antes de `startsAt`, em ordem crescente, sem repetição.
+   * Nenhum pode cair no passado (início − antecedência ≥ agora) ao criar ou ao
+   * mudar horário/lembretes — evento passado só sem lembrete.
+   */
   reminderMinutesBefore: number[];
   /**
    * Preenchido quando a visita é o retorno de um atendimento (RF-ATD-010,

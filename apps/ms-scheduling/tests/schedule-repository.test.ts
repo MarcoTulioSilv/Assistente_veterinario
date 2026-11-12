@@ -41,7 +41,7 @@ const OWNER_ID = randomUUID();
 const PROPERTY_ID = randomUUID();
 
 function visit(startsAt: string, extra: Record<string, unknown> = {}) {
-  return { startsAt, ownerId: OWNER_ID, propertyId: PROPERTY_ID, reminderMinutesBefore: [60], ...extra };
+  return { startsAt, ownerId: OWNER_ID, propertyId: PROPERTY_ID, ...extra };
 }
 
 function appointmentDone(tenantId: string, performedAt: string, propertyId = PROPERTY_ID): DomainEvent<unknown> {

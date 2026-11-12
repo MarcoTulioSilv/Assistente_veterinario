@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import type { RequestContext, ScheduleEvent } from '@quironequine/shared-types';
 import { AppError } from '@quironequine/shared-middlewares';
 import type { ScheduleEventRepository } from '../repositories/schedule-event.repository';
-import { ScheduleService, normalizeReminders, toEventData } from './schedule.service';
+import { ScheduleService, normalizeReminders, toEventData, checkRemindersNotPast } from './schedule.service';
 
 const ctx: RequestContext = {
   tenantId: '11111111-1111-1111-1111-111111111111',
@@ -82,11 +82,11 @@ describe('normalizeReminders (RF-AGD-004)', () => {
 
 describe('toEventData', () => {
   it('exige proprietário e propriedade fora de `other` (RF-AGD-002)', () => {
-    expect(() => toEventData('visit', { startsAt: '2026-11-20T13:00:00Z' }, null)).toThrow(AppError);
+    expect(() => toEventData('visit', { startsAt: '2026-11-20T13:00:00Z' }, null, NOW)).toThrow(AppError);
   });
 
   it('`other` pode não ter cliente', () => {
-    const data = toEventData('other', { startsAt: '2026-11-20T13:00:00Z' }, null);
+    const data = toEventData('other', { startsAt: '2026-11-20T13:00:00Z' }, null, NOW);
     expect(data.ownerId).toBeNull();
     expect(data.propertyId).toBeNull();
   });
@@ -94,9 +94,9 @@ describe('toEventData', () => {
   it('recusa fim antes do início e data inválida', () => {
     const base = { ownerId: OWNER_ID, propertyId: PROPERTY_ID };
     expect(() =>
-      toEventData('visit', { ...base, startsAt: '2026-11-20T13:00:00Z', endsAt: '2026-11-20T12:00:00Z' }, null),
+      toEventData('visit', { ...base, startsAt: '2026-11-20T13:00:00Z', endsAt: '2026-11-20T12:00:00Z' }, null, NOW),
     ).toThrow(AppError);
-    expect(() => toEventData('visit', { ...base, startsAt: 'ontem' }, null)).toThrow(AppError);
+    expect(() => toEventData('visit', { ...base, startsAt: 'ontem' }, null, NOW)).toThrow(AppError);
   });
 
   it('limpa observação em branco e animais repetidos', () => {
@@ -110,6 +110,7 @@ describe('toEventData', () => {
         notes: '   ',
       },
       null,
+      NOW,
     );
     expect(data.notes).toBeNull();
     expect(data.animalIds).toEqual(['a', 'b']);
@@ -119,7 +120,7 @@ describe('toEventData', () => {
 describe('ScheduleService.create / scheduleVisit', () => {
   it('cria com o tipo pedido e sem origem', async () => {
     const create = vi.fn().mockResolvedValue(event());
-    const service = new ScheduleService(fakeRepo({ create }));
+    const service = new ScheduleService(fakeRepo({ create }), () => NOW);
 
     await service.create(ctx, {
       activityType: 'vaccination',
@@ -136,7 +137,7 @@ describe('ScheduleService.create / scheduleVisit', () => {
 
   it('agendar visita: tipo sempre `visit`, com o atendimento de origem quando é retorno (RF-ATD-010)', async () => {
     const create = vi.fn().mockResolvedValue(event());
-    const service = new ScheduleService(fakeRepo({ create }));
+    const service = new ScheduleService(fakeRepo({ create }), () => NOW);
 
     await service.scheduleVisit(ctx, {
       startsAt: '2026-11-27T13:00:00Z',
@@ -153,7 +154,7 @@ describe('ScheduleService.create / scheduleVisit', () => {
 
   it('visita sem retorno não tem origem', async () => {
     const create = vi.fn().mockResolvedValue(event());
-    const service = new ScheduleService(fakeRepo({ create }));
+    const service = new ScheduleService(fakeRepo({ create }), () => NOW);
 
     await service.scheduleVisit(ctx, { startsAt: '2026-11-27T13:00:00Z', ownerId: OWNER_ID, propertyId: PROPERTY_ID });
 
@@ -164,7 +165,7 @@ describe('ScheduleService.create / scheduleVisit', () => {
 describe('ScheduleService.list (RF-AGD-001)', () => {
   it('repassa o intervalo e o filtro de status', async () => {
     const listRange = vi.fn().mockResolvedValue([]);
-    const service = new ScheduleService(fakeRepo({ listRange }));
+    const service = new ScheduleService(fakeRepo({ listRange }), () => NOW);
 
     await service.list(ctx, { from: '2026-11-01T03:00:00Z', to: '2026-12-01T03:00:00Z', status: 'scheduled' });
 
@@ -177,7 +178,7 @@ describe('ScheduleService.list (RF-AGD-001)', () => {
   });
 
   it('recusa intervalo invertido e maior que 62 dias', async () => {
-    const service = new ScheduleService(fakeRepo());
+    const service = new ScheduleService(fakeRepo(), () => NOW);
     await expectAppError(service.list(ctx, { from: '2026-11-10T00:00:00Z', to: '2026-11-01T00:00:00Z' }), 'VALIDATION_ERROR');
     await expectAppError(service.list(ctx, { from: '2026-01-01T00:00:00Z', to: '2026-06-01T00:00:00Z' }), 'VALIDATION_ERROR');
     await expectAppError(service.list(ctx, { from: 'x', to: '2026-06-01T00:00:00Z' }), 'VALIDATION_ERROR');
@@ -200,7 +201,7 @@ describe('ScheduleService.listDay (RF-AGD-003, RN-011)', () => {
   });
 
   it('recusa dia fora do formato', async () => {
-    const service = new ScheduleService(fakeRepo());
+    const service = new ScheduleService(fakeRepo(), () => NOW);
     await expectAppError(service.listDay(ctx, '12/11/2026'), 'VALIDATION_ERROR');
     await expectAppError(service.listDay(ctx, '2026-13-45'), 'VALIDATION_ERROR');
   });
@@ -209,11 +210,11 @@ describe('ScheduleService.listDay (RF-AGD-003, RN-011)', () => {
 describe('ScheduleService.update', () => {
   it('não existe → 404; já concluído → 409', async () => {
     await expectAppError(
-      new ScheduleService(fakeRepo({ findById: vi.fn().mockResolvedValue(null) })).update(ctx, EVENT_ID, {}),
+      new ScheduleService(fakeRepo({ findById: vi.fn().mockResolvedValue(null) }), () => NOW).update(ctx, EVENT_ID, {}),
       'NOT_FOUND',
     );
     await expectAppError(
-      new ScheduleService(fakeRepo({ findById: vi.fn().mockResolvedValue(event({ status: 'done' })) })).update(
+      new ScheduleService(fakeRepo({ findById: vi.fn().mockResolvedValue(event({ status: 'done' })) }), () => NOW).update(
         ctx,
         EVENT_ID,
         {},
@@ -224,20 +225,20 @@ describe('ScheduleService.update', () => {
 
   it('valida o evento como fica depois da edição: tirar a propriedade de uma visita não passa', async () => {
     const update = vi.fn();
-    const service = new ScheduleService(fakeRepo({ update }));
+    const service = new ScheduleService(fakeRepo({ update }), () => NOW);
 
     await expectAppError(service.update(ctx, EVENT_ID, { propertyId: null }), 'VALIDATION_ERROR');
     expect(update).not.toHaveBeenCalled();
   });
 
   it('novo fim antes do início que já existe não passa', async () => {
-    const service = new ScheduleService(fakeRepo());
+    const service = new ScheduleService(fakeRepo(), () => NOW);
     await expectAppError(service.update(ctx, EVENT_ID, { endsAt: '2026-11-20T12:00:00Z' }), 'VALIDATION_ERROR');
   });
 
   it('grava só o que mudou, já normalizado', async () => {
     const update = vi.fn().mockResolvedValue(event());
-    const service = new ScheduleService(fakeRepo({ update }));
+    const service = new ScheduleService(fakeRepo({ update }), () => NOW);
 
     await service.update(ctx, EVENT_ID, { startsAt: '2026-11-21T13:00:00Z', reminderMinutesBefore: [30, 30, 10], notes: ' ' });
 
@@ -249,7 +250,7 @@ describe('ScheduleService.update', () => {
   });
 
   it('concluído entre a leitura e a gravação → 409', async () => {
-    const service = new ScheduleService(fakeRepo({ update: vi.fn().mockResolvedValue(null) }));
+    const service = new ScheduleService(fakeRepo({ update: vi.fn().mockResolvedValue(null) }), () => NOW);
     await expectAppError(service.update(ctx, EVENT_ID, { notes: 'x' }), 'CONFLICT');
   });
 });
@@ -269,33 +270,94 @@ describe('ScheduleService.complete / cancel / remove', () => {
 
   it('transição recusada: 404 se não existe, 409 dizendo por quê se já saiu de `scheduled`', async () => {
     const missing = fakeRepo({ complete: vi.fn().mockResolvedValue(null), findById: vi.fn().mockResolvedValue(null) });
-    await expectAppError(new ScheduleService(missing).complete(ctx, EVENT_ID), 'NOT_FOUND');
+    await expectAppError(new ScheduleService(missing, () => NOW).complete(ctx, EVENT_ID), 'NOT_FOUND');
 
     const done = fakeRepo({
       cancel: vi.fn().mockResolvedValue(null),
       findById: vi.fn().mockResolvedValue(event({ status: 'done' })),
     });
-    const err = await expectAppError(new ScheduleService(done).cancel(ctx, EVENT_ID), 'CONFLICT');
+    const err = await expectAppError(new ScheduleService(done, () => NOW).cancel(ctx, EVENT_ID), 'CONFLICT');
     expect(err.message).toBe('Evento já foi concluído');
 
     const cancelled = fakeRepo({
       complete: vi.fn().mockResolvedValue(null),
       findById: vi.fn().mockResolvedValue(event({ status: 'cancelled' })),
     });
-    const err2 = await expectAppError(new ScheduleService(cancelled).complete(ctx, EVENT_ID), 'CONFLICT');
+    const err2 = await expectAppError(new ScheduleService(cancelled, () => NOW).complete(ctx, EVENT_ID), 'CONFLICT');
     expect(err2.message).toBe('Evento já foi cancelado');
   });
 
   it('excluir o que não existe → 404', async () => {
-    const service = new ScheduleService(fakeRepo({ softDelete: vi.fn().mockResolvedValue(false) }));
+    const service = new ScheduleService(fakeRepo({ softDelete: vi.fn().mockResolvedValue(false) }), () => NOW);
     await expectAppError(service.remove(ctx, EVENT_ID), 'NOT_FOUND');
   });
 
   it('findById e findReturn repassam ao repositório', async () => {
     const findActiveReturn = vi.fn().mockResolvedValue(event({ sourceAppointmentId: APPOINTMENT_ID }));
-    const service = new ScheduleService(fakeRepo({ findActiveReturn }));
+    const service = new ScheduleService(fakeRepo({ findActiveReturn }), () => NOW);
 
     expect((await service.findReturn(ctx, APPOINTMENT_ID))?.sourceAppointmentId).toBe(APPOINTMENT_ID);
     expect((await service.findById(ctx, EVENT_ID))?.id).toBe(EVENT_ID);
+  });
+});
+
+describe('checkRemindersNotPast', () => {
+  const startsAt = new Date('2026-11-13T02:30:00Z'); // 1h depois de NOW
+
+  it('aceita lembrete agora ou no futuro', () => {
+    const errors: Array<{ field: string; message: string }> = [];
+    checkRemindersNotPast(startsAt, [0, 15, 60], NOW, errors);
+    expect(errors).toEqual([]);
+  });
+
+  it('recusa lembrete que cairia antes de agora', () => {
+    const errors: Array<{ field: string; message: string }> = [];
+    checkRemindersNotPast(startsAt, [15, 61], NOW, errors);
+    expect(errors).toEqual([{ field: 'reminderMinutesBefore', message: 'Lembrete cairia no passado' }]);
+  });
+});
+
+describe('lembrete no passado', () => {
+  it('criar evento com lembrete que já passou → 422', async () => {
+    const service = new ScheduleService(fakeRepo(), () => NOW);
+    const err = await expectAppError(
+      service.scheduleVisit(ctx, {
+        startsAt: '2026-11-13T02:00:00Z', // 30 min depois de NOW
+        ownerId: OWNER_ID,
+        propertyId: PROPERTY_ID,
+        reminderMinutesBefore: [60],
+      }),
+      'VALIDATION_ERROR',
+    );
+    expect(err.details).toEqual([{ field: 'reminderMinutesBefore', message: 'Lembrete cairia no passado' }]);
+  });
+
+  it('evento no passado sem lembrete é aceito (registrar visita feita)', async () => {
+    const create = vi.fn().mockResolvedValue(event());
+    const service = new ScheduleService(fakeRepo({ create }), () => NOW);
+
+    await service.scheduleVisit(ctx, { startsAt: '2026-11-01T13:00:00Z', ownerId: OWNER_ID, propertyId: PROPERTY_ID });
+
+    expect(create).toHaveBeenCalled();
+  });
+
+  it('na edição, mudar horário ou lembretes para o passado → 422', async () => {
+    const service = new ScheduleService(fakeRepo(), () => NOW);
+    await expectAppError(service.update(ctx, EVENT_ID, { startsAt: '2026-11-13T02:00:00Z' }), 'VALIDATION_ERROR');
+    await expectAppError(
+      new ScheduleService(fakeRepo({ findById: vi.fn().mockResolvedValue(event({ startsAt: '2026-11-13T02:00:00.000Z', reminderMinutesBefore: [] })) }), () => NOW)
+        .update(ctx, EVENT_ID, { reminderMinutesBefore: [60] }),
+      'VALIDATION_ERROR',
+    );
+  });
+
+  it('na edição, mexer só na observação de evento cujo lembrete já disparou continua possível', async () => {
+    const update = vi.fn().mockResolvedValue(event());
+    const fired = event({ startsAt: '2026-11-13T02:00:00.000Z', reminderMinutesBefore: [60] });
+    const service = new ScheduleService(fakeRepo({ findById: vi.fn().mockResolvedValue(fired), update }), () => NOW);
+
+    await service.update(ctx, EVENT_ID, { notes: 'levar ferrador' });
+
+    expect(update).toHaveBeenCalledWith(ctx, EVENT_ID, { notes: 'levar ferrador' });
   });
 });
