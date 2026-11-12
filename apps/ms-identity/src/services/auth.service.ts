@@ -5,6 +5,7 @@ import type { IAuthService, AuthTokens, UserRole, TenantPlan } from '@quironequi
 import { AppError, createServiceLogger, getJwtSecret } from '@quironequine/shared-middlewares';
 import { LOCK_THRESHOLD, type AuthRepository, type AuthLookupRow } from '../repositories/auth.repository';
 import { dummyPasswordHash, hashPassword, verifyPassword } from '../lib/password';
+import { emailVerificationEnabled } from './account.service';
 
 const log = createServiceLogger('auth-service');
 
@@ -85,8 +86,14 @@ function newCredentials(): NewCredentials {
  * linha em `user_sessions`, cada refresh troca a linha pela próxima da
  * mesma família, e o logout revoga só a deste aparelho.
  */
+/** Mensagem de quem acertou a senha mas não confirmou o e-mail (só com a confirmação ligada). */
+export const EMAIL_NOT_VERIFIED_MESSAGE = 'Confirme seu e-mail para entrar. O link foi enviado no cadastro.';
+
 export class AuthService implements IAuthService {
-  constructor(private readonly repo: AuthRepository) {}
+  constructor(
+    private readonly repo: AuthRepository,
+    private readonly requireVerifiedEmail: () => boolean = emailVerificationEnabled,
+  ) {}
 
   async login(email: string, password: string, totpCode?: string): Promise<AuthTokens> {
     const row = await this.repo.findAuthByEmail(email);
@@ -105,6 +112,12 @@ export class AuthService implements IAuthService {
       // Senha certa: não conta como falha, mas a resposta é a mesma.
       log.info({ tenantId: row.tenantId, userId: row.id }, 'Login recusado: usuário ou clínica inativos');
       throw AppError.unauthorized(LOGIN_FAILED_MESSAGE);
+    }
+    // Auditoria M-02: com a confirmação ligada, só entra quem confirmou o
+    // e-mail. Só depois da senha certa — a mensagem diferente não revela
+    // nada a quem não sabe a senha.
+    if (this.requireVerifiedEmail() && !(await this.repo.isEmailVerified(row.tenantId, row.id))) {
+      throw AppError.forbidden(EMAIL_NOT_VERIFIED_MESSAGE);
     }
     if (row.totpEnabled) {
       await this.assertValidTotp(row, totpCode);

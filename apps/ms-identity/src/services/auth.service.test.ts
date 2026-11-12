@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import bcrypt from 'bcryptjs';
 import { TOTP, Secret } from 'otpauth';
-import { AuthService, hashRefreshSecret, REFRESH_REUSE_GRACE_MS } from './auth.service';
+import { AuthService, hashRefreshSecret, REFRESH_REUSE_GRACE_MS, EMAIL_NOT_VERIFIED_MESSAGE } from './auth.service';
 import { hashPassword, verifyPassword } from '../lib/password';
 import type { AuthRepository, AuthLookupRow, SessionUser } from '../repositories/auth.repository';
 
@@ -49,6 +49,7 @@ function fakeRepo(overrides: Partial<AuthRepository> = {}): AuthRepository {
     revokeSession: vi.fn().mockResolvedValue(undefined),
     registerLoginFailure: vi.fn().mockResolvedValue({ failedLoginCount: 1, lockedUntil: null }),
     claimTotpStep: vi.fn().mockResolvedValue(true),
+    isEmailVerified: vi.fn().mockResolvedValue(true),
     ...overrides,
   } as unknown as AuthRepository;
 }
@@ -101,6 +102,27 @@ describe('AuthService.login', () => {
     const repo = withRow(row);
     await expect(new AuthService(repo).login(EMAIL, PASSWORD)).rejects.toThrow(INVALID);
     expect(repo.registerLoginFailure).not.toHaveBeenCalled();
+  });
+
+  it('confirmação ligada: senha certa com e-mail não confirmado não entra (M-02)', async () => {
+    const repo = fakeRepo({ isEmailVerified: vi.fn().mockResolvedValue(false) });
+    await expect(new AuthService(repo, () => true).login(EMAIL, PASSWORD)).rejects.toMatchObject({
+      statusCode: 403,
+      message: EMAIL_NOT_VERIFIED_MESSAGE,
+    });
+    expect(repo.startSession).not.toHaveBeenCalled();
+  });
+
+  it('confirmação ligada: senha errada continua com a mensagem genérica, sem revelar o e-mail não confirmado', async () => {
+    const repo = fakeRepo({ isEmailVerified: vi.fn().mockResolvedValue(false) });
+    await expect(new AuthService(repo, () => true).login(EMAIL, 'senha-errada')).rejects.toThrow(INVALID);
+    expect(repo.isEmailVerified).not.toHaveBeenCalled();
+  });
+
+  it('confirmação desligada (padrão): não consulta o e-mail confirmado', async () => {
+    const repo = fakeRepo({ isEmailVerified: vi.fn().mockResolvedValue(false) });
+    await new AuthService(repo, () => false).login(EMAIL, PASSWORD);
+    expect(repo.isEmailVerified).not.toHaveBeenCalled();
   });
 
   it('exige totpCode quando a conta tem 2FA habilitado (só depois da senha certa)', async () => {

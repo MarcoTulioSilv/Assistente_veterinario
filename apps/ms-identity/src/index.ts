@@ -1,6 +1,7 @@
 import { createServiceLogger } from '@quironequine/shared-middlewares';
 import { createApp } from './app';
 import { disconnectPrisma } from './prisma';
+import { closeEventsQueue } from './events/publisher';
 
 const log = createServiceLogger('ms-identity');
 const PORT = Number(process.env['PORT_MS_IDENTITY'] ?? 3001);
@@ -12,6 +13,7 @@ const server = createApp().listen(PORT, () => {
 async function shutdown(signal: string): Promise<void> {
   log.info({ signal }, 'Encerrando graciosamente...');
   server.close(async () => {
+    await closeEventsQueue();
     await disconnectPrisma();
     process.exit(0);
   });
