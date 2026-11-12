@@ -41,10 +41,21 @@ compose pull --quiet
 echo "▶ Subindo Postgres e Redis"
 compose up -d --wait postgres redis
 
+# Banco de serviço novo. O 00-create-databases.sql só roda quando o volume do
+# Postgres é criado; num servidor que já existe, o banco do serviço novo
+# (scheduling, Sprint 9 do M3) nasce aqui. Idempotente: o \gexec só executa
+# o CREATE quando o SELECT devolve linha, ou seja, quando o banco não existe.
+echo "▶ Bancos dos serviços"
+for db in identity inventory clinical scheduling reporting; do
+  printf "SELECT 'CREATE DATABASE %s' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '%s')\\\\gexec\n" "$db" "$db" |
+    compose exec -T postgres psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres > /dev/null
+done
+
 # Migrations com o usuário dono das tabelas (POSTGRES_USER). O runtime
 # conecta como quironequine_app, sujeito ao RLS — nunca com este usuário.
 for entry in identity:ms-identity:IDENTITY inventory:ms-inventory:INVENTORY \
-             clinical:ms-clinical:CLINICAL reporting:ms-reporting:REPORTING; do
+             clinical:ms-clinical:CLINICAL scheduling:ms-scheduling:SCHEDULING \
+             reporting:ms-reporting:REPORTING; do
   IFS=: read -r db service var <<< "$entry"
   echo "▶ Migrations: $db"
   compose run --rm --no-deps \
