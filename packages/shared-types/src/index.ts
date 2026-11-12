@@ -1136,10 +1136,11 @@ export interface IScheduleService {
 }
 
 // ═══ MS5 — Notification (M3, Sprint 10) ═══════════════════════════
-// Contratos publicados na Sprint 9 para a PWA começar contra mock. REVISAR no
-// início da Sprint 10, junto com o ADR-007. Decisões de 12/11/2026: todas as
-// notificações vão para o veterinário (nenhuma para o proprietário);
-// WhatsApp e e-mail ficam desligados até as contas existirem.
+// Decisões (12/11/2026, ADR-007): todas as notificações vão para o
+// veterinário (nenhuma para o proprietário); WhatsApp e e-mail ficam
+// desligados até existirem as contas. O MS5 guarda e envia só TIPO e DADOS,
+// sem texto: a PWA e o service worker montam a frase. Nada de dado pessoal
+// (nome de cliente, de animal) na caixa de entrada nem na fila.
 
 /** RF-NOT-001: os tipos que o veterinário recebe. */
 export type NotificationType =
@@ -1152,16 +1153,56 @@ export type NotificationType =
 
 export type NotificationChannel = 'push' | 'whatsapp' | 'email';
 
-/** Item da caixa de entrada (in-app). O texto é montado pelo MS5. */
+/** O que a tela abre ao tocar na notificação. */
+export interface NotificationTarget {
+  kind: 'schedule_event' | 'exam_request' | 'vaccination' | 'product' | 'property';
+  id: UUID;
+}
+
+/** Dados de cada tipo — o suficiente para a PWA montar o texto. */
+export type NotificationData =
+  | {
+      type: 'schedule_reminder';
+      activityType: ScheduleActivityType;
+      startsAt: ISODateString;
+      minutesBefore: number;
+      propertyId: UUID | null;
+    }
+  | {
+      type: 'exam_result_due';
+      examTypeName: string;
+      expectedResultAt: ISODateString;
+      kind: 'day_before' | 'due_today';
+    }
+  | {
+      type: 'vaccination_due';
+      vaccineName: string;
+      nextDoseAt: ISODateString;
+      kind: 'week_before' | 'due_today';
+      animalCount: number;
+      propertyId: UUID;
+    }
+  | { type: 'stock_expiry'; productName: string; expiryDate: ISODateString | null }
+  | { type: 'stock_low'; productName: string; quantityInStock: number | null }
+  /** RASCUNHO — fechado na Sprint 11 (geofence). */
+  | { type: 'geofence'; propertyId: UUID; reasons: Array<'return_pending' | 'no_recent_visit'> };
+
+/** Item da caixa de entrada (in-app). */
 export interface Notification {
   id: UUID;
   type: NotificationType;
-  title: string;
-  body: string;
-  /** Para a tela abrir o registro certo: `scheduleEventId`, `examRequestId`, `productId`… */
-  target: { kind: 'schedule_event' | 'exam_request' | 'vaccination' | 'product' | 'property'; id: UUID } | null;
+  data: NotificationData;
+  target: NotificationTarget | null;
   readAt: ISODateString | null;
   createdAt: ISODateString;
+}
+
+/** O que o push leva ao service worker — ele monta o texto a partir disto. */
+export interface PushMessage {
+  notificationId: UUID;
+  type: NotificationType;
+  data: NotificationData;
+  target: NotificationTarget | null;
 }
 
 /** RF-NOT-003: liga/desliga por tipo e canal. Sem linha = ligado. */
@@ -1180,15 +1221,65 @@ export interface PushSubscriptionDto {
 export interface INotificationService {
   listInbox(ctx: RequestContext, params: PaginationParams & { unreadOnly?: boolean }): Promise<Paginated<Notification>>;
   unreadCount(ctx: RequestContext): Promise<number>;
+  /** NOT_FOUND se a notificação não é do usuário. */
   markRead(ctx: RequestContext, id: UUID): Promise<void>;
   markAllRead(ctx: RequestContext): Promise<void>;
+  /** Todas as combinações tipo × canal, já com o padrão (ligado) preenchido. */
   getPreferences(ctx: RequestContext): Promise<NotificationPreference[]>;
   updatePreferences(ctx: RequestContext, preferences: NotificationPreference[]): Promise<NotificationPreference[]>;
-  /** Chave pública VAPID, para o `PushManager.subscribe()` da PWA. */
+  /** Chave pública VAPID, para o `PushManager.subscribe()` da PWA. Vazia = push desligado no servidor. */
   getPushPublicKey(): string;
   /** Um aparelho por assinatura; assinar de novo o mesmo `endpoint` atualiza. */
   subscribePush(ctx: RequestContext, subscription: PushSubscriptionDto): Promise<void>;
   unsubscribePush(ctx: RequestContext, endpoint: string): Promise<void>;
+}
+
+/**
+ * Destinatário de notificação, resolvido no MS1 (ADR-007). E-mail e
+ * telefone só são usados pelos canais WhatsApp e e-mail.
+ */
+export interface NotificationRecipient {
+  userId: UUID;
+  email: string;
+  phone: string | null;
+  emailVerified: boolean;
+}
+
+/**
+ * Diretório de destinatários — implementado no MS1 e exposto por rota
+ * INTERNA (`/internal/...`, fora do BFF, com `requireServiceToken`). O MS5
+ * consulta para saber quem avisar (ADR-007). Só usuários ativos.
+ */
+export interface IRecipientDirectory {
+  byUser(tenantId: UUID, userId: UUID): Promise<NotificationRecipient | null>;
+  /** Usuário do veterinário (os eventos do MS3 trazem o id do veterinário). */
+  byVeterinarian(tenantId: UUID, veterinarianId: UUID): Promise<NotificationRecipient | null>;
+  /** Administradores ativos da clínica (alerta de estoque é da clínica, não de um veterinário). */
+  tenantAdmins(tenantId: UUID): Promise<NotificationRecipient[]>;
+}
+
+// ═══ MS1 — Conta: confirmação de e-mail e recuperação de senha ═════
+// Auditoria 06/11/2026, M-02. O MS1 publica um evento com token de vida curta
+// e o MS5 envia o e-mail (ADR-007). Com o e-mail desligado
+// (EMAIL_VERIFICATION_ENABLED=false no MS1), o cadastro segue sem confirmação.
+
+export interface IAccountService {
+  /** Reenvio da confirmação para o usuário logado. RATE_LIMITED se pedido há menos de 60 s. */
+  requestEmailVerification(ctx: RequestContext): Promise<void>;
+  /** Token de uso único, 24 h. VALIDATION_ERROR se inválido, usado ou vencido. */
+  confirmEmail(token: string): Promise<void>;
+  /** Sempre responde igual, exista a conta ou não (não revela cadastro). */
+  requestPasswordReset(email: string): Promise<void>;
+  /** Token de uso único, 30 min. Troca a senha e encerra as sessões de todos os aparelhos. */
+  resetPassword(token: string, newPassword: string): Promise<void>;
+}
+
+/** Payload dos eventos de e-mail da conta. O token só vive na fila, por pouco tempo. */
+export interface AccountEmailPayload {
+  userId: UUID;
+  email: string;
+  token: string;
+  expiresAt: ISODateString;
 }
 
 // ═══ MS6 — Reporting (fatia financeira, antecipada para o M2) ═════
@@ -1293,6 +1384,8 @@ export const EVENTS = {
   PAYMENT_REGISTERED: 'payment.registered',
   SCHEDULE_REMINDER_DUE: 'schedule.reminder_due',
   GEOFENCE_TRIGGERED: 'geofence.triggered',
+  AUTH_EMAIL_VERIFICATION_REQUESTED: 'auth.email_verification_requested',
+  AUTH_PASSWORD_RESET_REQUESTED: 'auth.password_reset_requested',
 } as const;
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];
@@ -1336,7 +1429,13 @@ export const EVENT_SUBSCRIBERS: Record<EventName, readonly string[]> = {
   // Re-vacinação 7 dias antes e no dia — entregue pelo MS5.
   [EVENTS.VACCINATION_DUE]: ['notification'],
   [EVENTS.ALERT_TRIGGERED]: ['notification'],
+  // O MS5 consome e descarta (decisão de 12/11/2026: nada vai ao
+  // proprietário, e quem registra o pagamento é o próprio veterinário).
   [EVENTS.PAYMENT_REGISTERED]: ['notification'],
+  // E-mails da conta (MS1 → MS5, ADR-007). O token vai no payload; o
+  // publisher do MS1 remove o job ao terminar.
+  [EVENTS.AUTH_EMAIL_VERIFICATION_REQUESTED]: ['notification'],
+  [EVENTS.AUTH_PASSWORD_RESET_REQUESTED]: ['notification'],
   [EVENTS.SCHEDULE_REMINDER_DUE]: ['notification'],
   [EVENTS.GEOFENCE_TRIGGERED]: ['notification'],
   // Não consta da tabela do ADR-001 §5.3 e não tem consumidor definido —
