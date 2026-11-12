@@ -10,7 +10,7 @@ import type {
   VaccinationDeletedPayload,
   DomainEvent,
 } from '@quironequine/shared-types';
-import { AppError } from '@quironequine/shared-middlewares';
+import { AppError, saoPauloDay, addDays } from '@quironequine/shared-middlewares';
 import type { VaccinationRepository, CreateVaccinationData } from '../repositories/vaccination.repository';
 import type {
   CreateVaccinationInput,
@@ -19,7 +19,6 @@ import type {
   ListVaccinationsInput,
 } from '../schemas/vaccination.schema';
 import { calculateTotalCents, deriveEventIdempotencyKey } from './billing';
-import { saoPauloDay, addDays } from './sao-paulo-day';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

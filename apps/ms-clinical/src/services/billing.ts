@@ -1,6 +1,3 @@
-import { createHash } from 'node:crypto';
-import type { UUID } from '@quironequine/shared-types';
-
 /**
  * Regras de valor e de chave de evento comuns a atendimento e exame — o
  * exame reaproveita as mesmas (RF-EXM-006 tem a mesma estrutura de custo do
@@ -30,19 +27,7 @@ export function calculateItemTotalCents(quantity: number, unitPriceCents: number
 }
 
 /**
- * Chave de idempotência do envelope, derivada da origem (atendimento,
- * exame…) — nunca aleatória.
- *
- * É o outro lado do problema documentado no DeductionService do MS2: lá, a
- * proteção cobre reentrega do MESMO evento (retry do BullMQ), mas não um
- * publisher que emita dois eventos com chaves diferentes pra mesma origem.
- * Derivando do id, "dois eventos pra mesma origem" deixa de ser possível: a
- * segunda gravação no outbox esbarra na UNIQUE de idempotency_key.
- *
- * SHA-1 formatado como UUID pelo mesmo motivo do MS2 — `idempotency_key` é
- * coluna `@db.Uuid` de verdade, e o projeto evita o pacote `uuid`.
+ * A chave de idempotência dos eventos mora em shared-middlewares (MS3, MS4 e
+ * MS6 usam a mesma). Reexportada aqui para os imports do MS3 não mudarem.
  */
-export function deriveEventIdempotencyKey(eventName: string, sourceId: string): UUID {
-  const hex = createHash('sha1').update(`${eventName}:${sourceId}`).digest('hex').slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
-}
+export { deriveEventIdempotencyKey } from '@quironequine/shared-middlewares';
