@@ -139,13 +139,14 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 
 - Mantenha toda interação com o usuário em PT-BR.
 
-## Pending: security audit (06/11/2026)
+## Security audit (06/11/2026)
 
-The report lives outside the repo (ask Marco for it). Server side of A-02, A-03, M-01 to M-06 is done (branch `fix/SEG-001-auditoria-servidor`). Still open:
+The report lives outside the repo (ask Marco for it). A-01 to A-03 and M-01 to M-06 are done on both sides and **live on staging since 09/11/2026** (PRs #51 server, #54 PWA, #55 `develop → staging`); the rules they introduced are in the sections above (sessions, uploads, audit trail, logs, no `DELETE`). Still open, before production:
 
-1. **PWA side (João, `Documentação/pedidos-para-joao.md`)**: refresh token via `credentials: 'include'` (the server already accepts only the cookie), A-01 (service worker caches personal data keyed only by URL and keeps it after logout), re-fetching an exam before opening its report link, and the `NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_KEY` ARG in `apps/pwa/Dockerfile` (the workflow already passes it). **Don't open `develop → staging` until the PWA side lands** — until then the PWA on `develop` can't refresh.
+1. B-01 to B-08, I-01, I-02 — the ones that weigh most: B-05 (CSP and HSTS; the CSP must allow `maps.googleapis.com`, `maps.gstatic.com`, `servicodados.ibge.gov.br` and the OpenStreetMap tiles), I-02 (TOTP secret encrypted at rest), B-03 (e-mail normalization), B-01 (Basic plan limit raced by concurrent requests).
 2. Sign-up e-mail confirmation (M-02) waits for MS5 (no e-mail sending yet).
-3. B-01 to B-08, I-01, I-02. MS2/MS3 have no composite tenant FKs yet (they validate references in the service).
+3. MS2/MS3 have no composite tenant FKs (they validate references in the service before writing).
+4. PWA leftovers (João, non-blocking): API cache keyed per user (today it is cleared on login/logout/refresh failure); when an exam screen exists, re-fetch the exam before opening `resultFileUrl` (signed links expire in 15 min).
 
 Product gaps found alongside: clinic sign-up screen (the API exists), password change, real password reset (today it's a mock).
 
