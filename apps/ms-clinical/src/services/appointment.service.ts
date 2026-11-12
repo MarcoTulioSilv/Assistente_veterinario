@@ -90,6 +90,7 @@ export function buildAppointmentDoneEvent(
       totalCostCents: totalCents,
       consumedItems: toConsumedItems(appointment),
       performedAt: appointment.performedAt,
+      propertyId: appointment.propertyId,
     },
   };
 }

@@ -147,6 +147,7 @@ export function buildVaccinationAppliedEvent(
       totalMl: totalMl(clinicMl(vaccination), vaccination.animalIds.length),
       totalCostCents: vaccination.totalCents,
       performedAt: vaccination.appliedAt,
+      propertyId: vaccination.propertyId,
     },
   };
 }

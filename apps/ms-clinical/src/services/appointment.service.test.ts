@@ -98,6 +98,12 @@ describe('buildAppointmentDoneEvent', () => {
     expect(event.payload.totalCostCents).toBe(12345);
     expect(event.payload.appointmentId).toBe(APPOINTMENT_ID);
   });
+
+  it('leva a propriedade, para o MS4 registrar a última visita a ela', () => {
+    const event = buildAppointmentDoneEvent(ctx, appointment(), 12345);
+
+    expect(event.payload.propertyId).toBe('66666666-6666-6666-6666-666666666666');
+  });
 });
 
 describe('AppointmentService.create', () => {
