@@ -45,7 +45,7 @@ x-common-env: &common-env
 
 services:
   # Um servidor Postgres com um BANCO por serviço (identity, inventory,
-  # clinical, reporting) — continua database-per-service (ADR-001 §5.1),
+  # clinical, scheduling, reporting) — continua database-per-service (ADR-001 §5.1),
   # com isolamento por banco e por role; economiza a memória de 4 servidores.
   postgres:
     image: postgres:16-alpine
@@ -113,6 +113,14 @@ services:
       PORT_MS_CLINICAL: 3003
       DATABASE_URL_CLINICAL_APP: postgresql://quironequine_app:${APP_DB_PASSWORD}@postgres:5432/clinical
 
+  ms-scheduling:
+    <<: *app
+    image: ${REGISTRY}/quironequine-ms-scheduling:${IMAGE_TAG:-staging}
+    environment:
+      <<: *common-env
+      PORT_MS_SCHEDULING: 3004
+      DATABASE_URL_SCHEDULING_APP: postgresql://quironequine_app:${APP_DB_PASSWORD}@postgres:5432/scheduling
+
   ms-reporting:
     <<: *app
     image: ${REGISTRY}/quironequine-ms-reporting:${IMAGE_TAG:-staging}
@@ -126,13 +134,14 @@ services:
     restart: unless-stopped
     logging: *logging
     networks: [internal]
-    depends_on: [ms-identity, ms-inventory, ms-clinical, ms-reporting]
+    depends_on: [ms-identity, ms-inventory, ms-clinical, ms-scheduling, ms-reporting]
     environment:
       <<: *common-env
       PORT_BFF: 3000
       MS_IDENTITY_URL: http://ms-identity:3001
       MS_INVENTORY_URL: http://ms-inventory:3002
       MS_CLINICAL_URL: http://ms-clinical:3003
+      MS_SCHEDULING_URL: http://ms-scheduling:3004
       MS_REPORTING_URL: http://ms-reporting:3006
       # Origem liberada no CORS: o endereço da PWA.
       NEXT_PUBLIC_APP_URL: https://${APP_DOMAIN:?defina APP_DOMAIN}

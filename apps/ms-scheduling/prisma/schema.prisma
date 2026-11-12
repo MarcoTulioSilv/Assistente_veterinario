@@ -1,0 +1,128 @@
+// ══════════════════════════════════════════════════════════════════
+// MS4 — Scheduling Service
+// Marco M3 · Sprint 9 · Nov/2026 · Dev 1 (Marco Túlio)
+//
+// Agenda (RF-AGD-001 a 004, 006), agendar visita e retorno opcional do
+// atendimento (RF-ATD-010) e última visita por propriedade — a base do
+// geofence da Sprint 11 (RF-AGD-005, RN-008).
+//
+// Proprietário, propriedade e animais (MS1) e atendimento (MS3) são UUID
+// sem FK: database-per-service (ADR-001 §5.1), sem join entre bancos.
+//
+// MIGRATIONS À MÃO: o índice único parcial do retorno (um retorno ativo por
+// atendimento), os CHECKs e a função SECURITY DEFINER dos lembretes não se
+// expressam no Prisma. `prisma migrate dev` sem `--create-only` geraria um
+// DROP do índice parcial — sempre `--create-only` e revisar o SQL.
+// ══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client-scheduling"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL_SCHEDULING")
+}
+
+/// RF-AGD-001: atendimentos, visitas, vacinações e demais atividades.
+enum ScheduleActivityType {
+  appointment
+  visit
+  vaccination
+  exam
+  other
+}
+
+/// Só sai de `scheduled`, e não volta.
+enum ScheduleEventStatus {
+  scheduled
+  done
+  cancelled
+}
+
+/// De onde veio a última visita registrada para a propriedade.
+enum VisitSourceType {
+  appointment
+  vaccination
+  schedule_event
+}
+
+/// RF-AGD-002: data, hora, tipo, propriedade, proprietário e observações.
+model ScheduleEvent {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  activityType ScheduleActivityType @map("activity_type")
+  status       ScheduleEventStatus  @default(scheduled)
+
+  startsAt DateTime  @map("starts_at") @db.Timestamptz
+  endsAt   DateTime? @map("ends_at") @db.Timestamptz
+
+  // ─── Referências ao MS1 (sem FK — ver cabeçalho) ───────────────
+  /// Obrigatórios em todo tipo menos `other` (CHECK na migration).
+  ownerId    String?  @map("owner_id") @db.Uuid
+  propertyId String?  @map("property_id") @db.Uuid
+  /// Array e não tabela de ligação: os animais são trocados por inteiro na
+  /// edição, e a role da aplicação não tem DELETE (auditoria M-06).
+  animalIds  String[] @default([]) @map("animal_ids") @db.Uuid
+
+  notes String? @db.Text
+
+  /// RF-AGD-004: minutos antes de `starts_at`. Até 3, de 0 a 7 dias (CHECK).
+  reminderMinutesBefore Int[] @default([]) @map("reminder_minutes_before")
+
+  /// Retorno do atendimento (RF-ATD-010) — atendimento do MS3, sem FK. Só em
+  /// `visit` (CHECK) e um ativo por atendimento (índice único parcial).
+  sourceAppointmentId String? @map("source_appointment_id") @db.Uuid
+
+  /// Quem agendou — recebe o lembrete.
+  createdBy   String    @map("created_by") @db.Uuid
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+  cancelledAt DateTime? @map("cancelled_at") @db.Timestamptz
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  /// Agenda do mês/semana e do dia: sempre por intervalo de starts_at.
+  @@index([tenantId, startsAt])
+  @@map("schedule_events")
+}
+
+/// Última visita a cada propriedade (geofence, RN-008): "sem visita há mais
+/// de X dias". Alimentada por appointment.done, vaccination.applied e pela
+/// conclusão de um evento da agenda com propriedade.
+model PropertyLastVisit {
+  id         String @id @default(uuid()) @db.Uuid
+  tenantId   String @map("tenant_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+
+  lastVisitAt DateTime        @map("last_visit_at") @db.Timestamptz
+  sourceType  VisitSourceType @map("source_type")
+  sourceId    String          @map("source_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([tenantId, propertyId])
+  @@map("property_last_visits")
+}
+
+/// Trilha de auditoria (LGPD art. 37) — mesmo formato de MS1, MS3 e MS6.
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String   @db.VarChar(100)
+  tableName String   @map("table_name") @db.VarChar(100)
+  recordId  String   @map("record_id") @db.Uuid
+  oldValues Json?    @map("old_values")
+  newValues Json?    @map("new_values")
+  ipAddress String?  @map("ip_address") @db.Inet
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, tableName, recordId])
+  @@map("audit_log")
+}

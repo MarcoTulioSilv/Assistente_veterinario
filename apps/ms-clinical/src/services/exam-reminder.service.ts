@@ -4,7 +4,7 @@ import type { DomainEvent, ExamResultDuePayload } from '@quironequine/shared-typ
 import type { ExamRepository, DueExamRow } from '../repositories/exam.repository';
 import { publishDomainEvent } from '../events/publisher';
 import { deriveEventIdempotencyKey } from './billing';
-import { saoPauloDay, addDays } from './sao-paulo-day';
+import { saoPauloDay, addDays } from '@quironequine/shared-middlewares';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

@@ -25,6 +25,48 @@ Prazo: até o fim da Sprint 9 do M3 (27/11/2026), para não atrasar a Sprint 11.
 
 ---
 
+## Sprint 9 do M3: controllers da agenda (MS4), BFF e telas
+
+O lado do servidor está na branch `feature/MS4-001-agenda`: serviço `apps/ms-scheduling` (porta 3004), `ScheduleService` pronto e testado, contratos em `shared-types` (`IScheduleService`, `ScheduleEvent`, DTOs, `SCHEDULE_LIMITS`). O MS4 sobe no staging junto com essa PR. Falta a sua parte:
+
+**1. Router `/schedule` no MS4.** Monte em `apps/ms-scheduling/src/app.ts`, depois do `authMiddleware` (o comentário marca o lugar). O `validate.ts` pode ser cópia do MS6. Construa o service com `new ScheduleService(new ScheduleEventRepository())`.
+
+| Rota | Service | Resposta |
+|---|---|---|
+| `GET /schedule?from&to&status` | `list(ctx, { from, to, status })` | 200, lista (sem paginação) |
+| `GET /schedule/day?day=AAAA-MM-DD` | `listDay(ctx, day)` (sem `day` = hoje em São Paulo) | 200, lista |
+| `GET /schedule/returns/:appointmentId` | `findReturn(ctx, appointmentId)` | 200 ou 404 |
+| `GET /schedule/:id` | `findById(ctx, id)` | 200 ou 404 |
+| `POST /schedule` | `create(ctx, body)` | 201 |
+| `POST /schedule/visits` | `scheduleVisit(ctx, body)` | 201; 409 se o atendimento já tem retorno ativo |
+| `PATCH /schedule/:id` | `update(ctx, id, body)` | 200; 409 se concluído/cancelado |
+| `POST /schedule/:id/complete` | `complete(ctx, id)` | 200; 409 se já saiu de `scheduled` |
+| `POST /schedule/:id/cancel` | `cancel(ctx, id)` | 200; 409 idem |
+| `DELETE /schedule/:id` | `remove(ctx, id)` | 204 |
+
+Declare `/day`, `/returns/:appointmentId` e `/visits` antes de `/:id`.
+
+**2. Schemas Zod** (o service valida de novo, mas a tela recebe os erros por campo mais cedo):
+- `activityType`: `'appointment' | 'visit' | 'vaccination' | 'exam' | 'other'` (só no `POST /schedule`; a visita não manda).
+- `startsAt`, `endsAt`, `from`, `to`: data ISO com fuso (`z.string().datetime({ offset: true })`); `endsAt` aceita `null`.
+- `ownerId`, `propertyId`, `sourceAppointmentId`: UUID; `ownerId`/`propertyId` aceitam `null` (só faz sentido em `other`; o service recusa nos outros tipos).
+- `animalIds`: array de UUID com `.max(50)`. `reminderMinutesBefore`: inteiros de 0 a `SCHEDULE_LIMITS.maxReminderMinutesBefore`, `.max(SCHEDULE_LIMITS.maxReminders)`. Nenhum lembrete pode cair no passado (início − antecedência ≥ agora): o service devolve 422 em `reminderMinutesBefore`. Na tela, esconda ou desabilite as antecedências que já passaram; evento no passado (registrar uma visita feita) vai sem lembrete. Todo array com `.max`, por causa do Zod 3 (GHSA-mrhx-c7xc-m3w5).
+- `notes`: `.max(2000)`, aceita `null`. `status` (filtro): `'scheduled' | 'done' | 'cancelled'`.
+- Intervalo da listagem: até `SCHEDULE_LIMITS.maxListDays` (62) dias.
+
+**3. BFF.** Em `apps/bff/src/index.ts`: `['/api/v1/schedule', process.env['MS_SCHEDULING_URL'] ?? 'http://localhost:3004']`. O `MS_SCHEDULING_URL` do staging já está no compose.
+
+**4. PWA.**
+- Agenda mensal e semanal (`GET /schedule?from&to`) e formulário de evento, com Proprietário antes de Propriedade (RN-001) e lembretes por horário.
+- Tela própria "Agendar visita" (`POST /schedule/visits`, sem `sourceAppointmentId`).
+- Retorno opcional ao finalizar o atendimento: o mesmo formulário, pré-preenchido com proprietário, propriedade e animais, mandando `sourceAppointmentId`. Na tela do atendimento, `GET /schedule/returns/:appointmentId` diz se já há retorno (o 409 também).
+- Dashboard: atividades do dia (`GET /schedule/day`), em ordem de horário, no lugar do placeholder.
+- Erros: 422 vem com `details` por campo (`startsAt`, `ownerId`, `reminderMinutesBefore`…).
+
+**5. Contratos do MS5** (Sprint 10) também estão em `shared-types`: `INotificationService`, `Notification`, `NotificationPreference`, `PushSubscriptionDto`. Dá para começar as telas contra mock; revisamos juntos no início da Sprint 10.
+
+---
+
 ## Em aberto (sem pressa, não bloqueia nada)
 
 1. **Cache de API separado por usuário (A-01, parte "desejável").** Hoje o cache é apagado no login, no logout e na falha de refresh, o que resolve o caso do aparelho compartilhado. Falta a segunda barreira: a chave do cache incluir o usuário (por exemplo, `quironequine-api-<userId>`, com a página avisando o service worker de quem está logado). Assim, mesmo que a limpeza falhe (aba fechada no meio, sem rede), um usuário nunca recebe a resposta de outro. Vale também para a corrida de uma requisição que termina logo depois do logout e grava no cache.

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { EVENTS } from '@quironequine/shared-types';
 import type {
   IFinancialService,
@@ -11,7 +10,7 @@ import type {
   PaymentRegisteredPayload,
   DomainEvent,
 } from '@quironequine/shared-types';
-import { AppError, createServiceLogger } from '@quironequine/shared-middlewares';
+import { AppError, createServiceLogger, deriveEventIdempotencyKey } from '@quironequine/shared-middlewares';
 import type { FinancialRepository } from '../repositories/financial.repository';
 import {
   appointmentDonePayloadSchema,
@@ -31,17 +30,12 @@ function systemCtx(tenantId: UUID, traceId: string): RequestContext {
 }
 
 /**
- * Chave do envelope derivada do registro financeiro — mesma técnica do MS3.
- * Publicar duas vezes o mesmo pagamento gera a mesma chave, e o jobId do
- * BullMQ descarta a segunda. SHA-1 formatado como UUID pra não puxar o
- * pacote `uuid`, que o projeto evita desde o CVE via node-cron.
+ * Chave do envelope derivada do registro financeiro — a mesma função do MS3
+ * e do MS4 (shared-middlewares). Publicar duas vezes o mesmo pagamento gera
+ * a mesma chave, e o jobId do BullMQ descarta a segunda.
  */
 export function derivePaymentEventKey(financialRecordId: string): UUID {
-  const hex = createHash('sha1')
-    .update(`${EVENTS.PAYMENT_REGISTERED}:${financialRecordId}`)
-    .digest('hex')
-    .slice(0, 32);
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  return deriveEventIdempotencyKey(EVENTS.PAYMENT_REGISTERED, financialRecordId);
 }
 
 export function buildPaymentRegisteredEvent(

@@ -18,7 +18,7 @@ import { ExamRepository } from '../src/repositories/exam.repository';
 import { ExamTypeRepository } from '../src/repositories/exam-type.repository';
 import { VaccinationRepository } from '../src/repositories/vaccination.repository';
 import { dayWindow } from '../src/services/vaccination-reminder.service';
-import { saoPauloDay, addDays } from '../src/services/sao-paulo-day';
+import { saoPauloDay, addDays } from '@quironequine/shared-middlewares';
 import type { RequestContext } from '@quironequine/shared-types';
 
 // Tenant medido + 9 vizinhos: o filtro de tenant só faz diferença se houver
