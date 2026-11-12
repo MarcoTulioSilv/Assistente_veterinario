@@ -36,7 +36,7 @@ Levantado na `develop` (commit `f5fa804`), para não planejar o que já está pr
 | 2 | Tabela de procedimentos (RF-CFG-001, RF-ATD-007) | Substituída pela decisão de 20/10/2026: procedimento em texto livre, valor na mão de obra. |
 | 3 | Dashboard (RF-REL-005) | "Procedimentos mais realizados" sai; entra "quantidade de atendimentos", que ainda não existe. |
 | 4 | Geofence | Implementado na PWA (funciona com o app aberto). No lançamento, o app é encapsulado como nativo, o que libera o geofence em segundo plano. |
-| 5 | Pendência para o geofence (RN-008) | Retorno agendado ainda não concluído, ou proprietário sem visita há mais de N dias (N configurável). |
+| 5 | Pendência para o geofence (RN-008) | Retorno agendado ainda não concluído, ou propriedade sem visita há mais de X dias (X definido pelo veterinário). |
 | 6 | Contas de WhatsApp e e-mail | Canais implementados, mas desligados até as contas existirem. |
 | 7 | Destinatário | Nenhuma notificação vai para o proprietário. Todas vão para o veterinário. |
 | 8 | Retorno | Opcional, oferecido ao finalizar o atendimento. Usa a rota "agendar visita" do MS4, que o veterinário também usa a qualquer momento, em tela própria. |
@@ -84,7 +84,7 @@ já são publicados e esperam na fila do MS5, como os do M2.
 | Schema MS4: `schedule_events` (data/hora, tipo de atividade, proprietário, propriedade, animais, observações, status, origem), `event_reminders` e `audit_log`, com RLS (RF-AGD-001/002/004) | Controllers MS4 (Zod): criar, editar, cancelar, concluir, listar por intervalo e "hoje"; rota `/api/v1/schedule` no BFF |
 | ScheduleService: CRUD, listagem por mês/semana, eventos do dia em ordem cronológica no fuso de São Paulo (RF-AGD-003, RN-011) | Tela Agenda: visões mensal e semanal, formulário com Proprietário antes de Propriedade (RN-001) e lembretes por horário |
 | Rota "agendar visita" (`POST /schedule/visits`): proprietário, propriedade, animais, data/hora, observações e origem opcional. O retorno (RF-ATD-010, RF-AGD-006) usa a mesma rota com origem no atendimento, no máximo um retorno por atendimento | Tela própria "Agendar visita" e retorno opcional ao finalizar o atendimento: o mesmo formulário, pré-preenchido com proprietário, propriedade e animais do atendimento |
-| Última visita por proprietário (para o geofence da Sprint 11): o MS4 registra a data a partir de `appointment.done` e `vaccination.applied`, com carga inicial única a partir do MS3 | Dashboard: atividades do dia por horário (RF-AGD-003, RN-011), no lugar do placeholder da Sprint 2 |
+| Última visita por propriedade (para o geofence da Sprint 11): `appointment.done` e `vaccination.applied` ganham `propertyId` (MS3); o MS4 assina os dois e registra a data, com carga inicial única a partir do MS3 | Dashboard: atividades do dia por horário (RF-AGD-003, RN-011), no lugar do placeholder da Sprint 2 |
 | Job de lembretes (`upsertJobScheduler`, a cada 5 min): varredura entre tenants por `SECURITY DEFINER` (ADR-006), publica `schedule.reminder_due` com chave idempotente por (evento, antecedência). Contratos do MS4 e do MS5 publicados em shared-types | Testes E2E: criar evento, ver no dia, agendar visita pela tela própria e como retorno de um atendimento |
 | Testes unitários: ScheduleService, visita e retorno, última visita e job de lembretes (≥ 70%) | |
 
@@ -121,7 +121,7 @@ saídas avulsas e gráficos só no Plus.
 | MS6: `expenses` (saídas avulsas com data, descrição, categoria e valor, RF-REL-002), filtro por período nas pendências (RF-REL-003) e fluxo de caixa por período: entradas = pagamentos recebidos, saídas = avulsas + compras de estoque (RF-REL-001) | Controllers MS6 (Zod): saídas avulsas, compras de estoque, fluxo de caixa, dashboard, período nas pendências |
 | MS6: rota de entrada de compra de estoque, lançada à mão (sem entrada automática); a regra fina vem da próxima reunião. `stock.deducted` removido (ADR-002, ponta solta nº 2). MS2: limites de alerta globais por tenant (RF-CFG-004) | Telas: fluxo de caixa, saídas avulsas, compras de estoque, pendências com filtro por proprietário e período, e dashboard com gráficos (RF-REL-001 a 005) |
 | Dashboard (RF-REL-005): receita mensal, proprietários com maior volume e quantidade de atendimentos por mês (contagem servida pelo MS3) | Tela Configurações: dados do veterinário e valor do km (já existem), limites de alerta globais, raio do geofence, dias sem visita e preferências de notificação (RF-CFG-002 a 005) |
-| MS4, geofence (RF-AGD-005, RF-NOT-004, RN-008): raio por tenant (padrão 500 m, RF-CFG-005) e dias sem visita (configurável); `GET /geofence/targets` (retornos não concluídos + proprietários sem visita há mais de N dias) e `POST /geofence/hits`, que publica `geofence.triggered` no máximo uma vez por propriedade por dia | Geofence na PWA: compara a posição com os alvos no próprio aparelho (a posição não vai para o servidor) e chama `hits` ao entrar no raio. Funciona com o app aberto; em segundo plano, só com o app nativo do lançamento |
+| MS4, geofence (RF-AGD-005, RF-NOT-004, RN-008): raio por tenant (padrão 500 m, RF-CFG-005) e dias sem visita (configurável); `GET /geofence/targets` (retornos não concluídos + propriedades sem visita há mais de X dias) e `POST /geofence/hits`, que publica `geofence.triggered` no máximo uma vez por propriedade por dia | Geofence na PWA: compara a posição com os alvos no próprio aparelho (a posição não vai para o servidor) e chama `hits` ao entrar no raio. Funciona com o app aberto; em segundo plano, só com o app nativo do lançamento |
 | Planos (ERS §2.6): `requirePlus` em fluxo de caixa, saídas avulsas, compras de estoque, gráficos do dashboard e geofence. Corrige junto a corrida do limite do Básico (auditoria B-01) | Para o Básico: relatório em listagem e aviso de upgrade nos recursos Plus (a decisão é do servidor, a tela só reflete) |
 | Testes unitários: fluxo de caixa, saídas, agregações do dashboard, alvos do geofence (RN-008), limites de plano (≥ 70%) | Testes E2E: pagamento recebido aparece no fluxo de caixa; usuário do Básico não acessa recurso Plus |
 
@@ -198,7 +198,8 @@ Objetivo: deploy em staging, correções pós-testes, apresentação formal e li
   convite) vão em evento com token de vida curta e `removeOnComplete`; o MS5 envia.
 - **ADR-008 (Sprint 12):** modelo da revisão dos dados do assistente.
 - **ADR-002, revisão 1.5:** payloads de `schedule.reminder_due` e `geofence.triggered`; o MS4 passa a
-  assinar `appointment.done` e `vaccination.applied` (última visita, sem mudar os payloads);
+  assinar `appointment.done` e `vaccination.applied` (última visita por propriedade; os dois
+  payloads ganham `propertyId`, opcional para os eventos que já estão na fila);
   `payment.registered` deixa de ter destino no MS5; `stock.deducted` sai. O retorno não passa pelo
   broker: é uma chamada à rota "agendar visita".
 - **ADR-001:** §3 — as Configurações ficam com o serviço dono de cada dado (MS1, MS2, MS4, MS5), não no
@@ -207,7 +208,8 @@ Objetivo: deploy em staging, correções pós-testes, apresentação formal e li
 ## Em aberto
 
 - **Próxima reunião:** regra da compra de estoque no fluxo de caixa (decisão 9).
-- **Valor padrão de "dias sem visita"** para o geofence (decisão 5). Proposta: 90 dias.
+- **Valor inicial de "dias sem visita"** para o geofence (decisão 5), até o veterinário definir o dele.
+  Proposta: 90 dias.
 - **RF-CAD-015 (bloquear notificação por cliente):** sem notificação ao proprietário, o requisito fica
   sem efeito no M3. Registrar na ata como "atendido por não haver notificação ao cliente" ou reinterpretar
   (por exemplo, silenciar os avisos sobre aquele cliente).
