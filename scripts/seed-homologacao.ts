@@ -4,10 +4,11 @@
  * todas as etapas (incluindo Mormo e AIE), vacinações individuais, múltiplas
  * e de outra pessoa, estoque consumido e pendências financeiras.
  *
- * Um seed só para os QUATRO bancos (MS1, MS2, MS3, MS6): os IDs precisam
+ * Um seed só para os CINCO bancos (MS1, MS2, MS3, MS4, MS6): os IDs precisam
  * bater entre os serviços (o atendimento aponta pro animal do MS1, a vacina
- * pro produto do MS2, a pendência do MS6 pro atendimento do MS3). Seeds
- * separados por serviço não conseguem garantir isso.
+ * pro produto do MS2, a pendência do MS6 pro atendimento do MS3, o retorno
+ * da agenda pro atendimento). Seeds separados por serviço não conseguem
+ * garantir isso.
  *
  *   npm run seed:homologacao
  *
@@ -32,6 +33,7 @@ import { PrismaClient as InventoryClient } from '../apps/ms-inventory/node_modul
 import { PrismaClient as ClinicalClient } from '../apps/ms-clinical/node_modules/.prisma/client-clinical';
 import type { ExamType as ExamTypeRow } from '../apps/ms-clinical/node_modules/.prisma/client-clinical';
 import { PrismaClient as ReportingClient } from '../apps/ms-reporting/node_modules/.prisma/client-reporting';
+import { PrismaClient as SchedulingClient } from '../apps/ms-scheduling/node_modules/.prisma/client-scheduling';
 import { calculateTotalCents, calculateItemTotalCents } from '../apps/ms-clinical/src/services/billing';
 import { calculateExamChargeCents, calculateExpectedResultAt } from '../apps/ms-clinical/src/services/exam.service';
 import {
@@ -39,7 +41,7 @@ import {
   calculateNextDoseAt,
   totalMl,
 } from '../apps/ms-clinical/src/services/vaccination.service';
-import { saoPauloDay, addDays } from '../apps/ms-clinical/src/services/sao-paulo-day';
+import { saoPauloDay, addDays } from '../packages/shared-middlewares/src/sao-paulo-day';
 import { toStockUnits } from '../apps/ms-inventory/src/services/stock.service';
 import { EXAM_TYPE_SUGGESTIONS } from '@quironequine/shared-types';
 import type { ExamProtocolField, StockConsumptionSource } from '@quironequine/shared-types';
@@ -56,6 +58,7 @@ const identity = new IdentityClient({ datasourceUrl: requireEnv('DATABASE_URL_ID
 const inventory = new InventoryClient({ datasourceUrl: requireEnv('DATABASE_URL_INVENTORY') });
 const clinical = new ClinicalClient({ datasourceUrl: requireEnv('DATABASE_URL_CLINICAL') });
 const reporting = new ReportingClient({ datasourceUrl: requireEnv('DATABASE_URL_REPORTING') });
+const scheduling = new SchedulingClient({ datasourceUrl: requireEnv('DATABASE_URL_SCHEDULING') });
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -80,6 +83,7 @@ async function reset(): Promise<void> {
     for (const table of tables) await client.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id IN (${ids})`);
   };
 
+  await wipe(scheduling, ['audit_log', 'property_last_visits', 'schedule_events']);
   await wipe(reporting, ['audit_log', 'financial_records']);
   await wipe(clinical, [
     'audit_log',
@@ -113,6 +117,8 @@ async function reset(): Promise<void> {
 // ─── 2. MS1 — clínica, veterinários, proprietários, animais ───────
 interface Vet {
   id: string;
+  /** Usuário do veterinário — quem agenda (e recebe o lembrete) na agenda do MS4. */
+  userId: string;
   name: string;
 }
 
@@ -161,7 +167,7 @@ async function seedIdentity(): Promise<Herd> {
         displacementRateCents: 250,
       },
     });
-    return { id: created.id, name: u.fullName };
+    return { id: created.id, userId: u.id, name: u.fullName };
   };
   // CPFs fictícios (únicos por clínica).
   const helena = await vet(helenaUser, 'GO-08812', '900.000.000-01');
@@ -626,6 +632,14 @@ async function seedAppointments(h: Herd, p: Record<string, StockItem>): Promise<
     });
 
     if (s.finished) {
+      visit(property.id, performedAt, 'appointment', created.id);
+      finishedAppointments.push({
+        id: created.id,
+        ownerId,
+        propertyId: property.id,
+        animalIds: s.animals.map((name) => h.animals[name]!.id),
+        vetUserId: s.vet.userId,
+      });
       for (const [product, quantity] of s.products) await consume(product, quantity, 'appointment', created.id, performedAt);
       await charge('appointment', created.id, ownerId, totalCents, performedAt, s.paidDaysAfter);
     }
@@ -856,11 +870,138 @@ async function seedVaccinations(h: Herd, p: Record<string, StockItem>): Promise<
     });
 
     if (isClinic && s.product) {
+      visit(property.id, appliedAt, 'vaccination', created.id);
       await consume(s.product, ml, 'vaccination', created.id, appliedAt);
       await charge('vaccination', created.id, ownerId, totalCents, appliedAt, s.paidDaysAfter);
     }
   }
   return seeds.length;
+}
+
+// ─── 7b. MS4 — agenda e última visita por propriedade ─────────────
+type VisitSource = 'appointment' | 'vaccination' | 'schedule_event';
+
+/**
+ * Última visita de cada propriedade, juntada enquanto o seed cria
+ * atendimentos e vacinações — o que o MS4 faria ao consumir
+ * appointment.done e vaccination.applied. Gravada no fim, em seedSchedule.
+ */
+const lastVisits = new Map<string, { at: Date; sourceType: VisitSource; sourceId: string }>();
+
+function visit(propertyId: string, at: Date, sourceType: VisitSource, sourceId: string): void {
+  const current = lastVisits.get(propertyId);
+  if (!current || current.at < at) lastVisits.set(propertyId, { at, sourceType, sourceId });
+}
+
+/** Atendimentos finalizados — um deles ganha o retorno agendado. */
+const finishedAppointments: Array<{
+  id: string;
+  ownerId: string;
+  propertyId: string;
+  animalIds: string[];
+  vetUserId: string;
+}> = [];
+
+/**
+ * Agenda de demonstração: o dia de hoje cheio (dashboard, RN-011), a semana
+ * e o mês (RF-AGD-001), um retorno de atendimento (RF-ATD-010), um evento
+ * cancelado e uma visita concluída. A última visita sai dos atendimentos e
+ * vacinações do próprio seed — a mais antiga fica em torno de 30 dias: para
+ * demonstrar o "sem visita há mais de X dias" do geofence (Sprint 11), basta
+ * configurar X abaixo disso.
+ */
+async function seedSchedule(h: Herd): Promise<{ events: number; today: number; visits: number }> {
+  const { boaVista, santaLuzia, recanto, saoBento } = h.properties;
+  const ownerOf = (p: Herd['properties']['boaVista']): string => h.owners[p.ownerKey];
+  const animalsOf = (p: Herd['properties']['boaVista']): string[] =>
+    Object.values(h.animals)
+      .filter((a) => h.properties[a.propertyKey].id === p.id)
+      .map((a) => a.id);
+
+  type Seed = {
+    type: 'appointment' | 'visit' | 'vaccination' | 'exam' | 'other';
+    at: Date;
+    minutes?: number;
+    property?: Herd['properties']['boaVista'];
+    vet: Vet;
+    notes?: string;
+    reminders?: number[];
+    status?: 'done' | 'cancelled';
+    returnOf?: (typeof finishedAppointments)[number];
+  };
+
+  const { helena, ricardo } = h.vets;
+  const seeds: Seed[] = [
+    // Hoje — o que aparece no dashboard, em ordem de horário.
+    { type: 'visit', at: on(0, 8), property: boaVista, vet: helena, notes: 'Revisão do casqueamento', reminders: [60] },
+    { type: 'other', at: on(0, 12), minutes: 60, vet: helena, notes: 'Almoço com fornecedor de vacinas' },
+    { type: 'vaccination', at: on(0, 14), property: santaLuzia, vet: ricardo, notes: 'Influenza — reforço anual', reminders: [60, 15] },
+    { type: 'appointment', at: on(0, 16), property: saoBento, vet: helena, reminders: [30] },
+    // Semana.
+    { type: 'exam', at: on(1, 9), property: recanto, vet: ricardo, notes: 'Coleta para AIE e Mormo (trânsito)', reminders: [1440, 60] },
+    { type: 'visit', at: on(2, 10), property: saoBento, vet: helena, reminders: [60] },
+    { type: 'appointment', at: on(4, 15), property: boaVista, vet: ricardo, notes: 'Avaliação odontológica', reminders: [60] },
+    { type: 'visit', at: on(3, 9), property: recanto, vet: helena, status: 'cancelled' },
+    // Mês.
+    { type: 'vaccination', at: on(10, 8), property: saoBento, vet: ricardo, notes: 'Vacinação do lote de potros', reminders: [1440] },
+    { type: 'visit', at: on(20, 14), property: santaLuzia, vet: helena, reminders: [60] },
+    // Concluída — conta como visita à propriedade.
+    { type: 'visit', at: on(-3, 9), property: recanto, vet: ricardo, status: 'done' },
+  ];
+
+  // Retorno do primeiro atendimento finalizado, uma semana depois de hoje.
+  const returned = finishedAppointments[0];
+  if (returned) {
+    const property = Object.values(h.properties).find((p) => p.id === returned.propertyId);
+    if (property) {
+      seeds.push({
+        type: 'visit',
+        at: on(7, 9),
+        property,
+        vet: Object.values(h.vets).find((v) => v.userId === returned.vetUserId) ?? helena,
+        notes: 'Retorno do atendimento',
+        reminders: [1440],
+        returnOf: returned,
+      });
+    }
+  }
+
+  for (const s of seeds) {
+    const created = await scheduling.scheduleEvent.create({
+      data: {
+        tenantId: CLINICA,
+        activityType: s.type,
+        status: s.status ?? 'scheduled',
+        startsAt: s.at,
+        endsAt: s.minutes ? new Date(s.at.getTime() + s.minutes * 60 * 1000) : null,
+        ownerId: s.returnOf?.ownerId ?? (s.property ? ownerOf(s.property) : null),
+        propertyId: s.property?.id ?? null,
+        animalIds: s.returnOf?.animalIds ?? (s.property ? animalsOf(s.property).slice(0, 2) : []),
+        notes: s.notes ?? null,
+        reminderMinutesBefore: s.reminders ?? [],
+        sourceAppointmentId: s.returnOf?.id ?? null,
+        createdBy: s.vet.userId,
+        completedAt: s.status === 'done' ? s.at : null,
+        cancelledAt: s.status === 'cancelled' ? on(-1, 18) : null,
+      },
+    });
+    if (s.status === 'done' && s.property) visit(s.property.id, s.at, 'schedule_event', created.id);
+  }
+
+  for (const [propertyId, last] of lastVisits) {
+    await scheduling.propertyLastVisit.create({
+      data: {
+        tenantId: CLINICA,
+        propertyId,
+        lastVisitAt: last.at,
+        sourceType: last.sourceType,
+        sourceId: last.sourceId,
+      },
+    });
+  }
+
+  const today = seeds.filter((s) => saoPauloDay(s.at) === TODAY && s.status !== 'cancelled').length;
+  return { events: seeds.length, today, visits: lastVisits.size };
 }
 
 // ─── 8. Segundo tenant: demonstra o isolamento (RLS) ──────────────
@@ -904,6 +1045,7 @@ async function main(): Promise<void> {
   const appointments = await seedAppointments(herd, products);
   const exams = await seedExams(herd, products);
   const vaccinations = await seedVaccinations(herd, products);
+  const schedule = await seedSchedule(herd);
   await seedNeighbor();
 
   const [pending, received] = await Promise.all([
@@ -920,6 +1062,7 @@ async function main(): Promise<void> {
   console.log(`    dados:  4 proprietários, 4 propriedades, ${Object.keys(herd.animals).length} animais, ${Object.keys(products).length} produtos`);
   console.log(`            ${appointments} atendimentos, ${exams} exames, ${vaccinations} vacinações`);
   console.log(`            ${pending} pendências em aberto, ${received} recebidas`);
+  console.log(`            ${schedule.events} eventos na agenda (${schedule.today} hoje), ${schedule.visits} propriedades com última visita`);
   console.log('  Haras Vizinho (isolamento): isolamento@quironequine.com.br — não pode ver nada da clínica acima.');
 }
 
@@ -929,5 +1072,11 @@ main()
     process.exitCode = 1;
   })
   .finally(async () => {
-    await Promise.all([identity.$disconnect(), inventory.$disconnect(), clinical.$disconnect(), reporting.$disconnect()]);
+    await Promise.all([
+      identity.$disconnect(),
+      inventory.$disconnect(),
+      clinical.$disconnect(),
+      reporting.$disconnect(),
+      scheduling.$disconnect(),
+    ]);
   });
