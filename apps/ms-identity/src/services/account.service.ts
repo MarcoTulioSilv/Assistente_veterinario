@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { EVENTS } from '@quironequine/shared-types';
-import type { IAccountService, RequestContext, DomainEvent, AccountEmailPayload, UUID } from '@quironequine/shared-types';
+import type { IAccountService, DomainEvent, AccountEmailPayload, UUID } from '@quironequine/shared-types';
 import { AppError, createServiceLogger } from '@quironequine/shared-middlewares';
 import type { AccountRepository, TokenPurpose, TokenLookup } from '../repositories/account.repository';
 import { hashPassword } from '../lib/password';
@@ -77,17 +77,23 @@ export class AccountService implements IAccountService {
     }
   }
 
-  async requestEmailVerification(ctx: RequestContext): Promise<void> {
-    if (!this.enabled()) {
-      throw new AppError('EXTERNAL_SERVICE_ERROR', 'O envio de e-mail ainda não está disponível', 503);
+  /**
+   * Reenvio público, por e-mail: quem não confirmou não consegue entrar para
+   * pedir. Sempre termina igual — não revela se a conta existe, se já foi
+   * confirmada ou se o pedido foi recente.
+   */
+  async requestEmailVerification(email: string): Promise<void> {
+    if (!this.enabled()) return;
+    const row = await this.lookup.findAuthByEmail(email);
+    if (!row || row.userStatus !== 'active' || row.tenantStatus !== 'active') return;
+    const user = await this.repo.findUser(row.tenantId, row.id);
+    if (!user || user.emailVerifiedAt) return;
+    if (await this.sentRecently(row.tenantId, row.id, 'verify_email')) return;
+    try {
+      await this.issue(row.tenantId, row.id, user.email, 'verify_email');
+    } catch (err) {
+      log.error({ err, tenantId: row.tenantId, userId: row.id }, 'Reenvio da confirmação não publicado');
     }
-    const user = await this.repo.findUser(ctx.tenantId, ctx.userId);
-    if (!user) throw AppError.notFound('Usuário não encontrado');
-    if (user.emailVerifiedAt) throw AppError.conflict('E-mail já confirmado');
-    if (await this.sentRecently(ctx.tenantId, ctx.userId, 'verify_email')) {
-      throw new AppError('RATE_LIMITED', 'Aguarde um minuto para pedir outro e-mail', 429);
-    }
-    await this.issue(ctx.tenantId, ctx.userId, user.email, 'verify_email');
   }
 
   async confirmEmail(token: string): Promise<void> {

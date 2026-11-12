@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import type { RequestContext, DomainEvent, AccountEmailPayload } from '@quironequine/shared-types';
+import type { DomainEvent, AccountEmailPayload } from '@quironequine/shared-types';
 import { AppError } from '@quironequine/shared-middlewares';
 import type { AccountRepository, TokenLookup } from '../repositories/account.repository';
 import { verifyPassword } from '../lib/password';
@@ -15,8 +15,6 @@ const TENANT = '11111111-1111-1111-1111-111111111111';
 const USER = '22222222-2222-2222-2222-222222222222';
 const EMAIL = 'vet@clinica.com.br';
 const NOW = new Date('2026-11-13T12:00:00Z');
-
-const ctx: RequestContext = { tenantId: TENANT, userId: USER, role: 'admin', plan: 'basic', traceId: 't' };
 
 function token(overrides: Partial<TokenLookup> = {}): TokenLookup {
   return {
@@ -92,30 +90,30 @@ describe('confirmação de e-mail (M-02)', () => {
     await expect(service.sendVerificationAfterSignup(TENANT, USER, EMAIL)).resolves.toBeUndefined();
   });
 
-  it('reenvio: desligado → 503; já confirmado → 409; pedido há menos de 1 min → 429', async () => {
-    await rejectsWith(setup({ enabled: false }).service.requestEmailVerification(ctx), 'EXTERNAL_SERVICE_ERROR');
-    await rejectsWith(
-      setup({ repo: { findUser: vi.fn().mockResolvedValue({ id: USER, email: EMAIL, emailVerifiedAt: NOW, active: true }) } })
-        .service.requestEmailVerification(ctx),
-      'CONFLICT',
-    );
-    await rejectsWith(
-      setup({ repo: { lastTokenCreatedAt: vi.fn().mockResolvedValue(new Date(NOW.getTime() - RESEND_INTERVAL_MS + 1)) } })
-        .service.requestEmailVerification(ctx),
-      'RATE_LIMITED',
-    );
-    await rejectsWith(
-      setup({ repo: { findUser: vi.fn().mockResolvedValue(null) } }).service.requestEmailVerification(ctx),
-      'NOT_FOUND',
-    );
+  it('reenvio público nunca revela nada: desligado, sem conta, já confirmado, pedido recente ou falha terminam igual', async () => {
+    const quiet = [
+      setup({ enabled: false }),
+      setup({ lookup: null }),
+      setup({ repo: { findUser: vi.fn().mockResolvedValue({ id: USER, email: EMAIL, emailVerifiedAt: NOW, active: true }) } }),
+      setup({ repo: { lastTokenCreatedAt: vi.fn().mockResolvedValue(new Date(NOW.getTime() - RESEND_INTERVAL_MS + 1)) } }),
+      setup({ repo: { findUser: vi.fn().mockResolvedValue(null) } }),
+    ];
+    for (const { service, publish } of quiet) {
+      await expect(service.requestEmailVerification(EMAIL)).resolves.toBeUndefined();
+      expect(publish).not.toHaveBeenCalled();
+    }
+    const failing = setup();
+    failing.publish.mockRejectedValueOnce(new Error('redis fora'));
+    await expect(failing.service.requestEmailVerification(EMAIL)).resolves.toBeUndefined();
   });
 
-  it('reenvio passado o intervalo publica um link novo', async () => {
+  it('reenvio passado o intervalo publica um link novo para o e-mail cadastrado', async () => {
     const { service, publish } = setup({
       repo: { lastTokenCreatedAt: vi.fn().mockResolvedValue(new Date(NOW.getTime() - RESEND_INTERVAL_MS)) },
     });
-    await service.requestEmailVerification(ctx);
+    await service.requestEmailVerification(EMAIL);
     expect(publish).toHaveBeenCalledTimes(1);
+    expect(publish.mock.calls[0]![0].payload.email).toBe(EMAIL);
   });
 
   it('confirma com o token certo, procurando pelo hash', async () => {

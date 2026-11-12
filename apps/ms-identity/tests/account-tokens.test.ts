@@ -101,7 +101,7 @@ describe('conta: tokens de uso único e diretório (M-02, ADR-007)', () => {
     await account.sendVerificationAfterSignup(TENANT_ID, USER_ID, EMAIL);
     const old = lastToken();
     now = new Date(now.getTime() + 61_000);
-    await account.requestEmailVerification({ tenantId: TENANT_ID, userId: USER_ID, role: 'admin', plan: 'basic', traceId: 't' });
+    await account.requestEmailVerification(EMAIL);
 
     await expect(account.confirmEmail(old)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
     await account.confirmEmail(lastToken());

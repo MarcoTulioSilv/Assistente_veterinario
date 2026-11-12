@@ -1264,8 +1264,12 @@ export interface IRecipientDirectory {
 // (EMAIL_VERIFICATION_ENABLED=false no MS1), o cadastro segue sem confirmação.
 
 export interface IAccountService {
-  /** Reenvio da confirmação para o usuário logado. RATE_LIMITED se pedido há menos de 60 s. */
-  requestEmailVerification(ctx: RequestContext): Promise<void>;
+  /**
+   * Reenvio da confirmação. Público e por e-mail: com a confirmação ligada,
+   * quem não confirmou não consegue entrar para pedir. Sempre responde igual
+   * (conta inexistente, já confirmada ou pedido recente não se distinguem).
+   */
+  requestEmailVerification(email: string): Promise<void>;
   /** Token de uso único, 24 h. VALIDATION_ERROR se inválido, usado ou vencido. */
   confirmEmail(token: string): Promise<void>;
   /** Sempre responde igual, exista a conta ou não (não revela cadastro). */
