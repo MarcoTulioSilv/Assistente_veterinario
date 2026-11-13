@@ -67,6 +67,27 @@ Declare `/day`, `/returns/:appointmentId` e `/visits` antes de `/:id`.
 
 ---
 
+## Em aberto: PWA instalável — ícones e tipografia (bloqueia o push da Sprint 10)
+
+Os ícones e a tipografia do QuironEqui chegaram em 13/11/2026; você sobe os arquivos. Hoje (conferido no staging em 13/11):
+
+- o manifest (`src/app/manifest.ts`) declara `/icons/icon-192.png`, `/icons/icon-512.png` e `/icons/icon-512-maskable.png`, mas `apps/pwa/public/icons/` nunca entrou no repositório: **os três dão 404**;
+- sem ícones de 192 e 512 válidos, o **Chrome do Android não considera a PWA instalável** (não aparece "Instalar app");
+- o `sw.js` pré-carrega dois desses ícones (`SHELL_ASSETS`), e o `cache.addAll` falha no 404: **o service worker não chega a ser instalado**. Sem ele não há modo offline nem push (Sprint 10). É a lição do primeiro deploy anotada no `CLAUDE.md`.
+
+O que fazer:
+1. `apps/pwa/public/icons/`: `icon-192.png` (192×192), `icon-512.png` (512×512) e `icon-512-maskable.png` (512×512, com o desenho dentro da área segura central de ~80%, porque o Android recorta em círculo ou gota).
+2. `apps/pwa/src/app/apple-icon.png` (180×180, sem transparência): o Next gera o `apple-touch-icon`, que é o ícone do iPhone na tela de início. Se quiser, também `src/app/icon.png` ou `favicon.ico` para a aba do navegador.
+3. Tipografia: fontes auto-hospedadas com `next/font/local` (sem Google Fonts em tempo de execução; ajuda o modo offline e a CSP da auditoria B-05).
+4. Subir a `VERSION` do `sw.js`, para os aparelhos trocarem o service worker.
+5. Conferir no staging: `/icons/icon-192.png` responde 200; no Chrome do computador, DevTools → Application → Manifest sem erros e Service Workers "activated".
+
+**Botão de instalar** (sugestão, para os stakeholders não dependerem de achar o menu). O navegador não deixa instalar sozinho, sem um toque do usuário, e uma notificação push não instala o app (o push só funciona com o service worker, e no iPhone só com o app já instalado). O que dá para fazer:
+- **Android/Chrome**: guardar o evento `beforeinstallprompt` e mostrar um botão "Instalar o app" que chama `prompt()`. São um toque e a confirmação do sistema. Esconder o botão quando já estiver instalado (`display-mode: standalone`, evento `appinstalled`).
+- **iPhone/Safari**: não há API de instalação. Mostrar um aviso com o passo a passo (Compartilhar → "Adicionar à Tela de Início") quando for iOS, no Safari e fora do modo standalone. Lembrar que, no iPhone, o push só funciona instalado assim (iOS 16.4+).
+
+---
+
 ## Sprint 10 do M3: notificações (MS5), conta e rota interna do MS1
 
 O lado do servidor está na branch `feature/MS5-001-notificacoes` (empilhada na da Sprint 9). As decisões estão na ADR-007: tudo vai para o veterinário; WhatsApp e e-mail ficam desligados até existirem as contas; **o MS5 entrega só tipo e dados, e o texto é seu** (PWA, service worker e adapter de e-mail). Falta a sua parte:
