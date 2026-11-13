@@ -142,6 +142,16 @@ O `schedule.reminder_due` segue o padrão dos lembretes do MS3: varredura sem ou
 
 O retorno do atendimento (RF-ATD-010) **não** passa pelo broker: é uma chamada à operação "agendar visita" do MS4, com o atendimento como origem.
 
+**9. Notificações do MS5 e e-mails da conta** (revisão 1.7, Sprint 10 do M3). O MS5 passa a consumir a fila `domain-events-notification`, que acumulava desde o M2. As regras de quem avisar, do aviso vencido e do texto estão na ADR-007. Para o broker, o que muda:
+
+| Evento | Publicado quando | Consumido por | Efeito |
+|---|---|---|---|
+| `auth.email_verification_requested` | Cadastro ou reenvio, com a confirmação ligada | **Notification** | E-mail de confirmação com o link (token de 24 h) |
+| `auth.password_reset_requested` | Pedido de nova senha de conta ativa, com o e-mail ligado | **Notification** | E-mail com o link (token de 30 min) |
+| `payment.registered` | (já existia) | **Notification** | Consumido e **descartado**: nada vai ao proprietário |
+
+Os dois eventos `auth.*` são os primeiros publicados pelo MS1. Publicação direta, sem outbox, com `removeOnComplete` e `removeOnFail`: o payload leva o token cru, que não deve ficar no Redis depois do envio. Perder o evento significa só um e-mail que não chegou, e o reenvio existe. Dentro do MS5, cada aviso vira uma entrega por canal numa fila própria (`notification-deliveries`), para a falha de um canal repetir só aquele canal.
+
 ## Consequências
 
 **Positivas.** O fan-out do §5.3 passa a funcionar de verdade antes de existir consumidor duplicado — o bug nasceria silencioso e só apareceria em produção com o MS6 no ar. Nenhuma infraestrutura nova: nada muda no `docker-compose`, no CI, nos scripts de deploy ou no custo mensal. A tabela `EVENT_SUBSCRIBERS` em `shared-types` dá uma fonte única para o roteamento, rastreável linha a linha contra a tabela do ADR-001 §5.3.
@@ -168,3 +178,4 @@ O retorno do atendimento (RF-ATD-010) **não** passa pelo broker: é uma chamada
 | 1.4 | Out/2026 | Eventos de vacinação (`vaccination.applied` para MS2 + MS6, `vaccination.deleted`, `vaccination.due`): baixa em doses convertidas pelo MS2, lembrete de re-vacinação 7 dias antes e no dia, que ignora o animal já re-vacinado; registro externo (aplicada por outra pessoa) sem evento. |
 | 1.5 | Nov/2026 | Reunião de 03/11/2026: medicamento e vacina cobrados e baixados por **ml**. O payload do `vaccination.applied` troca `totalDoses` por `totalMl`; a conversão de ml em frascos passa para o `StockService.deduct` (vale também para itens de atendimento e insumos de exame). |
 | 1.6 | Nov/2026 | Sprint 9 do M3: o MS4 assina `appointment.done` e `vaccination.applied` (que ganham `propertyId`) para registrar a última visita por propriedade, e publica `schedule.reminder_due` a cada 5 min para o MS5. |
+| 1.7 | Nov/2026 | Sprint 10 do M3: o MS5 consome a fila de notificações (ADR-007); eventos `auth.email_verification_requested` e `auth.password_reset_requested`, os primeiros do MS1; `payment.registered` passa a ser descartado; fila `notification-deliveries`, uma entrega por canal. |

@@ -40,6 +40,9 @@ POSTGRES_PASSWORD=$(secret 24)
 APP_DB_PASSWORD=$(secret 24)
 
 JWT_SECRET=$(secret 48)
+
+# Rota interna MS1 ← MS5 (ADR-007). As chaves VAPID do push o deploy.sh gera.
+INTERNAL_SERVICE_TOKEN=$(secret 32)
 LOG_LEVEL=info
 
 # Senha dos usuários do seed de homologação.

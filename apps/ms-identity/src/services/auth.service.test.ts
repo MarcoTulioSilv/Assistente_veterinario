@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import bcrypt from 'bcryptjs';
 import { TOTP, Secret } from 'otpauth';
-import { AuthService, hashRefreshSecret, REFRESH_REUSE_GRACE_MS } from './auth.service';
+import { AuthService, hashRefreshSecret, REFRESH_REUSE_GRACE_MS, EMAIL_NOT_VERIFIED_MESSAGE } from './auth.service';
 import { hashPassword, verifyPassword } from '../lib/password';
 import type { AuthRepository, AuthLookupRow, SessionUser } from '../repositories/auth.repository';
 
@@ -49,6 +49,7 @@ function fakeRepo(overrides: Partial<AuthRepository> = {}): AuthRepository {
     revokeSession: vi.fn().mockResolvedValue(undefined),
     registerLoginFailure: vi.fn().mockResolvedValue({ failedLoginCount: 1, lockedUntil: null }),
     claimTotpStep: vi.fn().mockResolvedValue(true),
+    isEmailVerified: vi.fn().mockResolvedValue(true),
     ...overrides,
   } as unknown as AuthRepository;
 }
@@ -103,6 +104,27 @@ describe('AuthService.login', () => {
     expect(repo.registerLoginFailure).not.toHaveBeenCalled();
   });
 
+  it('confirmação ligada: senha certa com e-mail não confirmado não entra (M-02)', async () => {
+    const repo = fakeRepo({ isEmailVerified: vi.fn().mockResolvedValue(false) });
+    await expect(new AuthService(repo, () => true).login(EMAIL, PASSWORD)).rejects.toMatchObject({
+      statusCode: 403,
+      message: EMAIL_NOT_VERIFIED_MESSAGE,
+    });
+    expect(repo.startSession).not.toHaveBeenCalled();
+  });
+
+  it('confirmação ligada: senha errada continua com a mensagem genérica, sem revelar o e-mail não confirmado', async () => {
+    const repo = fakeRepo({ isEmailVerified: vi.fn().mockResolvedValue(false) });
+    await expect(new AuthService(repo, () => true).login(EMAIL, 'senha-errada')).rejects.toThrow(INVALID);
+    expect(repo.isEmailVerified).not.toHaveBeenCalled();
+  });
+
+  it('confirmação desligada (padrão): não consulta o e-mail confirmado', async () => {
+    const repo = fakeRepo({ isEmailVerified: vi.fn().mockResolvedValue(false) });
+    await new AuthService(repo, () => false).login(EMAIL, PASSWORD);
+    expect(repo.isEmailVerified).not.toHaveBeenCalled();
+  });
+
   it('exige totpCode quando a conta tem 2FA habilitado (só depois da senha certa)', async () => {
     const repo = withRow({ totpEnabled: true, totpSecret: TOTP_SECRET });
     await expect(new AuthService(repo).login(EMAIL, PASSWORD)).rejects.toThrow(/Código TOTP obrigatório/);
@@ -116,9 +138,14 @@ describe('AuthService.login', () => {
 
   it('aceita login com totpCode correto, reserva o passo e retorna AuthTokens', async () => {
     const repo = withRow({ totpEnabled: true, totpSecret: TOTP_SECRET });
-    const result = await new AuthService(repo).login(EMAIL, PASSWORD, validTotpCode());
+    // Código e passo do MESMO instante: calcular o passo depois do login dava
+    // um passo a mais quando a janela de 30 s virava no meio do teste (o
+    // service reserva o passo do código, que é o certo).
+    const totp = new TOTP({ secret: Secret.fromBase32(TOTP_SECRET) });
+    const timestamp = Date.now();
+    const step = totp.counter({ timestamp });
+    const result = await new AuthService(repo).login(EMAIL, PASSWORD, totp.generate({ timestamp }));
 
-    const step = new TOTP({ secret: Secret.fromBase32(TOTP_SECRET) }).counter();
     expect(repo.claimTotpStep).toHaveBeenCalledWith(TENANT_ID, USER_ID, step);
     expect(result.user).toEqual({
       id: USER_ID,
@@ -133,9 +160,11 @@ describe('AuthService.login', () => {
   });
 
   it('código TOTP já usado (passo não é maior que o último aceito) é recusado sem consultar o banco', async () => {
-    const step = new TOTP({ secret: Secret.fromBase32(TOTP_SECRET) }).counter();
-    const repo = withRow({ totpEnabled: true, totpSecret: TOTP_SECRET, totpLastStep: step });
-    await expect(new AuthService(repo).login(EMAIL, PASSWORD, validTotpCode())).rejects.toThrow(INVALID);
+    // Passo e código do mesmo instante (ver o teste acima).
+    const totp = new TOTP({ secret: Secret.fromBase32(TOTP_SECRET) });
+    const timestamp = Date.now();
+    const repo = withRow({ totpEnabled: true, totpSecret: TOTP_SECRET, totpLastStep: totp.counter({ timestamp }) });
+    await expect(new AuthService(repo).login(EMAIL, PASSWORD, totp.generate({ timestamp }))).rejects.toThrow(INVALID);
     expect(repo.claimTotpStep).not.toHaveBeenCalled();
     expect(repo.registerLoginFailure).toHaveBeenCalled();
   });

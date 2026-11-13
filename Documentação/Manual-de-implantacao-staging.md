@@ -12,14 +12,14 @@
 ```
 Internet ──► Caddy (HTTPS automático, Let's Encrypt)
                ├── homolog.<dominio>      ──► PWA (Next.js)
-               └── api-homolog.<dominio>  ──► BFF ──► MS1 / MS2 / MS3 / MS4 / MS6
+               └── api-homolog.<dominio>  ──► BFF ──► MS1 / MS2 / MS3 / MS4 / MS5 / MS6
                                                        │
-                                     Postgres (5 bancos) + Redis (broker)
+                                     Postgres (6 bancos) + Redis (broker)
 ```
 
 - **Um servidor (VPS)** roda tudo em Docker Compose ([`docker-compose.yml`](../infra/staging/docker-compose.yml)).
 - **Só o Caddy fica exposto** (portas 80 e 443). Os serviços, o Postgres e o Redis vivem numa rede interna. O Postgres escuta apenas no `localhost` do servidor, e o seed chega por túnel SSH.
-- **Um servidor Postgres com 5 bancos** (`identity`, `inventory`, `clinical`, `scheduling`, `reporting`): continua um banco por serviço (ADR-001 §5.1). Banco de serviço novo é criado pelo `deploy.sh` (o `00-create-databases.sql` só roda quando o volume do Postgres nasce).
+- **Um servidor Postgres com 6 bancos** (`identity`, `inventory`, `clinical`, `scheduling`, `notification`, `reporting`): continua um banco por serviço (ADR-001 §5.1). Banco de serviço novo é criado pelo `deploy.sh` (o `00-create-databases.sql` só roda quando o volume do Postgres nasce).
 - **Imagens** no GitHub Container Registry, publicadas pelo workflow de deploy. A tag é o commit.
 - **Segredos do runtime** (senhas dos bancos, JWT) ficam **só no servidor**, em `/opt/quironequine/.env.staging`. O GitHub guarda apenas o acesso ao servidor e o necessário para o seed.
 
@@ -163,9 +163,9 @@ A chave entra na imagem no build: depois de cadastrar ou trocar, só vale no pr�
 
 1. Promova a `develop` para a `staging` (PR `develop → staging`, ou push direto na primeira vez).
 2. O workflow **Deploy staging** roda sozinho:
-   1. publica as 7 imagens;
+   1. publica as 8 imagens;
    2. envia os arquivos de `infra/staging/` para o servidor;
-   3. roda o `deploy.sh`, que sobe os bancos, cria os que faltarem, aplica as migrations com o usuário das migrations, cria a role da aplicação com a senha do `.env.staging` e sobe os serviços esperando os health checks;
+   3. roda o `deploy.sh`, que gera os segredos de serviço novo que faltarem no `.env.staging` (token interno MS1 ← MS5 e o par VAPID do push), sobe os bancos, cria os que faltarem, aplica as migrations com o usuário das migrations, cria a role da aplicação com a senha do `.env.staging` e sobe os serviços esperando os health checks;
    4. testa `https://api-homolog.<dominio>/health` e a PWA.
 3. Carregue os dados de homologação: **Actions → Seed staging → Run workflow**, digitando `homologacao` no campo de confirmação.
 4. Entre em `https://homolog.<dominio>` com `homologacao@quironequine.com.br` e a senha do `SEED_PASSWORD`. Para demonstrar o isolamento entre clínicas, entre também com `isolamento@quironequine.com.br`.
@@ -173,7 +173,7 @@ A chave entra na imagem no build: depois de cadastrar ou trocar, só vale no pr�
 ## 6. Rotina
 
 - **Deploy:** todo merge na `staging` implanta sozinho. Também dá para rodar à mão em **Actions → Deploy staging → Run workflow**.
-- **Voltar uma versão:** no servidor, `cd /opt/quironequine && ./deploy.sh <commit-anterior>`. As imagens ficam no registry com a tag do commit. No disco do servidor ficam só as imagens da versão no ar e de uma anterior: o `deploy.sh` apaga as outras depois de subir os serviços (sem isso, cada deploy deixava mais 7 imagens). Voltar para a anterior é imediato; para uma mais velha, o `deploy.sh` baixa de novo do registry. Atenção: **migration não é desfeita**. Uma versão anterior que não conheça a coluna nova continua funcionando só se a mudança foi aditiva.
+- **Voltar uma versão:** no servidor, `cd /opt/quironequine && ./deploy.sh <commit-anterior>`. As imagens ficam no registry com a tag do commit. No disco do servidor ficam só as imagens da versão no ar e de uma anterior: o `deploy.sh` apaga as outras depois de subir os serviços (sem isso, cada deploy deixava mais 8 imagens). Voltar para a anterior é imediato; para uma mais velha, o `deploy.sh` baixa de novo do registry. Atenção: **migration não é desfeita**. Uma versão anterior que não conheça a coluna nova continua funcionando só se a mudança foi aditiva.
 - **Logs:** `docker compose --env-file .env.staging logs -f ms-clinical` (ou `bff`, `caddy`...).
 - **Situação:** `docker compose --env-file .env.staging ps` (todos devem estar `healthy` ou `running`).
 - **Recriar os dados de homologação:** rode o workflow **Seed staging** de novo. Ele apaga e recria **só** os tenants de homologação.
@@ -220,10 +220,10 @@ crontab -l | grep backup.sh                  # o agendamento existe?
 tail -n 10 backups/backup.log                # uma linha "backup ok" por noite
 ls -1d backups/2* | tail -n 5                # pastas dos últimos dias
 
-ULTIMO=$(ls -1d backups/2* | tail -n 1); echo "$ULTIMO"; ls -lh "$ULTIMO"   # 5 .dump + uploads.tar.gz, nenhum com 0 byte
+ULTIMO=$(ls -1d backups/2* | tail -n 1); echo "$ULTIMO"; ls -lh "$ULTIMO"   # 6 .dump + uploads.tar.gz, nenhum com 0 byte
 tar -tzf "$ULTIMO/uploads.tar.gz" | grep -vc '/$'                            # arquivos no backup...
 docker run --rm -v quironequine-staging_uploads:/u:ro alpine sh -c 'find /u -type f | wc -l'   # ...e no volume (devem bater)
-for db in identity inventory clinical scheduling reporting; do
+for db in identity inventory clinical scheduling notification reporting; do
   printf '%s: ' "$db"
   docker compose --env-file .env.staging exec -T postgres pg_restore --list < "$ULTIMO/$db.dump" | grep -c 'TABLE DATA'
 done                                         # tabelas com dados em cada dump (nenhum 0)
