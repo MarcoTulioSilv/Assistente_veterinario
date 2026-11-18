@@ -12,6 +12,12 @@ import { writeAudit, type AuditActor } from '@quironequine/shared-middlewares';
 import { withTenant } from '../prisma';
 import type { ListFinancialRecordsInput } from '../schemas/financial.schema';
 
+/** RF-REL-003: período [from, to) sobre a data do serviço (occurred_at). */
+export interface FinancialPeriod {
+  from: Date;
+  to: Date;
+}
+
 /** Usuário de sistema dos consumidores de evento (financial.service.ts). */
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 
@@ -39,8 +45,9 @@ export class FinancialRepository {
   async list(
     ctx: RequestContext,
     params: ListFinancialRecordsInput,
+    period?: FinancialPeriod,
   ): Promise<Paginated<FinancialRecord>> {
-    return this.paginate(ctx, params, {});
+    return this.paginate(ctx, params, {}, period);
   }
 
   /** RF-ATD-008: pendências na aba do proprietário. */
@@ -48,20 +55,27 @@ export class FinancialRepository {
     ctx: RequestContext,
     ownerId: UUID,
     params: ListFinancialRecordsInput,
+    period?: FinancialPeriod,
   ): Promise<Paginated<FinancialRecord>> {
-    return this.paginate(ctx, params, { ownerId });
+    return this.paginate(ctx, params, { ownerId }, period);
   }
 
   private async paginate(
     ctx: RequestContext,
     params: ListFinancialRecordsInput,
     filter: Record<string, unknown>,
+    period?: FinancialPeriod,
   ): Promise<Paginated<FinancialRecord>> {
     const { page, limit, status } = params;
     const skip = (page - 1) * limit;
 
     return withTenant(ctx.tenantId, async (tx) => {
-      const where = { deletedAt: null, ...(status ? { status } : {}), ...filter };
+      const where = {
+        deletedAt: null,
+        ...(status ? { status } : {}),
+        ...(period ? { occurredAt: { gte: period.from, lt: period.to } } : {}),
+        ...filter,
+      };
 
       const [rows, total] = await Promise.all([
         tx.financialRecord.findMany({ where, skip, take: limit, orderBy: { occurredAt: 'desc' } }),

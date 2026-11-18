@@ -285,9 +285,24 @@ describe('FinancialService — delegações', () => {
     await service.listByOwner(ctx, OWNER_ID, { page: 1, limit: 20 });
     await service.findBySource(ctx, 'appointment', APPOINTMENT_ID);
 
-    expect(list).toHaveBeenCalledWith(ctx, { page: 1, limit: 20 });
-    expect(listByOwner).toHaveBeenCalledWith(ctx, OWNER_ID, { page: 1, limit: 20 });
+    expect(list).toHaveBeenCalledWith(ctx, { page: 1, limit: 20 }, undefined);
+    expect(listByOwner).toHaveBeenCalledWith(ctx, OWNER_ID, { page: 1, limit: 20 }, undefined);
     expect(findBySource).toHaveBeenCalledWith(ctx, 'appointment', APPOINTMENT_ID);
+  });
+
+  it('RF-REL-003: período pela data do serviço; só com as duas pontas', async () => {
+    const paginado = { data: [], pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } };
+    const list = vi.fn().mockResolvedValue(paginado);
+    const service = new FinancialService(fakeRepo({ list }), vi.fn());
+    const params = { page: 1, limit: 20, from: '2026-11-01T03:00:00Z', to: '2026-12-01T03:00:00Z' };
+
+    await service.list(ctx, params);
+    expect(list).toHaveBeenCalledWith(ctx, params, {
+      from: new Date('2026-11-01T03:00:00Z'),
+      to: new Date('2026-12-01T03:00:00Z'),
+    });
+
+    await expect(service.list(ctx, { page: 1, limit: 20, from: '2026-11-01T03:00:00Z' })).rejects.toThrow();
   });
 
   it('recordPending repassa a chave de idempotência', async () => {

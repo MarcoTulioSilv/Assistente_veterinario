@@ -90,6 +90,40 @@ model FinancialRecord {
 // (shared-middlewares) na transação do withTenant. Só os nomes dos campos,
 // nunca os valores. user_id sem FK: os usuários vivem no MS1. A role da
 // aplicação só tem SELECT/INSERT aqui (01-create-app-role.sql, 3d).
+/// RF-REL-002: categorias das saídas (proposta da pauta de 18/11/2026).
+enum ExpenseCategory {
+  fuel
+  vehicle_maintenance
+  supplies_equipment
+  taxes_fees
+  stock_purchase
+  other
+}
+
+/// Saída de caixa (RF-REL-001/002): avulsa ou compra de estoque lançada à
+/// mão. Valor em centavos, positivo (CHECK). Soft delete e audit_log.
+model Expense {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+
+  occurredOn  DateTime        @map("occurred_on") @db.Date
+  category    ExpenseCategory
+  /// Obrigatória na saída avulsa (regra do service); opcional na compra de estoque.
+  description String?         @db.VarChar(255)
+  amountCents Int             @map("amount_cents")
+  /// Produto do MS2 na compra de estoque — sem FK (ADR-001 §5.1).
+  productId   String?         @map("product_id") @db.Uuid
+
+  createdBy String    @map("created_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  /// Fluxo de caixa e listagem: sempre por período.
+  @@index([tenantId, occurredOn])
+  @@map("expenses")
+}
+
 model AuditLog {
   id        String   @id @default(uuid()) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
