@@ -628,8 +628,25 @@ export interface ListAppointmentsParams extends PaginationParams {
   status?: AppointmentStatus;
 }
 
+/** Contagem de um mês ('AAAA-MM', mês de São Paulo) — série do dashboard (RF-REL-005). */
+export interface MonthlyCount {
+  month: string;
+  count: number;
+}
+
+/** Intervalo [from, to) de um relatório; até 24 meses. */
+export interface ReportPeriod {
+  from: ISODateString;
+  to: ISODateString;
+}
+
 export interface IAppointmentService {
   list(ctx: RequestContext, params: ListAppointmentsParams): Promise<Paginated<Appointment>>;
+  /**
+   * RF-REL-005: atendimentos FINALIZADOS por mês de São Paulo, no intervalo,
+   * com zero nos meses sem atendimento (a série do gráfico não fica com buraco).
+   */
+  countFinishedByMonth(ctx: RequestContext, period: ReportPeriod): Promise<MonthlyCount[]>;
   findById(ctx: RequestContext, id: UUID): Promise<Appointment | null>;
   /** RF-ATD-011: histórico completo por animal — orçamentos em que o animal está. */
   listByAnimal(ctx: RequestContext, animalId: UUID, params: PaginationParams): Promise<Paginated<Appointment>>;

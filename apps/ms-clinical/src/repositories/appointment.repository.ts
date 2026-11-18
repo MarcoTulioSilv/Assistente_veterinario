@@ -89,6 +89,37 @@ type AppointmentRow = PrismaAppointment & {
  * Soft delete obrigatório: nunca DELETE físico (LGPD).
  */
 export class AppointmentRepository {
+  /**
+   * RF-REL-005: finalizados por mês de São Paulo em [from, to). O
+   * generate_series põe zero nos meses vazios; o RLS vale também no SQL
+   * cru, porque a consulta roda dentro do withTenant.
+   */
+  async countFinishedByMonth(ctx: RequestContext, from: Date, to: Date): Promise<Array<{ month: string; count: number }>> {
+    return withTenant(ctx.tenantId, async (tx) => {
+      const rows = await tx.$queryRaw<Array<{ month: string; count: bigint }>>`
+        WITH months AS (
+          SELECT to_char(m, 'YYYY-MM') AS month
+          FROM generate_series(
+            date_trunc('month', ${from}::timestamptz AT TIME ZONE 'America/Sao_Paulo'),
+            date_trunc('month', (${to}::timestamptz - INTERVAL '1 microsecond') AT TIME ZONE 'America/Sao_Paulo'),
+            INTERVAL '1 month'
+          ) AS m
+        )
+        SELECT months.month, count(a.id) AS count
+        FROM months
+        LEFT JOIN appointments a
+          ON to_char(date_trunc('month', a.performed_at AT TIME ZONE 'America/Sao_Paulo'), 'YYYY-MM') = months.month
+         AND a.status = 'finished'
+         AND a.deleted_at IS NULL
+         AND a.performed_at >= ${from}::timestamptz
+         AND a.performed_at < ${to}::timestamptz
+        GROUP BY months.month
+        ORDER BY months.month
+      `;
+      return rows.map((row) => ({ month: row.month, count: Number(row.count) }));
+    });
+  }
+
   async list(ctx: RequestContext, params: ListAppointmentsInput): Promise<Paginated<Appointment>> {
     return this.paginate(ctx, params, {});
   }
