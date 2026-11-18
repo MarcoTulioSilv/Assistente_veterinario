@@ -3,6 +3,7 @@ import type { RequestContext, UUID, Paginated, Owner } from '@quironequine/share
 import { withTenant } from '../prisma';
 import { changedFields, writeAudit } from '@quironequine/shared-middlewares';
 import type { CreateOwnerInput, UpdateOwnerInput, ListOwnersInput } from '../schemas/owner.schema';
+import { lockPlanLimit, type LimitGuard } from './plan-limit';
 
 /**
  * Camada de acesso a dados — Dev 1 é o dono.
@@ -44,8 +45,16 @@ export class OwnerRepository {
     return withTenant(ctx.tenantId, (tx) => tx.owner.count({ where: { deletedAt: null } }));
   }
 
-  async create(ctx: RequestContext, data: CreateOwnerInput): Promise<Owner> {
+  /**
+   * `withinLimit`: checagem do limite do plano, feita sob a trava e na mesma
+   * transação da gravação (auditoria B-01) — ver plan-limit.ts.
+   */
+  async create(ctx: RequestContext, data: CreateOwnerInput, withinLimit?: LimitGuard): Promise<Owner> {
     return withTenant(ctx.tenantId, async (tx) => {
+      if (withinLimit) {
+        await lockPlanLimit(tx, ctx.tenantId, 'owners');
+        await withinLimit(await tx.owner.count({ where: { deletedAt: null } }));
+      }
       const row = await tx.owner.create({
         data: {
           tenantId: ctx.tenantId,
