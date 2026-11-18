@@ -338,13 +338,35 @@ export interface Product {
    */
   pricePerMlCents: Cents | null;
   expiryDate: ISODateString | null;
+  /** RF-CFG-004: limite próprio do produto. `null` = usa o padrão da clínica. */
   alertDaysBefore: number | null;
-  minStockQty: number;
+  /** RF-CFG-004: limite próprio do produto. `null` = usa o padrão da clínica. */
+  minStockQty: number | null;
+  /** O que vale de fato (próprio ou da clínica). `null` = sem aquele alerta. */
+  effectiveAlertDaysBefore: number | null;
+  effectiveMinStockQty: number | null;
   category: ProductCategory;
   /** RF-VAC-005: dias entre doses (só vacina). Nulo = sem re-vacinação. */
   doseIntervalDays: number | null;
+  /** Calculados com os limites efetivos. */
   isNearExpiry: boolean;
   isLowStock: boolean;
+}
+
+/**
+ * RF-CFG-004: limites de alerta padrão da clínica, para o produto sem limite
+ * próprio. `null` = sem padrão (o produto sem limite próprio não alerta).
+ * Antes de a clínica configurar: 30 dias de validade, sem estoque mínimo.
+ */
+export interface InventorySettings {
+  defaultAlertDaysBefore: number | null;
+  defaultMinStockQty: number | null;
+}
+
+export interface IInventorySettingsService {
+  get(ctx: RequestContext): Promise<InventorySettings>;
+  /** Campo ausente não muda; `null` tira o padrão. */
+  update(ctx: RequestContext, data: Partial<InventorySettings>): Promise<InventorySettings>;
 }
 
 export interface IStockService {
@@ -390,8 +412,10 @@ export interface CreateProductDto {
   costPriceCents: Cents;
   markupPercent?: number;
   expiryDate?: ISODateString;
-  alertDaysBefore?: number;
-  minStockQty?: number;
+  /** `null` (ou ausente na criação) = usa o padrão da clínica. */
+  alertDaysBefore?: number | null;
+  /** `null` (ou ausente na criação) = usa o padrão da clínica. */
+  minStockQty?: number | null;
   category: ProductCategory;
   /** Só em `category: 'vaccine'`. `null` na edição tira o intervalo. */
   doseIntervalDays?: number | null;

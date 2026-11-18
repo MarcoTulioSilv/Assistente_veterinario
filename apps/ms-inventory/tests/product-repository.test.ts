@@ -14,6 +14,7 @@ import { describe, it, expect, afterEach, afterAll } from 'vitest';
 import { PrismaClient } from '../node_modules/.prisma/client-inventory';
 import { ProductRepository } from '../src/repositories/product.repository';
 import { MovementRepository } from '../src/repositories/movement.repository';
+import { InventorySettingsRepository } from '../src/repositories/inventory-settings.repository';
 import { prisma as appPrisma } from '../src/prisma';
 import type { RequestContext } from '@quironequine/shared-types';
 
@@ -37,6 +38,7 @@ describe('ProductRepository + MovementRepository', () => {
   afterEach(async () => {
     await admin.stockMovement.deleteMany({ where: { tenantId: TENANT_ID } });
     await admin.product.deleteMany({ where: { tenantId: TENANT_ID } });
+    await admin.inventorySettings.deleteMany({ where: { tenantId: TENANT_ID } });
   });
 
   afterAll(async () => {
@@ -219,6 +221,59 @@ describe('ProductRepository + MovementRepository', () => {
 
     expect(created.isLowStock).toBe(true);
     expect(created.isNearExpiry).toBe(true);
+  });
+
+  describe('limites da clínica (RF-CFG-004)', () => {
+    const settings = new InventorySettingsRepository();
+    const daqui = (dias: number) => {
+      const d = new Date();
+      d.setDate(d.getDate() + dias);
+      return d.toISOString().slice(0, 10);
+    };
+
+    it('sem limite próprio e sem configuração, vale o padrão do sistema: 30 dias, sem estoque mínimo', async () => {
+      const created = await products.create(ctx, {
+        name: 'Sem limite próprio', unit: 'unidade', costPriceCents: 100, category: 'supply',
+        quantityInStock: 0, expiryDate: daqui(20),
+      });
+
+      expect(created).toMatchObject({
+        alertDaysBefore: null,
+        minStockQty: null,
+        effectiveAlertDaysBefore: 30,
+        effectiveMinStockQty: null,
+        isNearExpiry: true,
+        isLowStock: false,
+      });
+    });
+
+    it('o padrão da clínica vale para quem não tem limite próprio; o próprio continua mandando', async () => {
+      const semProprio = await products.create(ctx, {
+        name: 'Usa o padrão', unit: 'unidade', costPriceCents: 100, category: 'supply', quantityInStock: 3, expiryDate: daqui(20),
+      });
+      const comProprio = await products.create(ctx, {
+        name: 'Tem o seu', unit: 'unidade', costPriceCents: 100, category: 'supply', quantityInStock: 3, expiryDate: daqui(20),
+        minStockQty: 1, alertDaysBefore: 30,
+      });
+
+      await settings.upsert(ctx, { defaultMinStockQty: 5, defaultAlertDaysBefore: 10 });
+
+      expect(await products.findById(ctx, semProprio.id)).toMatchObject({
+        effectiveMinStockQty: 5, isLowStock: true, effectiveAlertDaysBefore: 10, isNearExpiry: false,
+      });
+      expect(await products.findById(ctx, comProprio.id)).toMatchObject({
+        effectiveMinStockQty: 1, isLowStock: false, effectiveAlertDaysBefore: 30, isNearExpiry: true,
+      });
+      expect((await products.listAllActive(ctx)).filter((p) => p.isLowStock).map((p) => p.id)).toEqual([semProprio.id]);
+    });
+
+    it('a configuração é da clínica: outra clínica continua no padrão do sistema', async () => {
+      await settings.upsert(ctx, { defaultMinStockQty: 5 });
+      const outra = { ...ctx, tenantId: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee' };
+
+      expect(await settings.get(outra)).toEqual({ defaultAlertDaysBefore: 30, defaultMinStockQty: null });
+      expect(await settings.get(ctx)).toEqual({ defaultAlertDaysBefore: 30, defaultMinStockQty: 5 });
+    });
   });
 
   describe('MovementRepository.record()', () => {
