@@ -84,9 +84,10 @@ já são publicados e esperam na fila do MS5, como os do M2.
 | Schema MS4: `schedule_events` (data/hora, tipo de atividade, proprietário, propriedade, animais, observações, status, origem), `event_reminders` e `audit_log`, com RLS (RF-AGD-001/002/004) | Controllers MS4 (Zod): criar, editar, cancelar, concluir, listar por intervalo e "hoje"; rota `/api/v1/schedule` no BFF |
 | ScheduleService: CRUD, listagem por mês/semana, eventos do dia em ordem cronológica no fuso de São Paulo (RF-AGD-003, RN-011) | Tela Agenda: visões mensal e semanal, formulário com Proprietário antes de Propriedade (RN-001) e lembretes por horário |
 | Rota "agendar visita" (`POST /schedule/visits`): proprietário, propriedade, animais, data/hora, observações e origem opcional. O retorno (RF-ATD-010, RF-AGD-006) usa a mesma rota com origem no atendimento, no máximo um retorno por atendimento | Tela própria "Agendar visita" e retorno opcional ao finalizar o atendimento: o mesmo formulário, pré-preenchido com proprietário, propriedade e animais do atendimento |
-| Última visita por propriedade (para o geofence da Sprint 11): `appointment.done` e `vaccination.applied` ganham `propertyId` (MS3); o MS4 assina os dois e registra a data, com carga inicial única a partir do MS3 | Dashboard: atividades do dia por horário (RF-AGD-003, RN-011), no lugar do placeholder da Sprint 2 |
+| Última visita por propriedade (para o geofence da Sprint 11): `appointment.done` e `vaccination.applied` ganham `propertyId` (MS3); o MS4 assina os dois e registra a data; a carga inicial vem do seed de homologação (decisão de 12/11: não há produção) | Dashboard: atividades do dia por horário (RF-AGD-003, RN-011), no lugar do placeholder da Sprint 2 |
 | Job de lembretes (`upsertJobScheduler`, a cada 5 min): varredura entre tenants por `SECURITY DEFINER` (ADR-006), publica `schedule.reminder_due` com chave idempotente por (evento, antecedência). Contratos do MS4 e do MS5 publicados em shared-types | Testes E2E: criar evento, ver no dia, agendar visita pela tela própria e como retorno de um atendimento |
 | Testes unitários: ScheduleService, visita e retorno, última visita e job de lembretes (≥ 70%) | |
+| MS4 no staging já nesta sprint (decisão de 12/11): serviço no compose, banco criado pelo `deploy.sh`, backup e seed | |
 
 **Entregável Sprint 9:** agenda mensal e semanal, atividades do dia no dashboard, visitas agendadas em
 tela própria ou como retorno opcional do atendimento. Telas de exames, vacinação e pagamento na PWA.
@@ -169,7 +170,7 @@ Objetivo: deploy em staging, correções pós-testes, apresentação formal e li
 | Dev 1 — Marco Tulio (Back / DB) | Dev 2 — Joao Paiva (UI / Back) |
 |---|---|
 | Correções de bugs críticos reportados nas Sprints 9 a 13 | Ajustes de UX pós-feedback dos stakeholders das Sprints 9 a 13 |
-| Staging: bancos `scheduling` e `notification`, `ms-scheduling` e `ms-notification` no compose, segredos novos (VAPID, WhatsApp, e-mail) no `generate-env.sh`, backup dos bancos novos; conferir memória e CPU da VM (1 OCPU, 6 GB) com 2 serviços a mais | Deploy da PWA em staging com as telas do M3 (mesmo ambiente dos marcos anteriores) |
+| Staging: banco `notification` e `ms-notification` no compose (o MS4 já subiu na Sprint 9), segredos novos (VAPID, WhatsApp, e-mail) no `generate-env.sh`, backup dos bancos novos; conferir memória e CPU da VM (1 OCPU, 6 GB) com 2 serviços a mais | Deploy da PWA em staging com as telas do M3 (mesmo ambiente dos marcos anteriores) |
 | Ajuste de performance: índices das consultas por intervalo de data (agenda e fluxo de caixa), medidos como no MS3 (`apps/ms-clinical/scripts/perf-explain.ts`) | Smoke tests em staging: agenda, lembrete, push, fluxo de caixa, geofence, assistente com revisão |
 | Seed de homologação estendido: agenda, saídas, pagamentos, notificações, um tenant Básico e um Plus com assistente | Guia de uso do M3 para os stakeholders |
 | Revisão de segurança: RLS e `rls-guard` nos serviços novos, segredos no CI, `audit-ci`, nenhum dado pessoal em log ou na fila | Apresentação formal M3: demo ao vivo para Rossano e Lais |

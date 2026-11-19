@@ -9,7 +9,7 @@ import type {
   AppointmentDeletedPayload,
   DomainEvent,
 } from '@quironequine/shared-types';
-import { AppError } from '@quironequine/shared-middlewares';
+import { AppError, saoPauloDay } from '@quironequine/shared-middlewares';
 import type {
   AppointmentRepository,
   CreateAppointmentData,
@@ -27,7 +27,6 @@ import type {
   AppointmentAnimalClinicalInput,
 } from '../schemas/appointment.schema';
 import { calculateTotalCents, calculateItemTotalCents, deriveEventIdempotencyKey } from './billing';
-import { saoPauloDay } from './sao-paulo-day';
 
 /** RN-003: todo item é produto do estoque e vira baixa (o procedimento saiu dos itens). */
 export function toConsumedItems(appointment: Appointment): AppointmentDonePayload['consumedItems'] {
@@ -91,6 +90,7 @@ export function buildAppointmentDoneEvent(
       totalCostCents: totalCents,
       consumedItems: toConsumedItems(appointment),
       performedAt: appointment.performedAt,
+      propertyId: appointment.propertyId,
     },
   };
 }

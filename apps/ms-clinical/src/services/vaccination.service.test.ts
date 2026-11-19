@@ -345,6 +345,11 @@ describe('buildVaccinationAppliedEvent', () => {
       deriveEventIdempotencyKey('vaccination.applied', VACCINATION_ID),
     );
   });
+
+  it('leva a propriedade, para o MS4 registrar a última visita a ela', () => {
+    const event = buildVaccinationAppliedEvent(ctx, { ...vaccination(), productId: PRODUCT_ID });
+    expect(event.payload.propertyId).toBe('99999999-9999-9999-9999-999999999999');
+  });
 });
 
 describe('VaccinationService.softDelete', () => {

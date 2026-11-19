@@ -128,6 +128,20 @@ O lembrete segue o padrão do `exam.result_due`: varredura sem outbox, função 
 
 Vacina aplicada por **outra pessoa** (o veterinário assumiu o animal no meio do caminho) entra como registro de controle, com `origin: 'external'`: **não publica evento nenhum**, porque não há baixa nem cobrança. Ainda assim gera próxima dose e lembrete, e é esse o motivo de registrá-la. A vacina pode vir do catálogo ou ser digitada. Por isso "mesma vacina" é o mesmo produto ou, quando um dos registros é texto livre, o mesmo nome, regra que mora na função `clinical_same_vaccine`. Dois CHECKs no banco garantem as invariantes: aplicação da clínica sempre tem produto, e registro externo sempre custa zero.
 
+**8. Agenda do MS4** (revisão 1.6, Sprint 9 do M3). O MS4 entra no grafo de eventos de dois jeitos:
+
+| Evento | Publicado quando | Consumido por | Efeito |
+|---|---|---|---|
+| `appointment.done` | (já existia) | **Inventory** + **Reporting** + **Scheduling** | O MS4 registra a última visita à propriedade |
+| `vaccination.applied` | (já existia) | **Inventory** + **Reporting** + **Scheduling** | Idem |
+| `schedule.reminder_due` | Job a cada 5 min: o instante de um lembrete (início − antecedência) caiu nos últimos 15 min | **Notification** (MS5) | Lembrete do evento da agenda para quem o agendou (RF-AGD-004) |
+
+Os dois eventos de visita ganham `propertyId`. A última visita por propriedade é a base do "sem visita há mais de X dias" do geofence (Sprint 11, RN-008). O consumidor só avança a data (`ON CONFLICT … WHERE last_visit_at < novo`): redelivery não muda nada, e um evento antigo que chegue depois de um novo não volta a data. Por isso não precisa de tabela de chaves processadas. Evento publicado antes do campo existir (ainda na fila no deploy) é ignorado, porque não há propriedade onde registrar. Concluir um evento da agenda com propriedade também conta como visita, na mesma transação.
+
+O `schedule.reminder_due` segue o padrão dos lembretes do MS3: varredura sem outbox, pela função `SECURITY DEFINER` `scheduling_list_reminders_due`, que desdobra os lembretes de cada evento. A chave vem de (evento, antecedência, início): rodar duas vezes não duplica, e reagendar o evento gera o lembrete do novo horário. A janela de 15 min cobre uma rodada perdida (deploy, Redis reiniciando); evento criado depois da hora do lembrete não recebe aquele lembrete. O payload não leva a observação do evento, que pode ter dado pessoal e fica na fila do Redis. Até o MS5 existir, os lembretes acumulam na fila dele, como na ponta solta nº 3.
+
+O retorno do atendimento (RF-ATD-010) **não** passa pelo broker: é uma chamada à operação "agendar visita" do MS4, com o atendimento como origem.
+
 ## Consequências
 
 **Positivas.** O fan-out do §5.3 passa a funcionar de verdade antes de existir consumidor duplicado — o bug nasceria silencioso e só apareceria em produção com o MS6 no ar. Nenhuma infraestrutura nova: nada muda no `docker-compose`, no CI, nos scripts de deploy ou no custo mensal. A tabela `EVENT_SUBSCRIBERS` em `shared-types` dá uma fonte única para o roteamento, rastreável linha a linha contra a tabela do ADR-001 §5.3.
@@ -153,3 +167,4 @@ Vacina aplicada por **outra pessoa** (o veterinário assumiu o animal no meio do
 | 1.3 | Out/2026 | Eventos de exame (`exam.collected`, `exam.charged`, `exam.deleted`, `exam.result_due`): coleta e cobrança opcionais, cobrança fechada na saída de `requested`; MS2 baixa insumo de exame com motivo `exam`; MS6 abre e cancela pendência de exame. |
 | 1.4 | Out/2026 | Eventos de vacinação (`vaccination.applied` para MS2 + MS6, `vaccination.deleted`, `vaccination.due`): baixa em doses convertidas pelo MS2, lembrete de re-vacinação 7 dias antes e no dia, que ignora o animal já re-vacinado; registro externo (aplicada por outra pessoa) sem evento. |
 | 1.5 | Nov/2026 | Reunião de 03/11/2026: medicamento e vacina cobrados e baixados por **ml**. O payload do `vaccination.applied` troca `totalDoses` por `totalMl`; a conversão de ml em frascos passa para o `StockService.deduct` (vale também para itens de atendimento e insumos de exame). |
+| 1.6 | Nov/2026 | Sprint 9 do M3: o MS4 assina `appointment.done` e `vaccination.applied` (que ganham `propertyId`) para registrar a última visita por propriedade, e publica `schedule.reminder_due` a cada 5 min para o MS5. |

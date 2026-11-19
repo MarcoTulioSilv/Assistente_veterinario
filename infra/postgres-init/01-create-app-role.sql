@@ -167,6 +167,16 @@ BEGIN
 END
 $$;
 
+-- ─── 4f. Lembretes da agenda (SECURITY DEFINER) ───────────────────
+-- Sprint 9 do M3 (padrao da ADR-006). So existe no banco do scheduling.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'scheduling_list_reminders_due') THEN
+    GRANT EXECUTE ON FUNCTION scheduling_list_reminders_due(TIMESTAMPTZ, TIMESTAMPTZ) TO quironequine_app;
+  END IF;
+END
+$$;
+
 -- ─── 5. Confirmacao ───────────────────────────────────────────────
 -- As duas colunas devem ser 'f' na linha do quironequine_app.
 -- Se 'ignora_rls' for 't', as policies seriam decorativas.
