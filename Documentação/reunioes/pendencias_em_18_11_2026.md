@@ -81,3 +81,56 @@ O M2 está no staging desde 07/11. Pela Cláusula 7ª, faltam o guia de uso, a d
 - **Instalação do app**: no Android, um toque no botão "Instalar o app" (assim que os ícones entrarem). No iPhone, a instalação é manual, pelo Safari (Compartilhar → "Adicionar à Tela de Início"), e o push só funciona com o app instalado assim.
 - **Geofence**: funciona com o app aberto; em segundo plano, só com o app nativo do lançamento (decisão de 12/11).
 - **Ícones e tipografia**: recebidos em 13/11; entram na próxima entrega da PWA.
+
+---
+
+# Pontas soltas da equipe (atualizado em 19/11/2026)
+
+Não é pauta dos stakeholders: é o que a equipe adiou ou deixou dependendo de outra entrega. **O volume virou risco.** Cada PR parado aumenta o trabalho de rebase dos seguintes, e várias coisas "prontas" no servidor não chegam ao usuário sem a parte da PWA. Proposta: **não abrir frente nova enquanto a fila de revisão não andar**, e revisar esta lista a cada sprint, riscando o que for resolvido.
+
+## Fila de revisão e merge
+
+| PR | O que é | Bloqueia |
+|---|---|---|
+| #61 | Exceção do audit (`picomatch`) | O CI de todos os outros (audit vermelho) |
+| #58 | Sprint 9 — agenda (MS4) | #59 (empilhado) |
+| #59 | Sprint 10 — notificações (MS5) e conta (MS1) | Push e e-mails; precisa da rota interna do João antes do deploy |
+| #60 | Sprint 11 — relatórios, limites de estoque, B-01 | — |
+| (sem PR) | FKs compostas MS2/MS3 e CNPJ do proprietário, em andamento | — |
+
+- **Ordem**: #61 → #58 → #59 → #60. Vários deles mexem nos mesmos arquivos (`shared-types`, `shared-middlewares`, `pedidos-para-joao.md`, seed, `CLAUDE.md`): cada merge pede rebase dos seguintes.
+- Nenhum PR do M3 foi revisado ainda (o mais antigo é de 12/11).
+
+## Depende do João (servidor pronto, falta a outra metade)
+
+- **Telas do M2** que faltam: exames, vacinação e registro de pagamento (sem o registro de pagamento, o fluxo de caixa não tem entrada).
+- **PWA instalável**: os ícones dão 404 e o service worker não se instala. Sem ele não há modo offline nem push.
+- **Sprint 9**: rotas `/schedule`, telas de agenda, agendar visita e retorno.
+- **Sprint 10**: rota interna do diretório do MS1 (**antes** do deploy do MS5), rotas da conta e do MS5, adapter de Web Push, service worker e telas.
+- **Sprint 11**: rotas e Zod de saídas, fluxo de caixa, dashboard, contagem mensal e limites de estoque, mais as telas. O formulário do produto precisa aceitar limite `null`.
+- **CNPJ** (em andamento): Zod e formulário com `cpfCnpj`.
+
+## Adiado de propósito (com gatilho)
+
+| Item | Quando fazer |
+|---|---|
+| Geofence (Sprint 11) | Depois do merge do #58 (MS4) |
+| Remover o evento sem uso `stock.deducted` | Depois dos merges do #58/#59 (mexem nos mesmos arquivos) |
+| Revisar o `CLAUDE.md` com MS4, MS5 e Sprint 11 | Depois dos merges |
+| Remover o alias `cpf` do proprietário | Depois que a PWA usar `cpfCnpj` |
+| Tirar o `picomatch` da exceção do audit | Quando sair a versão corrigida |
+| Migração para o Zod 4 (aviso no allowlist) | Entrega própria, combinada com o João |
+| Ligar WhatsApp, e-mail, confirmação de cadastro e nova senha | Quando existirem as contas (item 9 da pauta) |
+| Regra fina da compra de estoque no caixa | Depois da reunião (item 1 da pauta) |
+| Auditoria B-02 a B-08, I-01, I-02 | Antes da produção (M5) |
+
+## Só o Marco faz (servidor, por SSH)
+
+- Conferir o cron do backup e o `.tar` dos uploads; atualizações automáticas (`unattended-upgrades`); `sshd` só com chave; alerta de orçamento na Oracle (manual de implantação, §6.1 e §7).
+- Ativar a proteção de branch na `develop` e na `staging` (1 aprovação e CI verde): hoje um PR pode ser mergeado sem revisão.
+
+## Riscos de deixar acumular
+
+- **Conflitos crescentes**: quanto mais tempo os PRs ficam abertos, maior o rebase, e maior a chance de erro na hora de juntar.
+- **Funcionalidade "invisível"**: o servidor das Sprints 9 a 11 está pronto, mas nada disso aparece para os stakeholders sem as telas. A demo do M3 depende da fila do João andar.
+- **Prazo**: o M3 já vai até 12/02/2027 (item 10 da pauta), e a fila parada empurra a homologação.
