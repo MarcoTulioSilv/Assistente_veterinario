@@ -53,15 +53,19 @@ function fakePlans(overrides: Partial<PlanService> = {}): PlanService {
 }
 
 describe('PropertyService.create', () => {
-  it('verifica o limite do plano com a contagem atual antes de criar', async () => {
+  it('checa o limite antes (para não geocodificar à toa) e de novo na transação da gravação (B-01)', async () => {
     const countActive = vi.fn().mockResolvedValue(29);
     const assertPropertyLimit = vi.fn().mockResolvedValue(undefined);
-    const create = vi.fn().mockResolvedValue(property);
+    const create = vi.fn(async (_c: unknown, _d: unknown, _coords: unknown, withinLimit?: (n: number) => Promise<void> | void) => {
+      await withinLimit?.(29);
+      return property;
+    });
     const service = new PropertyService(fakeRepo({ countActive, create }), fakeGeo(), fakePlans({ assertPropertyLimit }));
 
     await service.create(ctx, { name: 'Nova Fazenda' });
 
     expect(countActive).toHaveBeenCalledWith(ctx);
+    expect(assertPropertyLimit).toHaveBeenCalledTimes(2);
     expect(assertPropertyLimit).toHaveBeenCalledWith(ctx, 29);
     expect(create).toHaveBeenCalledTimes(1);
   });
@@ -86,7 +90,7 @@ describe('PropertyService.create', () => {
     await service.create(ctx, input);
 
     expect(geo.resolveCoordinates).toHaveBeenCalledWith(input);
-    expect(create).toHaveBeenCalledWith(ctx, input, { latitude: -17.88, longitude: -51.71 });
+    expect(create).toHaveBeenCalledWith(ctx, input, { latitude: -17.88, longitude: -51.71 }, expect.any(Function));
   });
 
   it('cria com coordenadas null quando o GeoService não resolve nada (não bloqueia o cadastro)', async () => {
@@ -95,7 +99,7 @@ describe('PropertyService.create', () => {
 
     await service.create(ctx, { name: 'Só o nome' });
 
-    expect(create).toHaveBeenCalledWith(ctx, { name: 'Só o nome' }, null);
+    expect(create).toHaveBeenCalledWith(ctx, { name: 'Só o nome' }, null, expect.any(Function));
   });
 });
 

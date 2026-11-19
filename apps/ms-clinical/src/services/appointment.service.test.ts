@@ -332,3 +332,22 @@ describe('AppointmentService — delegações simples', () => {
     expect(listByAnimal).toHaveBeenCalledWith(ctx, '77777777-7777-7777-7777-777777777777', { page: 1, limit: 20 }, { audit: true });
   });
 });
+
+describe('AppointmentService.countFinishedByMonth (RF-REL-005)', () => {
+  it('repassa o período validado ao repositório', async () => {
+    const countFinishedByMonth = vi.fn().mockResolvedValue([{ month: '2026-11', count: 3 }]);
+    const service = new AppointmentService(fakeRepo({ countFinishedByMonth }));
+
+    const series = await service.countFinishedByMonth(ctx, { from: '2026-11-01T03:00:00Z', to: '2026-12-01T03:00:00Z' });
+
+    expect(series).toEqual([{ month: '2026-11', count: 3 }]);
+    expect(countFinishedByMonth).toHaveBeenCalledWith(ctx, new Date('2026-11-01T03:00:00Z'), new Date('2026-12-01T03:00:00Z'));
+  });
+
+  it('período inválido não chega ao banco', async () => {
+    const countFinishedByMonth = vi.fn();
+    const service = new AppointmentService(fakeRepo({ countFinishedByMonth }));
+    await expect(service.countFinishedByMonth(ctx, { from: '2026-12-01T03:00:00Z', to: '2026-11-01T03:00:00Z' })).rejects.toThrow();
+    expect(countFinishedByMonth).not.toHaveBeenCalled();
+  });
+});
