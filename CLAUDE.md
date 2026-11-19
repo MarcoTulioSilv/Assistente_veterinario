@@ -16,12 +16,13 @@ Current state (Nov/2026): milestone M2 is **live on staging** for the stakeholde
 | `apps/ms-inventory` | MS2 — products, stock movements, expiry/low-stock alerts, stock deduction from domain events (quantities in ml for medication/vaccine) | implemented |
 | `apps/ms-clinical` | MS3 — appointments/quotes (several animals each), exams, vaccinations, outbox, daily reminders | implemented |
 | `apps/ms-scheduling` | MS4 — schedule (month/week/day, "schedule a visit", optional return of an appointment), reminders published every 5 min, last visit per property (geofence base) | in progress (M3, Sprint 9) |
+| `apps/ms-notification` | MS5 — inbox, push/WhatsApp/e-mail delivery per channel (adapters are Dev 2's; WhatsApp and e-mail off until the accounts exist), account e-mails (confirmation, password reset) | in progress (M3, Sprint 10) |
 | `apps/ms-reporting` | MS6 — only the financial-pending slice (anticipated from M3) | partial |
 | `apps/bff` | gateway: helmet, CORS, rate limits, reverse proxy | implemented |
 | `apps/pwa` | Next.js 16 PWA (automatic session refresh, real logout) | in progress (Dev 2) |
-| MS5 notification, MS7 AI voice | — | not started (M3/M4); events for MS5 are already published and wait in its queue |
+| MS7 AI voice | — | not started (M4) |
 
-Treat services that don't exist yet as future work, not bugs. Architecture is governed by **ADR-001** (plus ADR-002 to ADR-006 in `Documentação/ADR/`) and requirements by the **ERS** (referenced throughout the code as e.g. `ADR-001 §5.2`, `ERS §2.6`, `RN-006`, `RNF-MAN-003` — stable identifiers; keep and follow them).
+Treat services that don't exist yet as future work, not bugs. Architecture is governed by **ADR-001** (plus ADR-002 to ADR-007 in `Documentação/ADR/`) and requirements by the **ERS** (referenced throughout the code as e.g. `ADR-001 §5.2`, `ERS §2.6`, `RN-006`, `RNF-MAN-003` — stable identifiers; keep and follow them).
 
 **Ownership split** (stated at the top of most files): Dev 1 (Marco) owns schema, migrations, repositories, services and contracts in `shared-types`; Dev 2 (João) owns controllers, Zod input schemas in `schemas/` of MS1/MS2, the BFF routes and the PWA. Contracts are published in `shared-types` before the implementation, so the other side can work against a mock. Requests between the two live in `Documentação/pedidos-para-marco.md` and `Documentação/pedidos-para-joao.md`.
 
@@ -39,9 +40,9 @@ npm run lint / npm run lint:fix                # eslint (flat config, ESLint 9)
 npm run audit:ci                               # what CI blocks on (.audit-ci.json allowlist, with justification)
 
 npm run docker:up / docker:down / docker:reset # postgres-per-service + redis + adminer
-docker compose --profile m2 --profile m3 up -d # also clinical (m2), scheduling and reporting (m3) DBs
+docker compose --profile m2 --profile m3 up -d # also clinical (m2), scheduling, notification and reporting (m3) DBs
 npm run db:migrate -w @quironequine/ms-identity    # prisma migrate dev for one workspace
-npm run seed:homologacao                       # realistic demo data across the 5 DBs (wipes and recreates only the homologation tenants)
+npm run seed:homologacao                       # realistic demo data across the 6 DBs (wipes and recreates only the homologation tenants)
 ```
 
 Single test file / single test, inside a workspace:
@@ -106,7 +107,7 @@ Services implement interfaces published in `packages/shared-types` (e.g. `IOwner
 ### Shared packages
 
 - `packages/shared-types` — all cross-service contracts: `RequestContext`, DTOs, domain models, `ErrorCode`/`ApiError`, `EVENTS`/`DomainEvent`. Money is always `Cents` (integer), never float (ADR-001 §5.6).
-- `packages/shared-middlewares` — `authMiddleware`, `requireRole()`, `requirePlus()`, `traceMiddleware`, `errorHandler`/`notFoundHandler`, `AppError`, Pino `logger`/`createServiceLogger()` (with redaction of secrets), `writeAudit()`, `deriveEventIdempotencyKey()` and the São Paulo day helpers (`saoPauloDay`, `addDays`, `saoPauloDayRange`) used by MS3, MS4 and MS6.
+- `packages/shared-middlewares` — `authMiddleware`, `requireRole()`, `requirePlus()`, `traceMiddleware`, `errorHandler`/`notFoundHandler`, `AppError`, Pino `logger`/`createServiceLogger()` (with redaction of secrets), `writeAudit()`, `requireServiceToken` (internal routes), `deriveEventIdempotencyKey()` and the São Paulo day helpers (`saoPauloDay`, `addDays`, `saoPauloDayRange`) used by MS3, MS4 and MS6.
 
 ### Errors
 
@@ -114,7 +115,7 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 
 ### Staging
 
-`infra/staging/`: one VM (Oracle Cloud, ARM A1) with Docker Compose — Caddy (automatic HTTPS), PWA, BFF, the five services, one Postgres with one DB per service, Redis. `.github/workflows/deploy-staging.yml` builds the images (native ARM runner when `STAGING_PLATFORM=linux/arm64`), pushes to GHCR and runs `infra/staging/deploy.sh` over SSH with a pinned host key. Runtime secrets live only on the server (`.env.staging`, generated by `generate-env.sh`). Full runbook: `Documentação/Manual-de-implantacao-staging.md`.
+`infra/staging/`: one VM (Oracle Cloud, ARM A1) with Docker Compose — Caddy (automatic HTTPS), PWA, BFF, the six services, one Postgres with one DB per service, Redis. `.github/workflows/deploy-staging.yml` builds the images (native ARM runner when `STAGING_PLATFORM=linux/arm64`), pushes to GHCR and runs `infra/staging/deploy.sh` over SSH with a pinned host key. Runtime secrets live only on the server (`.env.staging`, generated by `generate-env.sh`). Full runbook: `Documentação/Manual-de-implantacao-staging.md`.
 
 - **Seed on staging**: *Actions → Seed staging*, run on branch **`staging`** (the `staging` environment only releases its secrets to that branch), typing `homologacao` to confirm. It wipes and recreates only the homologation tenants.
 - The seed password exists only on the server (`.env.staging`) and in the GitHub secret — never write it in the repo or in a conversation.
@@ -133,6 +134,8 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 - **Audit trail** (`audit_log` in MS1, MS3, MS6; LGPD art. 37): every write to personal, clinical or financial data calls `writeAudit(tx, actor, entry)` (`shared-middlewares`) inside the same `withTenant`, recording who, action, table, record id and the **names** of the fields — never the values (the table is insert-only, so values there could never be erased). Detail screens of medical records/exam reports log reads via `findById(ctx, id, { audit: true })`; internal existence checks don't. Event consumers write `user_id` null plus `source`.
 - **Migrations that change the meaning of existing data**: before go-live it was acceptable to rename/drop (homologation data is reseeded); after go-live, only new column + explicit data migration.
 - **Coverage floor 70%** on `src/services/**` and `src/repositories/**`. Tests colocated as `*.test.ts`; integration tests in `tests/` run against the real Postgres as `quironequine_app`. Vitest (not Jest), ESLint 9 flat config — don't reintroduce Jest or `.eslintrc`.
+- **Service-to-service calls** (ADR-007): only through `/internal/...` routes (never proxied by the BFF) guarded by `requireServiceToken` (`INTERNAL_SERVICE_TOKEN`); the tenant comes from the event being handled and reads still go through `withTenant`. Today: MS5 → MS1 recipient directory.
+- **Notifications carry type + data, never text** (ADR-007): the PWA/service worker writes the sentence; `data` never holds client or animal names.
 - **Commits**: `type(scope): descrição` in pt-BR, scopes are service names (`ms1`, `ms2`, `ms3`, `ms6`, `bff`, `pwa`, `infra`, `ci`, `docs`). Branches: `feature/MS3-012-descricao`, `fix/...`.
 - **Git flow**: `develop` is the default branch; feature/fix branches → PR to `develop` → PR `develop → staging` (triggers the deploy). `main` only for closed releases. Every PR gets a review before merge. Don't push or open PRs unless asked.
 - **npm and the lockfile**: re-resolving a transitive dependency can silently drop packages from `package-lock.json`. Fix advisories with root `overrides` and check the lock diff (no removed packages) before committing; then `npm ci`.
@@ -145,9 +148,9 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 The report lives outside the repo (ask Marco for it). A-01 to A-03 and M-01 to M-06 are done on both sides and **live on staging since 09/11/2026** (PRs #51 server, #54 PWA, #55 `develop → staging`); the rules they introduced are in the sections above (sessions, uploads, audit trail, logs, no `DELETE`). Still open, before production:
 
 1. B-01 to B-08, I-01, I-02 — the ones that weigh most: B-05 (CSP and HSTS; the CSP must allow `maps.googleapis.com`, `maps.gstatic.com`, `servicodados.ibge.gov.br` and the OpenStreetMap tiles), I-02 (TOTP secret encrypted at rest), B-03 (e-mail normalization), B-01 (Basic plan limit raced by concurrent requests).
-2. Sign-up e-mail confirmation (M-02) waits for MS5 (no e-mail sending yet).
+2. Sign-up e-mail confirmation and real password reset (M-02): server side done in Sprint 10 (MS1 tokens + MS5 sending, ADR-007) behind `EMAIL_VERIFICATION_ENABLED`/`EMAIL_ENABLED`, both off until there is an e-mail account; the PWA screens are Dev 2's.
 3. MS2/MS3 have no composite tenant FKs (they validate references in the service before writing).
 4. PWA leftovers (João, non-blocking): API cache keyed per user (today it is cleared on login/logout/refresh failure); when an exam screen exists, re-fetch the exam before opening `resultFileUrl` (signed links expire in 15 min).
 
-Product gaps found alongside: clinic sign-up screen (the API exists), password change, real password reset (today it's a mock).
+Product gaps found alongside: clinic sign-up screen (the API exists), password change (Sprint 13 of M3).
 

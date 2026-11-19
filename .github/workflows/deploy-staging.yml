@@ -31,7 +31,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        service: [ms-identity, ms-inventory, ms-clinical, ms-scheduling, ms-reporting, bff, pwa]
+        service: [ms-identity, ms-inventory, ms-clinical, ms-scheduling, ms-notification, ms-reporting, bff, pwa]
     steps:
       - uses: actions/checkout@v4
       # O GHCR exige o dono em minúsculas.

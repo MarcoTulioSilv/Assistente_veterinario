@@ -22,7 +22,7 @@ set -a
 set +a
 compose() { docker compose --env-file .env.staging "$@"; }
 
-for db in identity inventory clinical scheduling reporting; do
+for db in identity inventory clinical scheduling notification reporting; do
   # Formato custom (-Fc): comprimido e restaurável seletivamente (pg_restore).
   compose exec -T postgres pg_dump -U "$POSTGRES_USER" -Fc "$db" > "$DEST/$db.dump"
 done

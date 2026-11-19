@@ -122,6 +122,10 @@ BEGIN
     GRANT EXECUTE ON FUNCTION auth_lookup_by_email(TEXT)          TO quironequine_app;
     GRANT EXECUTE ON FUNCTION auth_tenant_id_for_session(UUID)    TO quironequine_app;
   END IF;
+  -- Token de conta (confirmacao de e-mail, recuperacao de senha), Sprint 10 do M3.
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'auth_find_user_token') THEN
+    GRANT EXECUTE ON FUNCTION auth_find_user_token(TEXT) TO quironequine_app;
+  END IF;
 END
 $$;
 

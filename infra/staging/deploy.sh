@@ -28,6 +28,27 @@ else
   echo "IMAGE_TAG=${TAG}" >> "$ENV_FILE"
 fi
 
+# ─── Segredos de serviço novo ─────────────────────────────────────
+# O .env.staging é gerado uma vez (generate-env.sh). Segredo que um serviço
+# novo passa a exigir é criado aqui, só se ainda não existir — nunca
+# sobrescreve valor em uso, e não precisa de passo manual no servidor.
+#   INTERNAL_SERVICE_TOKEN: rota interna MS1 ← MS5 (ADR-007)
+#   VAPID_*: par de chaves do Web Push do MS5 (P-256, em base64url)
+append_env() { printf '%s=%s\n' "$1" "$2" >> "$ENV_FILE"; echo "  + $1 gerado"; }
+
+echo "▶ Segredos que faltam no $ENV_FILE"
+grep -q '^INTERNAL_SERVICE_TOKEN=' "$ENV_FILE" || append_env INTERNAL_SERVICE_TOKEN "$(openssl rand -hex 32)"
+if ! grep -q '^VAPID_PUBLIC_KEY=' "$ENV_FILE" || ! grep -q '^VAPID_PRIVATE_KEY=' "$ENV_FILE"; then
+  sed -i '/^VAPID_PUBLIC_KEY=/d; /^VAPID_PRIVATE_KEY=/d' "$ENV_FILE"
+  # Chave privada com 32 bytes exatos (o ECDH do Node pode devolver menos).
+  read -r VAPID_PUB VAPID_PRIV < <(docker run --rm node:22-alpine node -e "
+    const c = require('crypto').createECDH('prime256v1'); c.generateKeys();
+    const p = c.getPrivateKey();
+    console.log(c.getPublicKey('base64url'), Buffer.concat([Buffer.alloc(32 - p.length), p]).toString('base64url'));")
+  append_env VAPID_PUBLIC_KEY "$VAPID_PUB"
+  append_env VAPID_PRIVATE_KEY "$VAPID_PRIV"
+fi
+
 set -a
 # shellcheck disable=SC1090
 . "./$ENV_FILE"
@@ -43,10 +64,10 @@ compose up -d --wait postgres redis
 
 # Banco de serviço novo. O 00-create-databases.sql só roda quando o volume do
 # Postgres é criado; num servidor que já existe, o banco do serviço novo
-# (scheduling, Sprint 9 do M3) nasce aqui. Idempotente: o \gexec só executa
+# (scheduling e notification, M3) nasce aqui. Idempotente: o \gexec só executa
 # o CREATE quando o SELECT devolve linha, ou seja, quando o banco não existe.
 echo "▶ Bancos dos serviços"
-for db in identity inventory clinical scheduling reporting; do
+for db in identity inventory clinical scheduling notification reporting; do
   printf "SELECT 'CREATE DATABASE %s' WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = '%s')\\\\gexec\n" "$db" "$db" |
     compose exec -T postgres psql -q -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d postgres > /dev/null
 done
@@ -55,7 +76,7 @@ done
 # conecta como quironequine_app, sujeito ao RLS — nunca com este usuário.
 for entry in identity:ms-identity:IDENTITY inventory:ms-inventory:INVENTORY \
              clinical:ms-clinical:CLINICAL scheduling:ms-scheduling:SCHEDULING \
-             reporting:ms-reporting:REPORTING; do
+             notification:ms-notification:NOTIFICATION reporting:ms-reporting:REPORTING; do
   IFS=: read -r db service var <<< "$entry"
   echo "▶ Migrations: $db"
   compose run --rm --no-deps \

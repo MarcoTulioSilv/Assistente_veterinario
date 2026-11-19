@@ -67,6 +67,83 @@ Declare `/day`, `/returns/:appointmentId` e `/visits` antes de `/:id`.
 
 ---
 
+## Em aberto: PWA instalável — ícones e tipografia (bloqueia o push da Sprint 10)
+
+Os ícones e a tipografia do QuironEqui chegaram em 13/11/2026; você sobe os arquivos. Hoje (conferido no staging em 13/11):
+
+- o manifest (`src/app/manifest.ts`) declara `/icons/icon-192.png`, `/icons/icon-512.png` e `/icons/icon-512-maskable.png`, mas `apps/pwa/public/icons/` nunca entrou no repositório: **os três dão 404**;
+- sem ícones de 192 e 512 válidos, o **Chrome do Android não considera a PWA instalável** (não aparece "Instalar app");
+- o `sw.js` pré-carrega dois desses ícones (`SHELL_ASSETS`), e o `cache.addAll` falha no 404: **o service worker não chega a ser instalado**. Sem ele não há modo offline nem push (Sprint 10). É a lição do primeiro deploy anotada no `CLAUDE.md`.
+
+O que fazer:
+1. `apps/pwa/public/icons/`: `icon-192.png` (192×192), `icon-512.png` (512×512) e `icon-512-maskable.png` (512×512, com o desenho dentro da área segura central de ~80%, porque o Android recorta em círculo ou gota).
+2. `apps/pwa/src/app/apple-icon.png` (180×180, sem transparência): o Next gera o `apple-touch-icon`, que é o ícone do iPhone na tela de início. Se quiser, também `src/app/icon.png` ou `favicon.ico` para a aba do navegador.
+3. Tipografia: fontes auto-hospedadas com `next/font/local` (sem Google Fonts em tempo de execução; ajuda o modo offline e a CSP da auditoria B-05).
+4. Subir a `VERSION` do `sw.js`, para os aparelhos trocarem o service worker.
+5. Conferir no staging: `/icons/icon-192.png` responde 200; no Chrome do computador, DevTools → Application → Manifest sem erros e Service Workers "activated".
+
+**Botão de instalar** (sugestão, para os stakeholders não dependerem de achar o menu). O navegador não deixa instalar sozinho, sem um toque do usuário, e uma notificação push não instala o app (o push só funciona com o service worker, e no iPhone só com o app já instalado). O que dá para fazer:
+- **Android/Chrome**: guardar o evento `beforeinstallprompt` e mostrar um botão "Instalar o app" que chama `prompt()`. São um toque e a confirmação do sistema. Esconder o botão quando já estiver instalado (`display-mode: standalone`, evento `appinstalled`).
+- **iPhone/Safari**: não há API de instalação. Mostrar um aviso com o passo a passo (Compartilhar → "Adicionar à Tela de Início") quando for iOS, no Safari e fora do modo standalone. Lembrar que, no iPhone, o push só funciona instalado assim (iOS 16.4+).
+
+---
+
+## Sprint 10 do M3: notificações (MS5), conta e rota interna do MS1
+
+O lado do servidor está na branch `feature/MS5-001-notificacoes` (empilhada na da Sprint 9). As decisões estão na ADR-007: tudo vai para o veterinário; WhatsApp e e-mail ficam desligados até existirem as contas; **o MS5 entrega só tipo e dados, e o texto é seu** (PWA, service worker e adapter de e-mail). Falta a sua parte:
+
+**1. Rota interna do diretório no MS1 — vem antes de tudo.** Sem ela no staging, os avisos de exame, vacina e estoque falham depois das tentativas. Por isso ela precisa estar na `develop` antes do deploy `develop → staging` que leva o MS5.
+- Router `/internal` em `apps/ms-identity/src/app.ts`, **antes** do `authMiddleware` (é autenticação de serviço, não de usuário), com `requireServiceToken` (`shared-middlewares`). O BFF **não** deve encaminhar `/internal`.
+- Service: `new RecipientService(new RecipientRepository())`.
+
+| Rota | Service | Resposta |
+|---|---|---|
+| `GET /internal/tenants/:tenantId/recipients/users/:userId` | `byUser` | 200 `NotificationRecipient` ou 404 |
+| `GET /internal/tenants/:tenantId/recipients/veterinarians/:veterinarianId` | `byVeterinarian` | 200 ou 404 |
+| `GET /internal/tenants/:tenantId/recipients/admins` | `tenantAdmins` | 200, lista (pode ser vazia) |
+
+Os parâmetros são UUID (Zod). O cliente do MS5 (`IdentityDirectoryClient`) já chama essas rotas.
+
+**2. Rotas públicas da conta no MS1** (auditoria M-02). Service: `new AccountService(new AccountRepository(), new AuthRepository())`.
+
+| Rota | Service | Resposta |
+|---|---|---|
+| `POST /auth/email/confirm` `{ token }` | `confirmEmail` | 204; 422 se o link é inválido ou venceu |
+| `POST /auth/email/resend` `{ email }` | `requestEmailVerification` | **202 sempre** (não revela nada) |
+| `POST /auth/password/forgot` `{ email }` | `requestPasswordReset` | **202 sempre** |
+| `POST /auth/password/reset` `{ token, newPassword }` | `resetPassword` | 204; 422 (senha com menos de 8 caracteres, ou link inválido) |
+
+- Zod: `token` de 16 a 200 caracteres; `email` com `.max(255)`; `newPassword` com `.min(8).max(128)`.
+- Limite de requisições no BFF para as quatro, apertado como o do login.
+- Login: com `EMAIL_VERIFICATION_ENABLED=true`, quem não confirmou recebe **403** com a mensagem `EMAIL_NOT_VERIFIED_MESSAGE` depois da senha certa. A tela mostra a mensagem e oferece "reenviar" (a rota pública, pelo e-mail digitado). Hoje a chave está desligada.
+
+**3. Controllers do MS5** (`apps/ms-notification/src/app.ts`, depois do `authMiddleware`). Service: `new NotificationService(new NotificationRepository(), new PreferenceRepository(), new PushSubscriptionRepository())`.
+
+| Rota | Service | Resposta |
+|---|---|---|
+| `GET /notifications?page&limit&unreadOnly` | `listInbox` | 200, paginado |
+| `GET /notifications/unread-count` | `unreadCount` | 200 `{ count }` |
+| `POST /notifications/:id/read` | `markRead` | 204; 404 se não é do usuário |
+| `POST /notifications/read-all` | `markAllRead` | 204 |
+| `GET /notifications/preferences` | `getPreferences` | 200, todas as combinações tipo × canal |
+| `PUT /notifications/preferences` | `updatePreferences` | 200 (array com `.max(18)`) |
+| `GET /notifications/push/public-key` | `getPushPublicKey` | 200 `{ publicKey }` (vazio = push desligado) |
+| `POST /notifications/push/subscriptions` | `subscribePush` | 204 (`endpoint` URL HTTPS `.max(1000)`; `keys.*` `.max(255)`) |
+| `DELETE /notifications/push/subscriptions` `{ endpoint }` | `unsubscribePush` | 204 |
+
+Declare `unread-count`, `read-all`, `preferences` e `push/...` antes de `/:id`. No BFF: `/api/v1/notifications` → `MS_NOTIFICATION_URL` (o staging já tem a variável).
+
+**4. Adapters dos canais** (interfaces em `apps/ms-notification/src/channels/channels.ts`), ligados em `src/index.ts` no `buildChannels({ push, whatsapp, email })`. Sem adapter, o canal fica desligado.
+- **Web Push**: lib `web-push`, com `setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY)` e `sendNotification(target, JSON.stringify(message))`. `statusCode` 404 ou 410 → devolve `'gone'` (o MS5 revoga a assinatura). Cuidado com o lockfile ao instalar (padrão de `overrides`, memória do bug do npm).
+- **WhatsApp** (Cloud API da Meta) e **e-mail**: podem esperar as contas. O adapter de e-mail traz os textos, inclusive os da conta (`sendAccountEmail(kind, to, link, expiresAt)`).
+
+**5. Service worker e telas.**
+- `push`: o payload é um `PushMessage` (`notificationId`, `type`, `data`, `target`). O texto sai do `type` e dos `data` (ex.: `schedule_reminder` → "Visita às 14h"). O toque abre a tela do `target`.
+- **Ao sair do sistema, cancele a assinatura** (`PushSubscription.unsubscribe()` + `DELETE /notifications/push/subscriptions`). Sem isso, um aparelho compartilhado continua recebendo os avisos de quem saiu.
+- Telas: caixa de entrada com contador; preferências por tipo e canal (WhatsApp e e-mail como "em breve" enquanto estiverem desligados); `/confirmar-email?token=` e `/redefinir-senha?token=` (são os caminhos que o MS5 põe no link, em `ACCOUNT_LINK_PATHS`); "esqueci a senha" chamando a rota real no lugar do `mockRequestPasswordReset`.
+
+---
+
 ## Em aberto (sem pressa, não bloqueia nada)
 
 1. **Cache de API separado por usuário (A-01, parte "desejável").** Hoje o cache é apagado no login, no logout e na falha de refresh, o que resolve o caso do aparelho compartilhado. Falta a segunda barreira: a chave do cache incluir o usuário (por exemplo, `quironequine-api-<userId>`, com a página avisando o service worker de quem está logado). Assim, mesmo que a limpeza falhe (aba fechada no meio, sem rede), um usuário nunca recebe a resposta de outro. Vale também para a corrida de uma requisição que termina logo depois do logout e grava no cache.

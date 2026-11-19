@@ -4,7 +4,7 @@
  * todas as etapas (incluindo Mormo e AIE), vacinações individuais, múltiplas
  * e de outra pessoa, estoque consumido e pendências financeiras.
  *
- * Um seed só para os CINCO bancos (MS1, MS2, MS3, MS4, MS6): os IDs precisam
+ * Um seed só para os SEIS bancos (MS1 a MS6): os IDs precisam
  * bater entre os serviços (o atendimento aponta pro animal do MS1, a vacina
  * pro produto do MS2, a pendência do MS6 pro atendimento do MS3, o retorno
  * da agenda pro atendimento). Seeds separados por serviço não conseguem
@@ -34,6 +34,7 @@ import { PrismaClient as ClinicalClient } from '../apps/ms-clinical/node_modules
 import type { ExamType as ExamTypeRow } from '../apps/ms-clinical/node_modules/.prisma/client-clinical';
 import { PrismaClient as ReportingClient } from '../apps/ms-reporting/node_modules/.prisma/client-reporting';
 import { PrismaClient as SchedulingClient } from '../apps/ms-scheduling/node_modules/.prisma/client-scheduling';
+import { PrismaClient as NotificationClient } from '../apps/ms-notification/node_modules/.prisma/client-notification';
 import { calculateTotalCents, calculateItemTotalCents } from '../apps/ms-clinical/src/services/billing';
 import { calculateExamChargeCents, calculateExpectedResultAt } from '../apps/ms-clinical/src/services/exam.service';
 import {
@@ -59,6 +60,7 @@ const inventory = new InventoryClient({ datasourceUrl: requireEnv('DATABASE_URL_
 const clinical = new ClinicalClient({ datasourceUrl: requireEnv('DATABASE_URL_CLINICAL') });
 const reporting = new ReportingClient({ datasourceUrl: requireEnv('DATABASE_URL_REPORTING') });
 const scheduling = new SchedulingClient({ datasourceUrl: requireEnv('DATABASE_URL_SCHEDULING') });
+const notification = new NotificationClient({ datasourceUrl: requireEnv('DATABASE_URL_NOTIFICATION') });
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -83,6 +85,7 @@ async function reset(): Promise<void> {
     for (const table of tables) await client.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id IN (${ids})`);
   };
 
+  await wipe(notification, ['audit_log', 'delivery_attempts', 'notifications', 'notification_preferences', 'push_subscriptions']);
   await wipe(scheduling, ['audit_log', 'property_last_visits', 'schedule_events']);
   await wipe(reporting, ['audit_log', 'financial_records']);
   await wipe(clinical, [
@@ -141,7 +144,8 @@ async function seedIdentity(): Promise<Herd> {
 
   const user = async (email: string, fullName: string, role: 'admin' | 'assistant', phone: string): Promise<User> =>
     identity.user.create({
-      data: { tenantId: CLINICA, email, passwordHash, role, fullName, phone, status: 'active' },
+      // E-mail confirmado: o login não trava quando a confirmação for ligada (M-02).
+      data: { tenantId: CLINICA, email, passwordHash, role, fullName, phone, status: 'active', emailVerifiedAt: new Date() },
     });
 
   const helenaUser = await user('homologacao@quironequine.com.br', 'Dra. Helena Prado', 'admin', '(64) 99901-1001');
@@ -1006,6 +1010,59 @@ async function seedSchedule(h: Herd): Promise<{ events: number; today: number; v
   return { events: seeds.length, today, visits: lastVisits.size };
 }
 
+// ─── 7c. MS5 — caixa de entrada de demonstração ───────────────────
+/**
+ * Alguns avisos para a Dra. Helena, lidos e não lidos — o que o MS5 gravaria
+ * ao consumir os eventos. Só tipo e dados (ADR-007): a PWA monta o texto.
+ */
+async function seedInbox(h: Herd, p: Record<string, StockItem>): Promise<number> {
+  const userId = h.vets.helena.userId;
+  const nextVisit = await scheduling.scheduleEvent.findFirst({
+    where: { tenantId: CLINICA, status: 'scheduled', startsAt: { gt: new Date() }, reminderMinutesBefore: { isEmpty: false } },
+    orderBy: { startsAt: 'asc' },
+  });
+  const [low, expiring] = Object.values(p);
+
+  const items: Array<{ type: 'schedule_reminder' | 'stock_low' | 'stock_expiry'; data: object; target: { kind: 'schedule_event' | 'product'; id: string }; read: boolean; hoursAgo: number }> = [];
+  if (nextVisit) {
+    items.push({
+      type: 'schedule_reminder',
+      data: { activityType: nextVisit.activityType, startsAt: nextVisit.startsAt.toISOString(), minutesBefore: nextVisit.reminderMinutesBefore[0] ?? 60, propertyId: nextVisit.propertyId },
+      target: { kind: 'schedule_event', id: nextVisit.id },
+      read: false,
+      hoursAgo: 0,
+    });
+  }
+  if (low) items.push({ type: 'stock_low', data: { productName: low.name, quantityInStock: 2 }, target: { kind: 'product', id: low.id }, read: false, hoursAgo: 3 });
+  if (expiring) {
+    items.push({
+      type: 'stock_expiry',
+      data: { productName: expiring.name, expiryDate: on(20, 0).toISOString() },
+      target: { kind: 'product', id: expiring.id },
+      read: true,
+      hoursAgo: 30,
+    });
+  }
+
+  for (const item of items) {
+    const createdAt = new Date(Date.now() - item.hoursAgo * 60 * 60 * 1000);
+    await notification.notification.create({
+      data: {
+        tenantId: CLINICA,
+        userId,
+        type: item.type,
+        data: item.data,
+        targetKind: item.target.kind,
+        targetId: item.target.id,
+        idempotencyKey: randomUUID(),
+        createdAt,
+        readAt: item.read ? createdAt : null,
+      },
+    });
+  }
+  return items.length;
+}
+
 // ─── 8. Segundo tenant: demonstra o isolamento (RLS) ──────────────
 async function seedNeighbor(): Promise<void> {
   const passwordHash = await hashPassword(PASSWORD);
@@ -1013,7 +1070,15 @@ async function seedNeighbor(): Promise<void> {
     data: { id: VIZINHA, name: 'Haras Vizinho (isolamento)', slug: 'homologacao-isolamento', plan: 'basic', status: 'active', maxOwners: 30 },
   });
   const user = await identity.user.create({
-    data: { tenantId: VIZINHA, email: 'isolamento@quironequine.com.br', passwordHash, role: 'admin', fullName: 'Dr. Vizinho', status: 'active' },
+    data: {
+      tenantId: VIZINHA,
+      email: 'isolamento@quironequine.com.br',
+      passwordHash,
+      role: 'admin',
+      fullName: 'Dr. Vizinho',
+      status: 'active',
+      emailVerifiedAt: new Date(),
+    },
   });
   const vet = await identity.veterinarian.create({
     data: { tenantId: VIZINHA, userId: user.id, fullName: 'Dr. Vizinho', crmv: 'GO-01234', crmvState: 'GO', cpfCnpj: '000.000.000-00', phone: '', email: user.email },
@@ -1048,6 +1113,7 @@ async function main(): Promise<void> {
   const exams = await seedExams(herd, products);
   const vaccinations = await seedVaccinations(herd, products);
   const schedule = await seedSchedule(herd);
+  const inbox = await seedInbox(herd, products);
   await seedNeighbor();
 
   const [pending, received] = await Promise.all([
@@ -1065,6 +1131,7 @@ async function main(): Promise<void> {
   console.log(`            ${appointments} atendimentos, ${exams} exames, ${vaccinations} vacinações`);
   console.log(`            ${pending} pendências em aberto, ${received} recebidas`);
   console.log(`            ${schedule.events} eventos na agenda (${schedule.today} hoje), ${schedule.visits} propriedades com última visita`);
+  console.log(`            ${inbox} notificações na caixa de entrada da Dra. Helena`);
   console.log('  Haras Vizinho (isolamento): isolamento@quironequine.com.br — não pode ver nada da clínica acima.');
 }
 
@@ -1080,5 +1147,6 @@ main()
       clinical.$disconnect(),
       reporting.$disconnect(),
       scheduling.$disconnect(),
+      notification.$disconnect(),
     ]);
   });

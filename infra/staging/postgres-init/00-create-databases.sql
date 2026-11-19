@@ -6,4 +6,5 @@ CREATE DATABASE identity;
 CREATE DATABASE inventory;
 CREATE DATABASE clinical;
 CREATE DATABASE scheduling;
+CREATE DATABASE notification;
 CREATE DATABASE reporting;
