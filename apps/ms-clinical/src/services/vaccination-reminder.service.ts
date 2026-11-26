@@ -4,7 +4,7 @@ import type { DomainEvent, VaccinationDuePayload } from '@quironequine/shared-ty
 import type { VaccinationRepository, DueVaccinationRow } from '../repositories/vaccination.repository';
 import { publishDomainEvent } from '../events/publisher';
 import { deriveEventIdempotencyKey } from './billing';
-import { saoPauloDay, addDays } from './sao-paulo-day';
+import { saoPauloDay, addDays } from '@quironequine/shared-middlewares';
 import { BOOSTER_DUE_SOON_DAYS } from './vaccination.service';
 
 const HOUR_MS = 60 * 60 * 1000;

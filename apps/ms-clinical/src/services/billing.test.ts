@@ -1,7 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateTotalCents, calculateItemTotalCents, deriveEventIdempotencyKey } from './billing';
-
-const APPOINTMENT_ID = '33333333-3333-3333-3333-333333333333';
+import { calculateTotalCents, calculateItemTotalCents } from './billing';
 
 describe('calculateTotalCents (RF-ATD-006)', () => {
   it('soma itens, mão de obra e deslocamento (km × valor/km)', () => {
@@ -36,31 +34,5 @@ describe('calculateItemTotalCents', () => {
 
   it('quantidade fracionada (meia ampola) arredonda para centavo inteiro', () => {
     expect(calculateItemTotalCents(0.5, 999)).toBe(500);
-  });
-});
-
-describe('deriveEventIdempotencyKey', () => {
-  it('é determinística: o mesmo atendimento gera sempre a mesma chave', () => {
-    expect(deriveEventIdempotencyKey('appointment.done', APPOINTMENT_ID)).toBe(
-      deriveEventIdempotencyKey('appointment.done', APPOINTMENT_ID),
-    );
-  });
-
-  it('atendimentos diferentes geram chaves diferentes', () => {
-    expect(deriveEventIdempotencyKey('appointment.done', APPOINTMENT_ID)).not.toBe(
-      deriveEventIdempotencyKey('appointment.done', '99999999-9999-9999-9999-999999999999'),
-    );
-  });
-
-  it('eventos diferentes do mesmo atendimento não colidem na UNIQUE do outbox', () => {
-    expect(deriveEventIdempotencyKey('appointment.done', APPOINTMENT_ID)).not.toBe(
-      deriveEventIdempotencyKey('appointment.cancelled', APPOINTMENT_ID),
-    );
-  });
-
-  it('tem formato de UUID — a coluna é @db.Uuid de verdade', () => {
-    expect(deriveEventIdempotencyKey('appointment.done', APPOINTMENT_ID)).toMatch(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
-    );
   });
 });

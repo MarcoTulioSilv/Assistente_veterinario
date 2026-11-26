@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { DueExamRow } from '../repositories/exam.repository';
 import { ExamReminderService, reminderKind } from './exam-reminder.service';
-import { saoPauloDay, addDays } from './sao-paulo-day';
+import { saoPauloDay, addDays } from '@quironequine/shared-middlewares';
 import { deriveEventIdempotencyKey } from './billing';
 
 // 07h de São Paulo (UTC-3) do dia 01/10/2026 — o horário do job.

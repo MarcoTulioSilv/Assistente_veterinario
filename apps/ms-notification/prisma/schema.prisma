@@ -1,0 +1,152 @@
+// ══════════════════════════════════════════════════════════════════
+// MS5 — Notification Service
+// Marco M3 · Sprint 10 · Nov/2026 · Dev 1 (Marco Túlio)
+//
+// Caixa de entrada (in-app), push (Web Push/VAPID), WhatsApp e e-mail
+// (RF-NOT-001 a 003). Tudo vai para o VETERINÁRIO (decisão de 12/11/2026).
+//
+// Só tipo e dados, sem texto (ADR-007): a PWA monta a frase. `data` guarda
+// ids, horários e nomes de produto/vacina/exame — nada de nome de cliente
+// ou de animal. Usuários e o resto do MS1 são UUID sem FK (ADR-001 §5.1).
+// ══════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client-notification"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL_NOTIFICATION")
+}
+
+/// RF-NOT-001
+enum NotificationType {
+  schedule_reminder
+  exam_result_due
+  vaccination_due
+  stock_expiry
+  stock_low
+  geofence
+}
+
+enum NotificationChannel {
+  push
+  whatsapp
+  email
+}
+
+enum NotificationTargetKind {
+  schedule_event
+  exam_request
+  vaccination
+  product
+  property
+}
+
+enum DeliveryStatus {
+  sent
+  failed
+  skipped
+}
+
+/// Item da caixa de entrada. Um por (usuário, evento de origem): a UNIQUE
+/// torna o consumo idempotente — redelivery do broker não duplica aviso.
+model Notification {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  type NotificationType
+  /// NotificationData (shared-types), sem o `type` repetido.
+  data Json
+
+  targetKind NotificationTargetKind? @map("target_kind")
+  targetId   String?                 @map("target_id") @db.Uuid
+
+  /// Chave do evento de origem (envelope do broker).
+  idempotencyKey String @map("idempotency_key") @db.Uuid
+
+  readAt    DateTime? @map("read_at") @db.Timestamptz
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz
+
+  deliveries DeliveryAttempt[]
+
+  @@unique([tenantId, userId, idempotencyKey])
+  /// Caixa de entrada do usuário, mais recente primeiro.
+  @@index([tenantId, userId, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+/// Um aparelho que aceitou push. Assinar de novo o mesmo endpoint na mesma
+/// clínica atualiza a linha (passa para quem está logado).
+model PushSubscription {
+  id       String @id @default(uuid()) @db.Uuid
+  tenantId String @map("tenant_id") @db.Uuid
+  userId   String @map("user_id") @db.Uuid
+
+  endpoint String @db.Text
+  p256dh   String @db.VarChar(255)
+  auth     String @db.VarChar(255)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  /// O serviço de push respondeu 404/410, ou o usuário cancelou.
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+
+  @@unique([tenantId, endpoint])
+  @@index([tenantId, userId])
+  @@map("push_subscriptions")
+}
+
+/// RF-NOT-003: liga/desliga por tipo e canal. Sem linha = ligado.
+model NotificationPreference {
+  id       String              @id @default(uuid()) @db.Uuid
+  tenantId String              @map("tenant_id") @db.Uuid
+  userId   String              @map("user_id") @db.Uuid
+  type     NotificationType
+  channel  NotificationChannel
+  enabled  Boolean
+
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@unique([tenantId, userId, type, channel])
+  @@map("notification_preferences")
+}
+
+/// Cada tentativa de entrega por canal — para conferir o que saiu.
+model DeliveryAttempt {
+  id             String              @id @default(uuid()) @db.Uuid
+  tenantId       String              @map("tenant_id") @db.Uuid
+  notificationId String              @map("notification_id") @db.Uuid
+  channel        NotificationChannel
+  status         DeliveryStatus
+  /// Motivo de `skipped` ou erro de `failed` (já sem dado sensível, safeErrorMessage).
+  detail         String?             @db.VarChar(500)
+  attemptedAt    DateTime            @default(now()) @map("attempted_at") @db.Timestamptz
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([notificationId])
+  @@map("delivery_attempts")
+}
+
+/// Trilha de auditoria (LGPD art. 37) — mesmo formato dos outros serviços.
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  userId    String?  @map("user_id") @db.Uuid
+  action    String   @db.VarChar(100)
+  tableName String   @map("table_name") @db.VarChar(100)
+  recordId  String   @map("record_id") @db.Uuid
+  oldValues Json?    @map("old_values")
+  newValues Json?    @map("new_values")
+  ipAddress String?  @map("ip_address") @db.Inet
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, tableName, recordId])
+  @@map("audit_log")
+}

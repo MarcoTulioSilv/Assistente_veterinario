@@ -91,6 +91,10 @@ describe('derivePaymentEventKey', () => {
     expect(derivePaymentEventKey(RECORD_ID)).not.toBe(derivePaymentEventKey(OWNER_ID));
   });
 
+  it('mantém o valor de antes da função ir para shared-middlewares', () => {
+    expect(derivePaymentEventKey('11111111-1111-1111-1111-111111111111')).toBe('7a1c5fb8-ce53-3140-9fe4-cdbf8b2ce5a6');
+  });
+
   it('tem formato de UUID', () => {
     expect(derivePaymentEventKey(RECORD_ID)).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,

@@ -244,6 +244,14 @@ export class AuthRepository {
     });
   }
 
+  /** E-mail do cadastro já confirmado (auditoria M-02)? Lido já com o tenant, sob RLS. */
+  async isEmailVerified(tenantId: string, userId: string): Promise<boolean> {
+    const row = await withTenant(tenantId, (tx) =>
+      tx.user.findFirst({ where: { id: userId }, select: { emailVerifiedAt: true } }),
+    );
+    return !!row?.emailVerifiedAt;
+  }
+
   /** Logout: revoga só a sessão deste aparelho, e só com o segredo certo. */
   async revokeSession(tenantId: string, sessionId: string, secretHash: string): Promise<void> {
     await withTenant(tenantId, (tx) =>

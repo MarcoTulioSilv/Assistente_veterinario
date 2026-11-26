@@ -1074,6 +1074,259 @@ export interface IVaccinationService {
   softDelete(ctx: RequestContext, id: UUID): Promise<void>;
 }
 
+// ═══ MS4 — Scheduling (agenda, M3) ════════════════════════════════
+// Proprietário, propriedade e animais são ids do MS1, guardados sem FK e sem
+// consulta ao MS1 (ADR-001 §5.1) — como no MS3. A tela compõe os nomes.
+
+/** RF-AGD-001: atendimentos, visitas, vacinações e demais atividades. */
+export type ScheduleActivityType = 'appointment' | 'visit' | 'vaccination' | 'exam' | 'other';
+
+/** Só sai de `scheduled`: para `done` (feito) ou `cancelled`. Não volta. */
+export type ScheduleEventStatus = 'scheduled' | 'done' | 'cancelled';
+
+/** Limites que o service garante (a validação da tela/Zod deve espelhar). */
+export const SCHEDULE_LIMITS = {
+  /** RF-AGD-004: lembretes por evento. */
+  maxReminders: 3,
+  /** Antecedência máxima de um lembrete: 7 dias, em minutos. */
+  maxReminderMinutesBefore: 7 * 24 * 60,
+  /** Maior intervalo de uma listagem (a visão mensal cabe com folga). */
+  maxListDays: 62,
+} as const;
+
+/** RF-AGD-002: data, hora, tipo, propriedade, proprietário e observações. */
+export interface ScheduleEvent {
+  id: UUID;
+  activityType: ScheduleActivityType;
+  status: ScheduleEventStatus;
+  startsAt: ISODateString;
+  endsAt: ISODateString | null;
+  /** Obrigatórios em todo tipo, menos `other` (atividade sem cliente). */
+  ownerId: UUID | null;
+  propertyId: UUID | null;
+  animalIds: UUID[];
+  notes: string | null;
+  /**
+   * RF-AGD-004: minutos antes de `startsAt`, em ordem crescente, sem repetição.
+   * Nenhum pode cair no passado (início − antecedência ≥ agora) ao criar ou ao
+   * mudar horário/lembretes — evento passado só sem lembrete.
+   */
+  reminderMinutesBefore: number[];
+  /**
+   * Preenchido quando a visita é o retorno de um atendimento (RF-ATD-010,
+   * RF-AGD-006). No máximo um retorno ativo por atendimento.
+   */
+  sourceAppointmentId: UUID | null;
+  /** Quem agendou — é quem recebe o lembrete. */
+  createdBy: UUID;
+  completedAt: ISODateString | null;
+  cancelledAt: ISODateString | null;
+  createdAt: ISODateString;
+}
+
+export interface CreateScheduleEventDto {
+  activityType: ScheduleActivityType;
+  startsAt: ISODateString;
+  endsAt?: ISODateString | null;
+  ownerId?: UUID | null;
+  propertyId?: UUID | null;
+  animalIds?: UUID[];
+  notes?: string | null;
+  reminderMinutesBefore?: number[];
+}
+
+/**
+ * "Agendar visita": a tela própria e o retorno opcional ao finalizar o
+ * atendimento usam a mesma operação. O tipo é sempre `visit`.
+ */
+export type ScheduleVisitDto = Omit<CreateScheduleEventDto, 'activityType'> & {
+  sourceAppointmentId?: UUID;
+};
+
+/** Só em `scheduled`. Tipo e origem não mudam (um retorno continua retorno). */
+export type UpdateScheduleEventDto = Partial<Omit<CreateScheduleEventDto, 'activityType'>>;
+
+/** RF-AGD-001: a tela pede o mês ou a semana; o intervalo vai até `SCHEDULE_LIMITS.maxListDays`. */
+export interface ListScheduleEventsParams {
+  from: ISODateString;
+  to: ISODateString;
+  status?: ScheduleEventStatus;
+}
+
+export interface IScheduleService {
+  /** Eventos com `startsAt` em [from, to), em ordem cronológica. Sem paginação: o intervalo é limitado. */
+  list(ctx: RequestContext, params: ListScheduleEventsParams): Promise<ScheduleEvent[]>;
+  /**
+   * RF-AGD-003 / RN-011: atividades do dia de São Paulo ('AAAA-MM-DD'; padrão:
+   * hoje), sem as canceladas, em ordem de horário.
+   */
+  listDay(ctx: RequestContext, day?: string): Promise<ScheduleEvent[]>;
+  findById(ctx: RequestContext, id: UUID): Promise<ScheduleEvent | null>;
+  /** Retorno ativo de um atendimento, se houver (tela do atendimento). */
+  findReturn(ctx: RequestContext, appointmentId: UUID): Promise<ScheduleEvent | null>;
+  create(ctx: RequestContext, data: CreateScheduleEventDto): Promise<ScheduleEvent>;
+  /** CONFLICT se o atendimento já tem retorno ativo. */
+  scheduleVisit(ctx: RequestContext, data: ScheduleVisitDto): Promise<ScheduleEvent>;
+  update(ctx: RequestContext, id: UUID, data: UpdateScheduleEventDto): Promise<ScheduleEvent>;
+  /** `scheduled → done`. Com propriedade, conta como visita a ela (geofence, Sprint 11). */
+  complete(ctx: RequestContext, id: UUID): Promise<ScheduleEvent>;
+  /** `scheduled → cancelled`. Libera o atendimento para um novo retorno. */
+  cancel(ctx: RequestContext, id: UUID): Promise<ScheduleEvent>;
+  /** Soft delete (LGPD). */
+  remove(ctx: RequestContext, id: UUID): Promise<void>;
+}
+
+// ═══ MS5 — Notification (M3, Sprint 10) ═══════════════════════════
+// Decisões (12/11/2026, ADR-007): todas as notificações vão para o
+// veterinário (nenhuma para o proprietário); WhatsApp e e-mail ficam
+// desligados até existirem as contas. O MS5 guarda e envia só TIPO e DADOS,
+// sem texto: a PWA e o service worker montam a frase. Nada de dado pessoal
+// (nome de cliente, de animal) na caixa de entrada nem na fila.
+
+/** RF-NOT-001: os tipos que o veterinário recebe. */
+export type NotificationType =
+  | 'schedule_reminder'
+  | 'exam_result_due'
+  | 'vaccination_due'
+  | 'stock_expiry'
+  | 'stock_low'
+  | 'geofence';
+
+export type NotificationChannel = 'push' | 'whatsapp' | 'email';
+
+/** O que a tela abre ao tocar na notificação. */
+export interface NotificationTarget {
+  kind: 'schedule_event' | 'exam_request' | 'vaccination' | 'product' | 'property';
+  id: UUID;
+}
+
+/** Dados de cada tipo — o suficiente para a PWA montar o texto. */
+export type NotificationData =
+  | {
+      type: 'schedule_reminder';
+      activityType: ScheduleActivityType;
+      startsAt: ISODateString;
+      minutesBefore: number;
+      propertyId: UUID | null;
+    }
+  | {
+      type: 'exam_result_due';
+      examTypeName: string;
+      expectedResultAt: ISODateString;
+      kind: 'day_before' | 'due_today';
+    }
+  | {
+      type: 'vaccination_due';
+      vaccineName: string;
+      nextDoseAt: ISODateString;
+      kind: 'week_before' | 'due_today';
+      animalCount: number;
+      propertyId: UUID;
+    }
+  | { type: 'stock_expiry'; productName: string; expiryDate: ISODateString | null }
+  | { type: 'stock_low'; productName: string; quantityInStock: number | null }
+  /** RASCUNHO — fechado na Sprint 11 (geofence). */
+  | { type: 'geofence'; propertyId: UUID; reasons: Array<'return_pending' | 'no_recent_visit'> };
+
+/** Item da caixa de entrada (in-app). */
+export interface Notification {
+  id: UUID;
+  type: NotificationType;
+  data: NotificationData;
+  target: NotificationTarget | null;
+  readAt: ISODateString | null;
+  createdAt: ISODateString;
+}
+
+/** O que o push leva ao service worker — ele monta o texto a partir disto. */
+export interface PushMessage {
+  notificationId: UUID;
+  type: NotificationType;
+  data: NotificationData;
+  target: NotificationTarget | null;
+}
+
+/** RF-NOT-003: liga/desliga por tipo e canal. Sem linha = ligado. */
+export interface NotificationPreference {
+  type: NotificationType;
+  channel: NotificationChannel;
+  enabled: boolean;
+}
+
+/** O que o navegador devolve em `PushManager.subscribe()` (Web Push, VAPID). */
+export interface PushSubscriptionDto {
+  endpoint: string;
+  keys: { p256dh: string; auth: string };
+}
+
+export interface INotificationService {
+  listInbox(ctx: RequestContext, params: PaginationParams & { unreadOnly?: boolean }): Promise<Paginated<Notification>>;
+  unreadCount(ctx: RequestContext): Promise<number>;
+  /** NOT_FOUND se a notificação não é do usuário. */
+  markRead(ctx: RequestContext, id: UUID): Promise<void>;
+  markAllRead(ctx: RequestContext): Promise<void>;
+  /** Todas as combinações tipo × canal, já com o padrão (ligado) preenchido. */
+  getPreferences(ctx: RequestContext): Promise<NotificationPreference[]>;
+  updatePreferences(ctx: RequestContext, preferences: NotificationPreference[]): Promise<NotificationPreference[]>;
+  /** Chave pública VAPID, para o `PushManager.subscribe()` da PWA. Vazia = push desligado no servidor. */
+  getPushPublicKey(): string;
+  /** Um aparelho por assinatura; assinar de novo o mesmo `endpoint` atualiza. */
+  subscribePush(ctx: RequestContext, subscription: PushSubscriptionDto): Promise<void>;
+  unsubscribePush(ctx: RequestContext, endpoint: string): Promise<void>;
+}
+
+/**
+ * Destinatário de notificação, resolvido no MS1 (ADR-007). E-mail e
+ * telefone só são usados pelos canais WhatsApp e e-mail.
+ */
+export interface NotificationRecipient {
+  userId: UUID;
+  email: string;
+  phone: string | null;
+  emailVerified: boolean;
+}
+
+/**
+ * Diretório de destinatários — implementado no MS1 e exposto por rota
+ * INTERNA (`/internal/...`, fora do BFF, com `requireServiceToken`). O MS5
+ * consulta para saber quem avisar (ADR-007). Só usuários ativos.
+ */
+export interface IRecipientDirectory {
+  byUser(tenantId: UUID, userId: UUID): Promise<NotificationRecipient | null>;
+  /** Usuário do veterinário (os eventos do MS3 trazem o id do veterinário). */
+  byVeterinarian(tenantId: UUID, veterinarianId: UUID): Promise<NotificationRecipient | null>;
+  /** Administradores ativos da clínica (alerta de estoque é da clínica, não de um veterinário). */
+  tenantAdmins(tenantId: UUID): Promise<NotificationRecipient[]>;
+}
+
+// ═══ MS1 — Conta: confirmação de e-mail e recuperação de senha ═════
+// Auditoria 06/11/2026, M-02. O MS1 publica um evento com token de vida curta
+// e o MS5 envia o e-mail (ADR-007). Com o e-mail desligado
+// (EMAIL_VERIFICATION_ENABLED=false no MS1), o cadastro segue sem confirmação.
+
+export interface IAccountService {
+  /**
+   * Reenvio da confirmação. Público e por e-mail: com a confirmação ligada,
+   * quem não confirmou não consegue entrar para pedir. Sempre responde igual
+   * (conta inexistente, já confirmada ou pedido recente não se distinguem).
+   */
+  requestEmailVerification(email: string): Promise<void>;
+  /** Token de uso único, 24 h. VALIDATION_ERROR se inválido, usado ou vencido. */
+  confirmEmail(token: string): Promise<void>;
+  /** Sempre responde igual, exista a conta ou não (não revela cadastro). */
+  requestPasswordReset(email: string): Promise<void>;
+  /** Token de uso único, 30 min. Troca a senha e encerra as sessões de todos os aparelhos. */
+  resetPassword(token: string, newPassword: string): Promise<void>;
+}
+
+/** Payload dos eventos de e-mail da conta. O token só vive na fila, por pouco tempo. */
+export interface AccountEmailPayload {
+  userId: UUID;
+  email: string;
+  token: string;
+  expiresAt: ISODateString;
+}
+
 // ═══ MS6 — Reporting (fatia financeira, antecipada para o M2) ═════
 //
 // ATENÇÃO, João: esta seção chegou antes da hora de propósito.
@@ -1286,6 +1539,8 @@ export const EVENTS = {
   PAYMENT_REGISTERED: 'payment.registered',
   SCHEDULE_REMINDER_DUE: 'schedule.reminder_due',
   GEOFENCE_TRIGGERED: 'geofence.triggered',
+  AUTH_EMAIL_VERIFICATION_REQUESTED: 'auth.email_verification_requested',
+  AUTH_PASSWORD_RESET_REQUESTED: 'auth.password_reset_requested',
 } as const;
 
 export type EventName = (typeof EVENTS)[keyof typeof EVENTS];
@@ -1306,7 +1561,8 @@ export type EventName = (typeof EVENTS)[keyof typeof EVENTS];
 export const EVENT_SUBSCRIBERS: Record<EventName, readonly string[]> = {
   // RN-003 (baixa de estoque) + RN-002 (pendência financeira) — dois
   // consumidores para o MESMO evento; é o caso que a fila única quebrava.
-  [EVENTS.APPOINTMENT_DONE]: ['inventory', 'reporting'],
+  // O scheduling registra a última visita à propriedade (geofence, RN-008).
+  [EVENTS.APPOINTMENT_DONE]: ['inventory', 'reporting', 'scheduling'],
   // Não consta da tabela do §5.3 — nasceu da regra de exclusão de
   // atendimento finalizado (ADR-002, revisão 1.2). Só o reporting assina:
   // o estoque consumido não volta, o produto foi de fato usado no animal.
@@ -1321,13 +1577,20 @@ export const EVENT_SUBSCRIBERS: Record<EventName, readonly string[]> = {
   // notificação é o MS5 (dez/2026); até lá o evento espera na fila dele.
   [EVENTS.EXAM_RESULT_DUE]: ['notification'],
   // Vacinação (ADR-002, revisão 1.4). Aplicar = consumir e cobrar ao mesmo
-  // tempo, então volta ao padrão do atendimento: um evento, dois destinos.
-  [EVENTS.VACCINATION_APPLIED]: ['inventory', 'reporting'],
+  // tempo, então volta ao padrão do atendimento: um evento, dois destinos —
+  // três com o scheduling (última visita à propriedade, ADR-002 rev. 1.5).
+  [EVENTS.VACCINATION_APPLIED]: ['inventory', 'reporting', 'scheduling'],
   [EVENTS.VACCINATION_DELETED]: ['reporting'],
   // Re-vacinação 7 dias antes e no dia — entregue pelo MS5.
   [EVENTS.VACCINATION_DUE]: ['notification'],
   [EVENTS.ALERT_TRIGGERED]: ['notification'],
+  // O MS5 consome e descarta (decisão de 12/11/2026: nada vai ao
+  // proprietário, e quem registra o pagamento é o próprio veterinário).
   [EVENTS.PAYMENT_REGISTERED]: ['notification'],
+  // E-mails da conta (MS1 → MS5, ADR-007). O token vai no payload; o
+  // publisher do MS1 remove o job ao terminar.
+  [EVENTS.AUTH_EMAIL_VERIFICATION_REQUESTED]: ['notification'],
+  [EVENTS.AUTH_PASSWORD_RESET_REQUESTED]: ['notification'],
   [EVENTS.SCHEDULE_REMINDER_DUE]: ['notification'],
   [EVENTS.GEOFENCE_TRIGGERED]: ['notification'],
   // Não consta da tabela do ADR-001 §5.3 e não tem consumidor definido —
@@ -1356,6 +1619,11 @@ export interface AppointmentDonePayload {
    * feito dia 30 e fechado dia 2 cairia no mês errado.
    */
   performedAt: ISODateString;
+  /**
+   * Onde foi a visita — o MS4 guarda a última visita de cada propriedade
+   * (geofence, RN-008). Eventos publicados antes deste campo não o têm.
+   */
+  propertyId: UUID;
 }
 
 /**
@@ -1420,6 +1688,8 @@ export interface VaccinationAppliedPayload {
   totalCostCents: Cents;
   /** Data da aplicação — a data da pendência. */
   performedAt: ISODateString;
+  /** Onde foi a visita (última visita à propriedade, MS4). */
+  propertyId: UUID;
 }
 
 /** Vacinação com cobrança excluída: o MS6 cancela a pendência. */
@@ -1454,6 +1724,35 @@ export interface PaymentRegisteredPayload {
   sourceId: UUID;
   amountCents: Cents;
   paidAt: ISODateString;
+}
+
+/**
+ * RF-AGD-004: hora de lembrar um evento da agenda. Publicado pelo job do MS4
+ * (a cada 5 min), entregue pelo MS5. Sem `notes`: observação livre pode ter
+ * dado pessoal, e o evento fica na fila do Redis.
+ */
+export interface ScheduleReminderDuePayload {
+  scheduleEventId: UUID;
+  activityType: ScheduleActivityType;
+  startsAt: ISODateString;
+  minutesBefore: number;
+  ownerId: UUID | null;
+  propertyId: UUID | null;
+  /** Quem deve ser lembrado (quem agendou). */
+  recipientUserId: UUID;
+}
+
+/**
+ * RF-AGD-005 / RF-NOT-004 / RN-008 (Plano Plus) — RASCUNHO, fechado na
+ * Sprint 11. O aparelho entrou no raio de uma propriedade com pendência:
+ * retorno agendado e não concluído, ou sem visita há mais de X dias.
+ */
+export interface GeofenceTriggeredPayload {
+  propertyId: UUID;
+  reasons: Array<'return_pending' | 'no_recent_visit'>;
+  returnEventIds: UUID[];
+  lastVisitAt: ISODateString | null;
+  recipientUserId: UUID;
 }
 
 /** RF-EST-004/005 — detectado pelo ms-inventory, entregue por um futuro ms-notification */
