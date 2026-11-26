@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import type { Product as PrismaProduct } from '../../node_modules/.prisma/client-inventory';
-import type { RequestContext, UUID, Paginated, Product } from '@quironequine/shared-types';
+import type { RequestContext, UUID, Paginated, Product, InventorySettings } from '@quironequine/shared-types';
 import { prisma, withTenant } from '../prisma';
+import { loadInventorySettings } from './inventory-settings.repository';
 import type { CreateProductInput, UpdateProductInput, ListProductsInput } from '../schemas/product.schema';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -23,13 +24,14 @@ export class ProductRepository {
         ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
       };
 
-      const [rows, total] = await Promise.all([
+      const [rows, total, settings] = await Promise.all([
         tx.product.findMany({ where, skip, take: limit, orderBy: { name: 'asc' } }),
         tx.product.count({ where }),
+        loadInventorySettings(tx, ctx.tenantId),
       ]);
 
       return {
-        data: rows.map(toDomain),
+        data: rows.map((row) => toDomain(row, settings)),
         pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
       };
     });
@@ -38,7 +40,7 @@ export class ProductRepository {
   async findById(ctx: RequestContext, id: UUID): Promise<Product | null> {
     return withTenant(ctx.tenantId, async (tx) => {
       const row = await tx.product.findFirst({ where: { id, deletedAt: null } });
-      return row ? toDomain(row) : null;
+      return row ? toDomain(row, await loadInventorySettings(tx, ctx.tenantId)) : null;
     });
   }
 
@@ -62,8 +64,9 @@ export class ProductRepository {
           costPriceCents: data.costPriceCents,
           markupPercent: data.markupPercent ?? 0,
           expiryDate: data.expiryDate ? new Date(data.expiryDate) : null,
-          alertDaysBefore: data.alertDaysBefore ?? 30,
-          minStockQty: data.minStockQty ?? 0,
+          // RF-CFG-004: sem limite próprio, vale o padrão da clínica.
+          alertDaysBefore: data.alertDaysBefore ?? null,
+          minStockQty: data.minStockQty ?? null,
           category: data.category,
           doseIntervalDays: data.doseIntervalDays ?? null,
         },
@@ -83,7 +86,7 @@ export class ProductRepository {
         });
       }
 
-      return toDomain(row);
+      return toDomain(row, await loadInventorySettings(tx, ctx.tenantId));
     });
   }
 
@@ -97,7 +100,7 @@ export class ProductRepository {
           ...(expiryDate !== undefined ? { expiryDate: expiryDate ? new Date(expiryDate) : null } : {}),
         },
       });
-      return toDomain(row);
+      return toDomain(row, await loadInventorySettings(tx, ctx.tenantId));
     });
   }
 
@@ -111,8 +114,11 @@ export class ProductRepository {
   /** Uso interno do AlertService — sem paginação, roda uma vez por tenant por dia. */
   async listAllActive(ctx: RequestContext): Promise<Product[]> {
     return withTenant(ctx.tenantId, async (tx) => {
-      const rows = await tx.product.findMany({ where: { deletedAt: null } });
-      return rows.map(toDomain);
+      const [rows, settings] = await Promise.all([
+        tx.product.findMany({ where: { deletedAt: null } }),
+        loadInventorySettings(tx, ctx.tenantId),
+      ]);
+      return rows.map((row) => toDomain(row, settings));
     });
   }
 
@@ -139,16 +145,23 @@ function pricePerMlCents(unit: Product['unit'], salePriceCents: number, mlPerUni
   return mlPerUnit ? Math.round(salePriceCents / mlPerUnit) : null;
 }
 
-function toDomain(row: PrismaProduct): Product {
+/**
+ * RF-CFG-004: o limite próprio do produto vale; sem ele, o padrão da
+ * clínica; sem os dois, não há aquele alerta.
+ */
+function toDomain(row: PrismaProduct, settings: InventorySettings): Product {
   const quantityInStock = row.quantityInStock.toNumber();
-  const minStockQty = row.minStockQty.toNumber();
+  const minStockQty = row.minStockQty ? row.minStockQty.toNumber() : null;
+  const effectiveAlertDaysBefore = row.alertDaysBefore ?? settings.defaultAlertDaysBefore;
+  const effectiveMinStockQty = minStockQty ?? settings.defaultMinStockQty;
   const expiryDate = row.expiryDate;
   const salePriceCents = row.salePriceCents ?? 0;
   const mlPerUnit = row.mlPerUnit ? row.mlPerUnit.toNumber() : null;
 
   const isNearExpiry =
     expiryDate !== null &&
-    (expiryDate.getTime() - Date.now()) / MS_PER_DAY <= row.alertDaysBefore;
+    effectiveAlertDaysBefore !== null &&
+    (expiryDate.getTime() - Date.now()) / MS_PER_DAY <= effectiveAlertDaysBefore;
 
   return {
     id: row.id,
@@ -167,8 +180,10 @@ function toDomain(row: PrismaProduct): Product {
     alertDaysBefore: row.alertDaysBefore,
     doseIntervalDays: row.doseIntervalDays,
     minStockQty,
+    effectiveAlertDaysBefore,
+    effectiveMinStockQty,
     category: row.category,
     isNearExpiry,
-    isLowStock: quantityInStock < minStockQty,
+    isLowStock: effectiveMinStockQty !== null && quantityInStock < effectiveMinStockQty,
   };
 }

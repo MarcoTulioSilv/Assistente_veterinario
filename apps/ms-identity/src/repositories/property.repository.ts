@@ -1,6 +1,7 @@
 import type { Property as PrismaProperty } from '@prisma/client';
 import type { RequestContext, UUID, Paginated, Property } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
+import { lockPlanLimit, type LimitGuard } from './plan-limit';
 import { assertTenantReferences } from './tenant-references';
 import { changedFields, writeAudit } from '@quironequine/shared-middlewares';
 import type { CreatePropertyInput, UpdatePropertyInput, ListPropertiesInput } from '../schemas/property.schema';
@@ -50,8 +51,14 @@ export class PropertyRepository {
     ctx: RequestContext,
     data: CreatePropertyInput,
     coordinates: { latitude: number; longitude: number } | null,
+    /** Checagem do limite do plano sob a trava, na mesma transação (auditoria B-01). */
+    withinLimit?: LimitGuard,
   ): Promise<Property> {
     return withTenant(ctx.tenantId, async (tx) => {
+      if (withinLimit) {
+        await lockPlanLimit(tx, ctx.tenantId, 'properties');
+        await withinLimit(await tx.property.count({ where: { deletedAt: null } }));
+      }
       // Antes de criar: proprietário de outro tenant (ou inexistente) é 404,
       // e a propriedade não fica criada pela metade.
       await assertTenantReferences(tx, { ownerIds: data.ownerIds });

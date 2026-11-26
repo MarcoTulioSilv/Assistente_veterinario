@@ -338,13 +338,35 @@ export interface Product {
    */
   pricePerMlCents: Cents | null;
   expiryDate: ISODateString | null;
+  /** RF-CFG-004: limite próprio do produto. `null` = usa o padrão da clínica. */
   alertDaysBefore: number | null;
-  minStockQty: number;
+  /** RF-CFG-004: limite próprio do produto. `null` = usa o padrão da clínica. */
+  minStockQty: number | null;
+  /** O que vale de fato (próprio ou da clínica). `null` = sem aquele alerta. */
+  effectiveAlertDaysBefore: number | null;
+  effectiveMinStockQty: number | null;
   category: ProductCategory;
   /** RF-VAC-005: dias entre doses (só vacina). Nulo = sem re-vacinação. */
   doseIntervalDays: number | null;
+  /** Calculados com os limites efetivos. */
   isNearExpiry: boolean;
   isLowStock: boolean;
+}
+
+/**
+ * RF-CFG-004: limites de alerta padrão da clínica, para o produto sem limite
+ * próprio. `null` = sem padrão (o produto sem limite próprio não alerta).
+ * Antes de a clínica configurar: 30 dias de validade, sem estoque mínimo.
+ */
+export interface InventorySettings {
+  defaultAlertDaysBefore: number | null;
+  defaultMinStockQty: number | null;
+}
+
+export interface IInventorySettingsService {
+  get(ctx: RequestContext): Promise<InventorySettings>;
+  /** Campo ausente não muda; `null` tira o padrão. */
+  update(ctx: RequestContext, data: Partial<InventorySettings>): Promise<InventorySettings>;
 }
 
 export interface IStockService {
@@ -390,8 +412,10 @@ export interface CreateProductDto {
   costPriceCents: Cents;
   markupPercent?: number;
   expiryDate?: ISODateString;
-  alertDaysBefore?: number;
-  minStockQty?: number;
+  /** `null` (ou ausente na criação) = usa o padrão da clínica. */
+  alertDaysBefore?: number | null;
+  /** `null` (ou ausente na criação) = usa o padrão da clínica. */
+  minStockQty?: number | null;
   category: ProductCategory;
   /** Só em `category: 'vaccine'`. `null` na edição tira o intervalo. */
   doseIntervalDays?: number | null;
@@ -604,8 +628,25 @@ export interface ListAppointmentsParams extends PaginationParams {
   status?: AppointmentStatus;
 }
 
+/** Contagem de um mês ('AAAA-MM', mês de São Paulo) — série do dashboard (RF-REL-005). */
+export interface MonthlyCount {
+  month: string;
+  count: number;
+}
+
+/** Intervalo [from, to) de um relatório; até 24 meses. */
+export interface ReportPeriod {
+  from: ISODateString;
+  to: ISODateString;
+}
+
 export interface IAppointmentService {
   list(ctx: RequestContext, params: ListAppointmentsParams): Promise<Paginated<Appointment>>;
+  /**
+   * RF-REL-005: atendimentos FINALIZADOS por mês de São Paulo, no intervalo,
+   * com zero nos meses sem atendimento (a série do gráfico não fica com buraco).
+   */
+  countFinishedByMonth(ctx: RequestContext, period: ReportPeriod): Promise<MonthlyCount[]>;
   findById(ctx: RequestContext, id: UUID): Promise<Appointment | null>;
   /** RF-ATD-011: histórico completo por animal — orçamentos em que o animal está. */
   listByAnimal(ctx: RequestContext, animalId: UUID, params: PaginationParams): Promise<Paginated<Appointment>>;
@@ -1346,10 +1387,17 @@ export interface CreateFinancialRecordDto {
   occurredAt: ISODateString;
 }
 
+/** RF-REL-003: filtro por período (data do serviço) e por situação. */
+export interface ListFinancialRecordsParams extends PaginationParams {
+  status?: PaymentStatus;
+  from?: ISODateString;
+  to?: ISODateString;
+}
+
 export interface IFinancialService {
-  list(ctx: RequestContext, params: PaginationParams): Promise<Paginated<FinancialRecord>>;
+  list(ctx: RequestContext, params: ListFinancialRecordsParams): Promise<Paginated<FinancialRecord>>;
   /** RF-ATD-008: pendências de um proprietário. */
-  listByOwner(ctx: RequestContext, ownerId: UUID, params: PaginationParams): Promise<Paginated<FinancialRecord>>;
+  listByOwner(ctx: RequestContext, ownerId: UUID, params: ListFinancialRecordsParams): Promise<Paginated<FinancialRecord>>;
   findBySource(ctx: RequestContext, sourceType: FinancialSourceType, sourceId: UUID): Promise<FinancialRecord | null>;
   /**
    * RN-002: única transição para `received`. Publica `payment.registered`
@@ -1370,6 +1418,109 @@ export interface IFinancialService {
    * cancelada e a pendência já nasce cancelada.
    */
   cancelBySource(ctx: RequestContext, data: CreateFinancialRecordDto, idempotencyKey: UUID): Promise<void>;
+}
+
+// ═══ MS6 — Reporting: saídas, fluxo de caixa e dashboard (M3, Sprint 11) ═══
+// Fluxo de caixa, saídas avulsas e gráficos só no Plano Plus (ERS §2.6,
+// decisão de 12/11/2026); no Básico, a listagem de pendências e recebidos.
+
+/** RF-REL-002: categorias das saídas (proposta da pauta de 18/11/2026). */
+export type ExpenseCategory =
+  | 'fuel'
+  | 'vehicle_maintenance'
+  | 'supplies_equipment'
+  | 'taxes_fees'
+  | 'stock_purchase'
+  | 'other';
+
+/** Saída de caixa: avulsa (RF-REL-002) ou compra de estoque (lançada à mão). */
+export interface Expense {
+  id: UUID;
+  /** Dia da saída, 'AAAA-MM-DD'. */
+  occurredOn: string;
+  category: ExpenseCategory;
+  /** Obrigatória na saída avulsa; opcional na compra de estoque. */
+  description: string | null;
+  amountCents: Cents;
+  /** Produto do MS2, só na compra de estoque (opcional, sem FK). */
+  productId: UUID | null;
+  createdAt: ISODateString;
+}
+
+/** Saída avulsa — a compra de estoque tem a própria operação. */
+export interface CreateExpenseDto {
+  occurredOn: string;
+  category: Exclude<ExpenseCategory, 'stock_purchase'>;
+  description: string;
+  amountCents: Cents;
+}
+
+export type UpdateExpenseDto = Partial<CreateExpenseDto>;
+
+/**
+ * Compra de estoque no caixa, lançada à mão (decisão de 12/11/2026: não
+ * entra sozinha). Regra mínima até a próxima reunião (pauta de 18/11, item 1).
+ */
+export interface StockPurchaseDto {
+  occurredOn: string;
+  amountCents: Cents;
+  productId?: UUID;
+  description?: string;
+}
+
+/** Saída é por dia: o filtro também ('AAAA-MM-DD', os dois dias incluídos). */
+export interface ListExpensesParams extends PaginationParams {
+  fromDay?: string;
+  toDay?: string;
+  category?: ExpenseCategory;
+}
+
+export interface IExpenseService {
+  list(ctx: RequestContext, params: ListExpensesParams): Promise<Paginated<Expense>>;
+  create(ctx: RequestContext, data: CreateExpenseDto): Promise<Expense>;
+  registerStockPurchase(ctx: RequestContext, data: StockPurchaseDto): Promise<Expense>;
+  update(ctx: RequestContext, id: UUID, data: UpdateExpenseDto): Promise<Expense>;
+  /** Soft delete. */
+  remove(ctx: RequestContext, id: UUID): Promise<void>;
+}
+
+/** Valor de um mês ('AAAA-MM', mês de São Paulo). */
+export interface MonthlyCashFlow {
+  month: string;
+  inflowCents: Cents;
+  outflowCents: Cents;
+  balanceCents: Cents;
+}
+
+/**
+ * RF-REL-001: entradas = pagamentos recebidos (pela data do pagamento);
+ * saídas = saídas avulsas e compras de estoque (pela data da saída).
+ */
+export interface CashFlowSummary {
+  inflowCents: Cents;
+  outflowCents: Cents;
+  balanceCents: Cents;
+  months: MonthlyCashFlow[];
+  outflowByCategory: Array<{ category: ExpenseCategory; amountCents: Cents }>;
+}
+
+export interface ICashFlowService {
+  summary(ctx: RequestContext, period: ReportPeriod): Promise<CashFlowSummary>;
+}
+
+/**
+ * RF-REL-005: receita mensal (pagamentos recebidos) e maiores proprietários
+ * por valor recebido. A quantidade de atendimentos vem do MS3
+ * (`IAppointmentService.countFinishedByMonth`); a PWA junta as duas e põe os
+ * nomes dos proprietários (MS1).
+ */
+export interface DashboardSummary {
+  monthlyRevenue: Array<{ month: string; amountCents: Cents }>;
+  topOwners: Array<{ ownerId: UUID; amountCents: Cents; payments: number }>;
+}
+
+export interface IDashboardService {
+  summary(ctx: RequestContext, period: ReportPeriod): Promise<DashboardSummary>;
 }
 
 // ═══ Eventos do Message Broker (ADR-001 §5.3) ═════════════════════

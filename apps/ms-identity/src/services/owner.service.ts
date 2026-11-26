@@ -30,10 +30,9 @@ export class OwnerService implements IOwnerService {
   }
 
   async create(ctx: RequestContext, data: CreateOwnerInput): Promise<Owner> {
-    // Plano Básico: limite de 30 proprietários (ERS §2.6)
-    const current = await this.repo.countActive(ctx);
-    await this.plans.assertOwnerLimit(ctx, current);
-    return this.repo.create(ctx, data);
+    // Plano Básico: limite de 30 proprietários (ERS §2.6). A contagem acontece
+    // sob a trava, na transação da gravação (auditoria B-01).
+    return this.repo.create(ctx, data, (current) => this.plans.assertOwnerLimit(ctx, current));
   }
 
   async update(ctx: RequestContext, id: UUID, data: UpdateOwnerInput): Promise<Owner> {

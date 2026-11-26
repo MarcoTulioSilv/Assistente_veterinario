@@ -10,7 +10,7 @@ import type {
   PaymentRegisteredPayload,
   DomainEvent,
 } from '@quironequine/shared-types';
-import { AppError, createServiceLogger, deriveEventIdempotencyKey } from '@quironequine/shared-middlewares';
+import { AppError, createServiceLogger, deriveEventIdempotencyKey, parseReportPeriod } from '@quironequine/shared-middlewares';
 import type { FinancialRepository } from '../repositories/financial.repository';
 import {
   appointmentDonePayloadSchema,
@@ -59,6 +59,15 @@ export function buildPaymentRegisteredEvent(
   };
 }
 
+/** Listagem com o período opcional do RF-REL-003 (data do serviço). */
+type ListFinancialParams = ListFinancialRecordsInput & { from?: string; to?: string };
+
+/** Período só com as duas pontas; uma só é erro (evita "desde sempre" sem querer). */
+function periodOf(params: ListFinancialParams): { from: Date; to: Date } | undefined {
+  if (params.from === undefined && params.to === undefined) return undefined;
+  return parseReportPeriod({ from: params.from ?? '', to: params.to ?? '' });
+}
+
 /**
  * Lógica de negócio — Dev 1 é o dono.
  * Implementa a IFinancialService publicada em shared-types.
@@ -72,17 +81,17 @@ export class FinancialService implements IFinancialService {
     private readonly publish: (event: DomainEvent<unknown>) => Promise<void>,
   ) {}
 
-  async list(ctx: RequestContext, params: ListFinancialRecordsInput): Promise<Paginated<FinancialRecord>> {
-    return this.repo.list(ctx, params);
+  async list(ctx: RequestContext, params: ListFinancialParams): Promise<Paginated<FinancialRecord>> {
+    return this.repo.list(ctx, params, periodOf(params));
   }
 
   /** RF-ATD-008 */
   async listByOwner(
     ctx: RequestContext,
     ownerId: UUID,
-    params: ListFinancialRecordsInput,
+    params: ListFinancialParams,
   ): Promise<Paginated<FinancialRecord>> {
-    return this.repo.listByOwner(ctx, ownerId, params);
+    return this.repo.listByOwner(ctx, ownerId, params, periodOf(params));
   }
 
   async findBySource(

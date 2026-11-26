@@ -78,8 +78,10 @@ model Product {
   salePriceCents  Int?            @map("sale_price_cents")
 
   expiryDate      DateTime?       @map("expiry_date") @db.Date
-  alertDaysBefore Int             @default(30) @map("alert_days_before")
-  minStockQty     Decimal         @default(0) @map("min_stock_qty") @db.Decimal(10, 3)
+  /// RF-CFG-004: limites próprios do produto. Nulo = usa o padrão da clínica
+  /// (inventory_settings); sem padrão também, não há aquele alerta.
+  alertDaysBefore Int?            @map("alert_days_before")
+  minStockQty     Decimal?        @map("min_stock_qty") @db.Decimal(10, 3)
   category        ProductCategory
   /// RF-VAC-005: dias entre doses de uma vacina. Nulo = sem re-vacinação.
   /// Só preenchido em produto de categoria `vaccine` (regra no StockService).
@@ -144,4 +146,19 @@ model AlertConfig {
   @@index([tenantId])
   @@index([alertType])
   @@map("alert_configs")
+}
+
+/// RF-CFG-004: limites de alerta padrão da clínica, usados pelo produto que
+/// não tem limite próprio. Sem linha = padrão do sistema (30 dias de aviso
+/// de validade, sem estoque mínimo), o mesmo que valia antes desta tabela.
+model InventorySettings {
+  id                     String   @id @default(uuid()) @db.Uuid
+  tenantId               String   @unique @map("tenant_id") @db.Uuid
+  defaultAlertDaysBefore Int?     @map("default_alert_days_before")
+  defaultMinStockQty     Decimal? @map("default_min_stock_qty") @db.Decimal(10, 3)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("inventory_settings")
 }

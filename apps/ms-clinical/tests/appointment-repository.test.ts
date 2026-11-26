@@ -537,3 +537,34 @@ describe('audit_log do prontuário (auditoria M-06)', () => {
     ]);
   });
 });
+
+describe('countFinishedByMonth (RF-REL-005)', () => {
+  async function finalizadoEm(ctx: RequestContext, performedAt: string): Promise<string> {
+    const criado = await service.create(ctx, novoInput({ performedAt }));
+    await service.finish(ctx, criado.id);
+    return criado.id;
+  }
+
+  it('conta finalizados por mês de São Paulo, com zero nos meses vazios e nada de outro tenant', async () => {
+    await finalizadoEm(ctxA, '2026-09-10T15:00:00Z');
+    await finalizadoEm(ctxA, '2026-09-25T15:00:00Z');
+    // 01/11 às 01h UTC ainda é 31/10 em São Paulo: conta em outubro.
+    await finalizadoEm(ctxA, '2026-11-01T01:00:00Z');
+    const excluido = await finalizadoEm(ctxA, '2026-11-15T15:00:00Z');
+    await service.softDelete(ctxA, excluido);
+    await service.create(ctxA, novoInput({ performedAt: '2026-11-20T15:00:00Z' })); // rascunho não conta
+    await finalizadoEm(ctxB, '2026-09-12T15:00:00Z');
+
+    const series = await service.countFinishedByMonth(ctxA, {
+      from: '2026-08-01T03:00:00Z',
+      to: '2026-12-01T03:00:00Z',
+    });
+
+    expect(series).toEqual([
+      { month: '2026-08', count: 0 },
+      { month: '2026-09', count: 2 },
+      { month: '2026-10', count: 1 },
+      { month: '2026-11', count: 0 },
+    ]);
+  });
+});

@@ -68,26 +68,30 @@ describe('OwnerService.list / findById', () => {
 });
 
 describe('OwnerService.create', () => {
-  it('verifica o limite do plano com a contagem atual antes de criar', async () => {
-    const countActive = vi.fn().mockResolvedValue(29);
+  /** Repositório falso que roda a checagem do limite como o real: sob a trava, antes de gravar. */
+  function createRunningGuard(activeCount: number) {
+    return vi.fn(async (_ctx: unknown, _data: unknown, withinLimit?: (n: number) => Promise<void> | void) => {
+      await withinLimit?.(activeCount);
+      return owner;
+    });
+  }
+
+  it('passa a checagem do limite do plano para o repositório fazer na transação da gravação (B-01)', async () => {
     const assertOwnerLimit = vi.fn().mockResolvedValue(undefined);
-    const create = vi.fn().mockResolvedValue(owner);
-    const service = new OwnerService(fakeRepo({ countActive, create }), fakePlans({ assertOwnerLimit }));
+    const create = createRunningGuard(29);
+    const service = new OwnerService(fakeRepo({ create }), fakePlans({ assertOwnerLimit }));
 
     await service.create(ctx(), { fullName: 'Novo Proprietário' });
 
-    expect(countActive).toHaveBeenCalledWith(ctx());
     expect(assertOwnerLimit).toHaveBeenCalledWith(ctx(), 29);
     expect(create).toHaveBeenCalledTimes(1);
   });
 
-  it('propaga o erro de limite de plano e não chega a criar', async () => {
-    const create = vi.fn().mockResolvedValue(owner);
+  it('propaga o erro de limite de plano', async () => {
     const assertOwnerLimit = vi.fn().mockRejectedValue(new Error('Plano Básico permite até 30 proprietários'));
-    const service = new OwnerService(fakeRepo({ create }), fakePlans({ assertOwnerLimit }));
+    const service = new OwnerService(fakeRepo({ create: createRunningGuard(30) }), fakePlans({ assertOwnerLimit }));
 
     await expect(service.create(ctx(), { fullName: 'Proprietário 31' })).rejects.toThrow(/30 proprietários/);
-    expect(create).not.toHaveBeenCalled();
   });
 });
 

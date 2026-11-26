@@ -26,11 +26,12 @@ export class PropertyService implements IPropertyService {
 
   async create(ctx: RequestContext, data: CreatePropertyInput): Promise<Property> {
     // ERS §2.6: Plano Básico limita propriedades a 30 (mesma cota do Owner).
-    const current = await this.repo.countActive(ctx);
-    await this.plans.assertPropertyLimit(ctx, current);
-
+    // Checagem rápida antes, só para não geocodificar (chamada externa) o que
+    // vai ser recusado; a que vale é a de dentro da transação, sob a trava
+    // (auditoria B-01).
+    await this.plans.assertPropertyLimit(ctx, await this.repo.countActive(ctx));
     const coordinates = await this.geo.resolveCoordinates(data);
-    return this.repo.create(ctx, data, coordinates);
+    return this.repo.create(ctx, data, coordinates, (current) => this.plans.assertPropertyLimit(ctx, current));
   }
 
   async update(ctx: RequestContext, id: UUID, data: UpdatePropertyInput): Promise<Property> {

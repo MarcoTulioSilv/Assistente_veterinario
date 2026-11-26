@@ -8,8 +8,10 @@ import type {
   AppointmentDonePayload,
   AppointmentDeletedPayload,
   DomainEvent,
+  MonthlyCount,
+  ReportPeriod,
 } from '@quironequine/shared-types';
-import { AppError, saoPauloDay } from '@quironequine/shared-middlewares';
+import { AppError, parseReportPeriod, saoPauloDay } from '@quironequine/shared-middlewares';
 import type {
   AppointmentRepository,
   CreateAppointmentData,
@@ -122,6 +124,12 @@ export function buildAppointmentDeletedEvent(
  */
 export class AppointmentService implements IAppointmentService {
   constructor(private readonly repo: AppointmentRepository) {}
+
+  /** RF-REL-005: série mensal de atendimentos finalizados para o dashboard. */
+  async countFinishedByMonth(ctx: RequestContext, period: ReportPeriod): Promise<MonthlyCount[]> {
+    const { from, to } = parseReportPeriod(period);
+    return this.repo.countFinishedByMonth(ctx, from, to);
+  }
 
   async list(ctx: RequestContext, params: ListAppointmentsInput): Promise<Paginated<Appointment>> {
     return this.repo.list(ctx, params);

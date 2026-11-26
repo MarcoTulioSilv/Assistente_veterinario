@@ -29,6 +29,8 @@ const product: Product = {
   expiryDate: null,
   alertDaysBefore: 30,
   minStockQty: 2,
+  effectiveAlertDaysBefore: 30,
+  effectiveMinStockQty: 2,
   category: 'vaccine',
   doseIntervalDays: 365,
   isNearExpiry: false,
