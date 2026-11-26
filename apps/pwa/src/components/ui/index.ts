@@ -16,6 +16,9 @@ export type { EmptyStateProps } from './EmptyState';
 export { Modal } from './Modal';
 export type { ModalProps } from './Modal';
 
+export { Drawer } from './Drawer';
+export type { DrawerProps } from './Drawer';
+
 export { Input } from './Input';
 export type { InputProps } from './Input';
 
