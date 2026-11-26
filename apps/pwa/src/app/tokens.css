@@ -1,3 +1,35 @@
+@font-face {
+  font-family: 'Jollin Italic';
+  src: url('/fonts/JollinItalic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Helvetica Neue LT Com';
+  src: url('/fonts/HelveticaNeue-Thin.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Helvetica Neue LT Com';
+  src: url('/fonts/HelveticaNeue-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Helvetica Neue LT Com';
+  src: url('/fonts/HelveticaNeue-BlackCond.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* Cores da marca Quiron Equi */
   --color-brand-dark:    #512B1E;

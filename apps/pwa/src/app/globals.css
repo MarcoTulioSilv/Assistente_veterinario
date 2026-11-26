@@ -3,3 +3,9 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+body {
+  font-family: var(--font-ui);
+  color: var(--color-text-primary);
+  background-color: var(--color-surface);
+}
