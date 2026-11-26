@@ -10,6 +10,9 @@ export type { CardProps } from './Card';
 export { Skeleton } from './Skeleton';
 export type { SkeletonProps } from './Skeleton';
 
+export { EmptyState } from './EmptyState';
+export type { EmptyStateProps } from './EmptyState';
+
 export { Input } from './Input';
 export type { InputProps } from './Input';
 
