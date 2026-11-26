@@ -7,6 +7,9 @@ export type { BadgeProps, BadgeVariant } from './Badge';
 export { Card } from './Card';
 export type { CardProps } from './Card';
 
+export { Skeleton } from './Skeleton';
+export type { SkeletonProps } from './Skeleton';
+
 export { Input } from './Input';
 export type { InputProps } from './Input';
 
