@@ -71,10 +71,12 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
           aria-invalid={!!error}
           aria-describedby={error ? errorId : hint ? hintId : undefined}
           className={cn(
-            'h-10 w-full rounded-md border px-3 text-sm text-slate-900 placeholder:text-slate-400',
-            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500',
+            'h-10 w-full rounded-md border bg-surface px-3 text-sm text-text-primary placeholder:text-text-muted',
+            'focus-visible:outline-none focus-visible:ring-2',
             'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400',
-            error ? 'border-red-500' : 'border-slate-300',
+            error
+              ? 'border-danger focus-visible:ring-danger'
+              : 'border-border focus-visible:border-brand-dark focus-visible:ring-brand-dark',
             isPassword && 'pr-10',
             className,
           )}

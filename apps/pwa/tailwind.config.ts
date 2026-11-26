@@ -20,6 +20,33 @@ const config: Config = {
           800: '#152e49',
           900: '#0f2236',
         },
+        brand: {
+          dark: '#512B1E',
+          light: '#F7E6D6',
+        },
+        surface: {
+          DEFAULT: '#FFFFFF',
+          alt: '#FAF6F2',
+        },
+        'text-primary': '#1A0E09',
+        'text-muted': '#7A5C52',
+        border: '#E8D5C4',
+        success: '#3D7A4F',
+        danger: '#C0392B',
+        warning: '#D4860B',
+      },
+      fontFamily: {
+        brand: ['Jollin Italic', 'serif'],
+        ui: ['Helvetica Neue LT Com', 'Helvetica Neue', 'Helvetica', 'Arial', 'sans-serif'],
+      },
+      borderRadius: {
+        sm: '6px',
+        md: '12px',
+        lg: '20px',
+      },
+      boxShadow: {
+        card: '0 2px 8px rgba(81,43,30,0.08)',
+        modal: '0 8px 32px rgba(81,43,30,0.18)',
       },
     },
   },

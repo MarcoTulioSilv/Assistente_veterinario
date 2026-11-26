@@ -1,0 +1,68 @@
+@font-face {
+  font-family: 'Jollin Italic';
+  src: url('/fonts/JollinItalic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Helvetica Neue LT Com';
+  src: url('/fonts/HelveticaNeue-Thin.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Helvetica Neue LT Com';
+  src: url('/fonts/HelveticaNeue-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Helvetica Neue LT Com';
+  src: url('/fonts/HelveticaNeue-BlackCond.ttf') format('truetype');
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Cores da marca Quiron Equi */
+  --color-brand-dark:    #512B1E;
+  --color-brand-light:   #F7E6D6;
+  --color-surface:       #FFFFFF;
+  --color-surface-alt:   #FAF6F2;
+  --color-text-primary:  #1A0E09;
+  --color-text-muted:    #7A5C52;
+  --color-border:        #E8D5C4;
+  --color-success:       #3D7A4F;
+  --color-danger:        #C0392B;
+  --color-warning:       #D4860B;
+
+  /* Tipografia */
+  --font-brand: 'Jollin Italic', serif;
+  --font-ui:    'Helvetica Neue LT Com', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+
+  /* Espaçamento (base 4px) */
+  --space-1:  4px;
+  --space-2:  8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-6:  24px;
+  --space-8:  32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Bordas */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+
+  /* Sombras */
+  --shadow-card:  0 2px 8px rgba(81,43,30,0.08);
+  --shadow-modal: 0 8px 32px rgba(81,43,30,0.18);
+}
