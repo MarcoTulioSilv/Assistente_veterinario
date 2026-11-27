@@ -26,7 +26,7 @@ export interface DeliveryJob {
 export function createDeliveryQueue(): { enqueue(job: DeliveryJob): Promise<void>; close(): Promise<void> } {
   const queue = new Queue(QUEUE_NAME, { connection, prefix });
   return {
-    async enqueue(job) {
+    async enqueue(job): Promise<void> {
       await queue.add(job.channel, job, {
         // BullMQ não aceita ':' no jobId.
         jobId: `${job.notificationId}_${job.channel}`,

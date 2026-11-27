@@ -24,7 +24,7 @@ export class DeliveryService {
   private readonly now: () => Date;
 
   constructor(private readonly deps: DeliveryDeps) {
-    this.now = deps.now ?? (() => new Date());
+    this.now = deps.now ?? ((): Date => new Date());
   }
 
   async deliver(job: DeliveryJob): Promise<void> {

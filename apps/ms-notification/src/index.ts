@@ -37,7 +37,7 @@ const ingest = new IngestService({
   preferences: new PreferenceRepository(),
   directory,
   channels,
-  enqueue: (job) => deliveries.enqueue(job),
+  enqueue: (job): Promise<void> => deliveries.enqueue(job),
   accountEmails: new AccountEmailService(channels.email),
 });
 const delivery = new DeliveryService({
