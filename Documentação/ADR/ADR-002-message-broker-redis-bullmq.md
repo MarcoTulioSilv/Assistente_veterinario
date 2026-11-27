@@ -152,6 +152,14 @@ O retorno do atendimento (RF-ATD-010) **não** passa pelo broker: é uma chamada
 
 Os dois eventos `auth.*` são os primeiros publicados pelo MS1. Publicação direta, sem outbox, com `removeOnComplete` e `removeOnFail`: o payload leva o token cru, que não deve ficar no Redis depois do envio. Perder o evento significa só um e-mail que não chegou, e o reenvio existe. Dentro do MS5, cada aviso vira uma entrega por canal numa fila própria (`notification-deliveries`), para a falha de um canal repetir só aquele canal.
 
+**10. Geofence** (revisão 1.9, Sprint 11 do M3). O MS4 publica `geofence.triggered` quando o aparelho do veterinário entra no raio de uma propriedade com pendência (RN-008: retorno agendado vencido, de hoje ou dos próximos 2 dias, ou última visita há mais de X dias).
+
+| Evento | Publicado quando | Consumido por | Efeito |
+|---|---|---|---|
+| `geofence.triggered` | A PWA avisa que entrou no raio (`hit`), e o MS4 confirma a pendência | **Notification** | Aviso `geofence` só para quem estava com o aparelho |
+
+Não é varredura: nasce de uma requisição. O MS4 grava o aviso do dia em `geofence_hits`, com UNIQUE em (tenant, propriedade, dia de São Paulo), e publica **na mesma transação**. Se a publicação falha, o registro volta e o aparelho pode tentar de novo. Se o commit falha depois de publicar, a chave derivada de (propriedade, dia) faz o MS5 descartar o repetido. Por isso não precisa de outbox: o pior caso é o mesmo aviso chegar duas vezes ao broker, e a idempotência do consumidor absorve. A posição do aparelho nunca chega ao servidor; o payload leva só ids, motivos e a data da última visita.
+
 ## Consequências
 
 **Positivas.** O fan-out do §5.3 passa a funcionar de verdade antes de existir consumidor duplicado — o bug nasceria silencioso e só apareceria em produção com o MS6 no ar. Nenhuma infraestrutura nova: nada muda no `docker-compose`, no CI, nos scripts de deploy ou no custo mensal. A tabela `EVENT_SUBSCRIBERS` em `shared-types` dá uma fonte única para o roteamento, rastreável linha a linha contra a tabela do ADR-001 §5.3.
@@ -179,3 +187,4 @@ Os dois eventos `auth.*` são os primeiros publicados pelo MS1. Publicação dir
 | 1.5 | Nov/2026 | Reunião de 03/11/2026: medicamento e vacina cobrados e baixados por **ml**. O payload do `vaccination.applied` troca `totalDoses` por `totalMl`; a conversão de ml em frascos passa para o `StockService.deduct` (vale também para itens de atendimento e insumos de exame). |
 | 1.6 | Nov/2026 | Sprint 9 do M3: o MS4 assina `appointment.done` e `vaccination.applied` (que ganham `propertyId`) para registrar a última visita por propriedade, e publica `schedule.reminder_due` a cada 5 min para o MS5. |
 | 1.7 | Nov/2026 | Sprint 10 do M3: o MS5 consome a fila de notificações (ADR-007); eventos `auth.email_verification_requested` e `auth.password_reset_requested`, os primeiros do MS1; `payment.registered` passa a ser descartado; fila `notification-deliveries`, uma entrega por canal. |
+| 1.9 | Nov/2026 | Sprint 11 do M3: `geofence.triggered` (MS4 → MS5), publicado na mesma transação do registro do aviso do dia; um por propriedade por dia. (A 1.8 é a remoção do `stock.deducted`, no PR #63.) |
