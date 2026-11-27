@@ -179,6 +179,24 @@ O lado do servidor está na branch `feature/MS6-002-relatorios-sprint11`, que sa
 
 ---
 
+## Proprietário com CPF ou CNPJ (servidor pronto em 27/11)
+
+O documento do proprietário passou a aceitar CNPJ, para cadastrar haras e outras pessoas jurídicas. O campo novo é **`cpfCnpj`**.
+
+**Como o servidor está (MS1)**
+- A coluna virou `cpf_cnpj` (até 18 caracteres). O `OwnerService` valida os dígitos verificadores e grava sempre o formato canônico: `000.000.000-00` ou `XX.XXX.XXX/XXXX-00`.
+- O CNPJ **alfanumérico** da Receita (em vigor desde jul/2026) também vale: as 12 primeiras posições aceitam letras, e os 2 dígitos finais continuam numéricos. O servidor aceita o documento com ou sem máscara, em maiúsculas ou minúsculas.
+- Documento inválido devolve 422, com `details[].field = 'cpfCnpj'`. Documento repetido na mesma clínica devolve 409 (antes dava 500).
+- **Transição**: o servidor ainda aceita `cpf` na entrada (se vierem os dois, vale `cpfCnpj`) e devolve os dois na resposta, com o mesmo valor. Nada quebra até a sua parte entrar.
+
+**O que falta do seu lado**
+1. **Zod** (`apps/ms-identity/src/schemas/owner.schema.ts`): trocar `cpf` por `cpfCnpj: z.string().max(18).optional()`. Não repita a validação dos dígitos: ela é do service, e a regex atual (só CPF com máscara) recusaria CNPJ. Hoje o Zod descarta o `cpfCnpj`, então o CNPJ só chega ao servidor depois dessa troca.
+2. **Formulário** "CPF/CNPJ" com máscara que acompanha o tamanho: até 11 caracteres, máscara de CPF; acima disso, de CNPJ. Aceite letras nas 12 primeiras posições do CNPJ. A dica de ativação (documento + telefone) continua igual.
+3. **`api.ts` e telas** (lista, detalhe, edição): ler e mandar `cpfCnpj`. O tipo `Owner` em `shared-types` já tem o campo; `cpf` está marcado `@deprecated`.
+4. Quando isso estiver na `develop`, me avise: **eu removo o alias `cpf`** do servidor e de `shared-types`.
+
+---
+
 ## Em aberto (sem pressa, não bloqueia nada)
 
 1. **Cache de API separado por usuário (A-01, parte "desejável").** Hoje o cache é apagado no login, no logout e na falha de refresh, o que resolve o caso do aparelho compartilhado. Falta a segunda barreira: a chave do cache incluir o usuário (por exemplo, `quironequine-api-<userId>`, com a página avisando o service worker de quem está logado). Assim, mesmo que a limpeza falhe (aba fechada no meio, sem rede), um usuário nunca recebe a resposta de outro. Vale também para a corrida de uma requisição que termina logo depois do logout e grava no cache.

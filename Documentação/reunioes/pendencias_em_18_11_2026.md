@@ -84,22 +84,28 @@ O M2 está no staging desde 07/11. Pela Cláusula 7ª, faltam o guia de uso, a d
 
 ---
 
-# Pontas soltas da equipe (atualizado em 19/11/2026)
+# Pontas soltas da equipe (atualizado em 27/11/2026)
 
 Não é pauta dos stakeholders: é o que a equipe adiou ou deixou dependendo de outra entrega. **O volume virou risco.** Cada PR parado aumenta o trabalho de rebase dos seguintes, e várias coisas "prontas" no servidor não chegam ao usuário sem a parte da PWA. Proposta: **não abrir frente nova enquanto a fila de revisão não andar**, e revisar esta lista a cada sprint, riscando o que for resolvido.
 
 ## Fila de revisão e merge
 
-| PR | O que é | Bloqueia |
+| PR | O que é | Situação |
 |---|---|---|
-| #61 | Exceção do audit (`picomatch`) | O CI de todos os outros (audit vermelho) |
-| #58 | Sprint 9 — agenda (MS4) | #59 (empilhado) |
-| #59 | Sprint 10 — notificações (MS5) e conta (MS1) | Push e e-mails; precisa da rota interna do João antes do deploy |
-| #60 | Sprint 11 — relatórios, limites de estoque, B-01 | — |
-| (sem PR) | FKs compostas MS2/MS3 e CNPJ do proprietário, em andamento | — |
+| #61 | Exceção do audit (`picomatch`) | ✅ mergeado |
+| #58 | Sprint 9 — agenda (MS4) | ✅ mergeado |
+| #59 | Sprint 10 — notificações (MS5) e conta (MS1) | ✅ mergeado; **o deploy para o staging continua esperando a rota interna do João** |
+| #60 | Sprint 11 — relatórios, limites de estoque, B-01 | ✅ mergeado |
+| (a abrir) | `fix/SEG-002-fk-composta-cnpj`: FKs compostas MS2/MS3, CNPJ do proprietário, remoção do `stock.deducted`, `CLAUDE.md` revisado | pronto para revisão |
 
-- **Ordem**: #61 → #58 → #59 → #60. Vários deles mexem nos mesmos arquivos (`shared-types`, `shared-middlewares`, `pedidos-para-joao.md`, seed, `CLAUDE.md`): cada merge pede rebase dos seguintes.
-- Nenhum PR do M3 foi revisado ainda (o mais antigo é de 12/11).
+- A fila do Marco zerou em 27/11. O gargalo agora é a parte do João (seção abaixo).
+
+## Resolvido em 27/11
+
+- ~~FKs compostas no MS2 e no MS3~~ (auditoria, item 3): o banco recusa referência a outra clínica.
+- ~~Proprietário sem CNPJ~~: `cpfCnpj` aceita CPF e CNPJ, inclusive o alfanumérico; o Haras São Bento do seed ganhou CNPJ.
+- ~~Evento sem uso `stock.deducted`~~: removido (ADR-002, revisão 1.8).
+- ~~`CLAUDE.md` desatualizado~~: estado de MS4, MS5 e MS6, B-01 e item 3 da auditoria.
 
 ## Depende do João (servidor pronto, falta a outra metade)
 
@@ -108,15 +114,13 @@ Não é pauta dos stakeholders: é o que a equipe adiou ou deixou dependendo de 
 - **Sprint 9**: rotas `/schedule`, telas de agenda, agendar visita e retorno.
 - **Sprint 10**: rota interna do diretório do MS1 (**antes** do deploy do MS5), rotas da conta e do MS5, adapter de Web Push, service worker e telas.
 - **Sprint 11**: rotas e Zod de saídas, fluxo de caixa, dashboard, contagem mensal e limites de estoque, mais as telas. O formulário do produto precisa aceitar limite `null`.
-- **CNPJ** (em andamento): Zod e formulário com `cpfCnpj`.
+- **CNPJ** (servidor pronto em 27/11): Zod e formulário com `cpfCnpj`; até lá a API aceita o `cpf` antigo.
 
 ## Adiado de propósito (com gatilho)
 
 | Item | Quando fazer |
 |---|---|
-| Geofence (Sprint 11) | Depois do merge do #58 (MS4) |
-| Remover o evento sem uso `stock.deducted` | Depois dos merges do #58/#59 (mexem nos mesmos arquivos) |
-| Revisar o `CLAUDE.md` com MS4, MS5 e Sprint 11 | Depois dos merges |
+| Geofence (Sprint 11) | **Liberado** (#58 mergeado): próxima entrega do Marco |
 | Remover o alias `cpf` do proprietário | Depois que a PWA usar `cpfCnpj` |
 | Tirar o `picomatch` da exceção do audit | Quando sair a versão corrigida |
 | Migração para o Zod 4 (aviso no allowlist) | Entrega própria, combinada com o João |

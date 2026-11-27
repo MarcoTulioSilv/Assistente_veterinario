@@ -8,23 +8,23 @@ Repository text (comments, commit conventions, docs) is in Portuguese (pt-BR); t
 
 Quíron Equine is a multi-tenant SaaS for equine veterinary practice management, built as an npm workspaces monorepo (Turborepo) with 7 planned microservices, a BFF gateway, and a Next.js PWA. The product's real name is **QuironEqui** (domain `quironequi.com.br`); package, folder, image and database names keep `quironequine` — don't rename them. User-facing text is the PWA's (Dev 2) concern.
 
-Current state (Nov/2026): milestone M2 is **live on staging** for the stakeholders' homologation — PWA at `https://homolog.quironequi.com.br`, API at `https://api-homolog.quironequi.com.br`.
+Current state (Nov/2026): milestone M2 is **live on staging** for the stakeholders' homologation — PWA at `https://homolog.quironequi.com.br`, API at `https://api-homolog.quironequi.com.br`. Milestone M3 (plan: `Documentação/plano-M3-sprints.md`): the server side of Sprints 9 to 11 is on `develop`; the HTTP side of MS4/MS5/MS6 (controllers, Zod, BFF routes, screens) is Dev 2's and not there yet. **Don't deploy `develop → staging` before Dev 2's MS1 internal recipient route exists** (MS5 depends on it). Open team loose ends: `Documentação/reunioes/pendencias_em_18_11_2026.md`.
 
 | Workspace | Service | State |
 |---|---|---|
 | `apps/ms-identity` | MS1 — auth (per-device sessions), tenants/vet profile, owners, properties, animals, uploads, geocoding and route distance (public Nominatim/OSRM servers: fine for homologation, not for production) | implemented |
 | `apps/ms-inventory` | MS2 — products, stock movements, expiry/low-stock alerts, stock deduction from domain events (quantities in ml for medication/vaccine) | implemented |
 | `apps/ms-clinical` | MS3 — appointments/quotes (several animals each), exams, vaccinations, outbox, daily reminders | implemented |
-| `apps/ms-scheduling` | MS4 — schedule (month/week/day, "schedule a visit", optional return of an appointment), reminders published every 5 min, last visit per property (geofence base) | in progress (M3, Sprint 9) |
-| `apps/ms-notification` | MS5 — inbox, push/WhatsApp/e-mail delivery per channel (adapters are Dev 2's; WhatsApp and e-mail off until the accounts exist), account e-mails (confirmation, password reset) | in progress (M3, Sprint 10) |
-| `apps/ms-reporting` | MS6 — only the financial-pending slice (anticipated from M3) | partial |
+| `apps/ms-scheduling` | MS4 — schedule (month/week/day, "schedule a visit", optional return of an appointment), reminders published every 5 min, last visit per property (geofence base; the geofence itself is still to do) | services done; HTTP layer pending (Dev 2) |
+| `apps/ms-notification` | MS5 — inbox, push/WhatsApp/e-mail delivery per channel (adapters are Dev 2's; WhatsApp and e-mail off until the accounts exist), account e-mails (confirmation, password reset) | services done; HTTP layer and adapters pending (Dev 2) |
+| `apps/ms-reporting` | MS6 — financial pendings, manual expenses and cash flow (Plus only, `plus-only.ts`), dashboard (appointments count per month, from MS3) | pendings implemented; Sprint 11 services done, HTTP layer pending (Dev 2) |
 | `apps/bff` | gateway: helmet, CORS, rate limits, reverse proxy | implemented |
 | `apps/pwa` | Next.js 16 PWA (automatic session refresh, real logout) | in progress (Dev 2) |
 | MS7 AI voice | — | not started (M4) |
 
 Treat services that don't exist yet as future work, not bugs. Architecture is governed by **ADR-001** (plus ADR-002 to ADR-007 in `Documentação/ADR/`) and requirements by the **ERS** (referenced throughout the code as e.g. `ADR-001 §5.2`, `ERS §2.6`, `RN-006`, `RNF-MAN-003` — stable identifiers; keep and follow them).
 
-**Ownership split** (stated at the top of most files): Dev 1 (Marco) owns schema, migrations, repositories, services and contracts in `shared-types`; Dev 2 (João) owns controllers, Zod input schemas in `schemas/` of MS1/MS2, the BFF routes and the PWA. Contracts are published in `shared-types` before the implementation, so the other side can work against a mock. Requests between the two live in `Documentação/pedidos-para-marco.md` and `Documentação/pedidos-para-joao.md`.
+**Ownership split** (stated at the top of most files): Dev 1 (Marco) owns schema, migrations, repositories, services and contracts in `shared-types`; Dev 2 (João) owns controllers, Zod input schemas in each service's `schemas/`, the BFF routes and the PWA. Contracts are published in `shared-types` before the implementation, so the other side can work against a mock. Requests between the two live in `Documentação/pedidos-para-marco.md` and `Documentação/pedidos-para-joao.md`.
 
 ## Commands
 
@@ -78,7 +78,7 @@ This is the most important invariant in the codebase (ADR-001 §5.2):
 - `authMiddleware` (`packages/shared-middlewares/src/auth.ts`) verifies the JWT and attaches `req.ctx: RequestContext` (`tenantId`, `userId`, `role`, `plan`, `traceId`).
 - **Every** repository method goes through `withTenant(ctx.tenantId, fn)` (`apps/*/src/prisma.ts`), which opens a transaction and sets `app.current_tenant`; RLS policies filter by `tenant_id = current_tenant_id()`. Repositories never add `WHERE tenantId = ...` themselves.
 - **When something must cross tenants** (login lookup by e-mail, refresh by session id, daily jobs scanning every tenant, the outbox relay): a narrow `SECURITY DEFINER` SQL function that returns only what is needed (ADR-004, ADR-006). **Never** a second Prisma client that bypasses RLS. `ms-clinical/tests/rls-guard.test.ts` fails if a table — including a future one — is left without RLS.
-- Foreign keys are checked by Postgres without RLS: a plain FK accepts an id from **another tenant**. When a write references a client-supplied id of the same service, use a composite `(tenant_id, x_id) → (tenant_id, id)` FK (MS1: `fk_composta_tenant` migration; `onDelete: NoAction` instead of `SetNull`, which would null `tenant_id`) **and** check the id inside the same `withTenant` so the client gets 404, not a 500 from the FK (`ms-identity/src/repositories/tenant-references.ts`). MS2/MS3 validate their references in the service (`findById` under RLS) but don't have composite FKs yet.
+- Foreign keys are checked by Postgres without RLS: a plain FK accepts an id from **another tenant**. When a write references a client-supplied id of the same service, use a composite `(tenant_id, x_id) → (tenant_id, id)` FK (MS1: `fk_composta_tenant` migration; `onDelete: NoAction` instead of `SetNull`, which would null `tenant_id`) **and** check the id inside the same `withTenant` so the client gets 404, not a 500 from the FK (`ms-identity/src/repositories/tenant-references.ts`). MS2 and MS3 have them too (`fk_composta_tenant` migrations, Nov/2026); with a composite relation Prisma fills `tenantId` in nested `create`s, so don't pass it there.
 - Each microservice owns its own database (database-per-service, ADR-001 §5.1); no cross-service joins. IDs from other services are stored without FK.
 
 ### Events (ADR-002)
@@ -136,7 +136,8 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 - **Coverage floor 70%** on `src/services/**` and `src/repositories/**`. Tests colocated as `*.test.ts`; integration tests in `tests/` run against the real Postgres as `quironequine_app`. Vitest (not Jest), ESLint 9 flat config — don't reintroduce Jest or `.eslintrc`.
 - **Service-to-service calls** (ADR-007): only through `/internal/...` routes (never proxied by the BFF) guarded by `requireServiceToken` (`INTERNAL_SERVICE_TOKEN`); the tenant comes from the event being handled and reads still go through `withTenant`. Today: MS5 → MS1 recipient directory.
 - **Notifications carry type + data, never text** (ADR-007): the PWA/service worker writes the sentence; `data` never holds client or animal names.
-- **Commits**: `type(scope): descrição` in pt-BR, scopes are service names (`ms1`, `ms2`, `ms3`, `ms6`, `bff`, `pwa`, `infra`, `ci`, `docs`). Branches: `feature/MS3-012-descricao`, `fix/...`.
+- **Owner document**: `owners.cpf_cnpj` holds a CPF or a CNPJ (including the alphanumeric one), validated and stored in canonical form by `ms-identity/src/lib/document.ts`. The API still accepts and returns the deprecated `cpf` alias until the PWA moves to `cpfCnpj` — then remove it.
+- **Commits**: `type(scope): descrição` in pt-BR, scopes are service names (`ms1` … `ms6`, `bff`, `pwa`, `infra`, `ci`, `docs`). Branches: `feature/MS3-012-descricao`, `fix/...`.
 - **Git flow**: `develop` is the default branch; feature/fix branches → PR to `develop` → PR `develop → staging` (triggers the deploy). `main` only for closed releases. Every PR gets a review before merge. Don't push or open PRs unless asked.
 - **npm and the lockfile**: re-resolving a transitive dependency can silently drop packages from `package-lock.json`. Fix advisories with root `overrides` and check the lock diff (no removed packages) before committing; then `npm ci`.
 - **CI** (`.github/workflows/*.yml`), per service and path-filtered: lint+typecheck → tests against an ephemeral Postgres (`prisma migrate deploy` + role script) → `audit-ci` (blocking) → Docker build + smoke test. Gitleaks scans the history on every PR.
@@ -147,10 +148,9 @@ All errors thrown as `AppError` (`code`, `message`, `statusCode`, optional field
 
 The report lives outside the repo (ask Marco for it). A-01 to A-03 and M-01 to M-06 are done on both sides and **live on staging since 09/11/2026** (PRs #51 server, #54 PWA, #55 `develop → staging`); the rules they introduced are in the sections above (sessions, uploads, audit trail, logs, no `DELETE`). Still open, before production:
 
-1. B-01 to B-08, I-01, I-02 — the ones that weigh most: B-05 (CSP and HSTS; the CSP must allow `maps.googleapis.com`, `maps.gstatic.com`, `servicodados.ibge.gov.br` and the OpenStreetMap tiles), I-02 (TOTP secret encrypted at rest), B-03 (e-mail normalization), B-01 (Basic plan limit raced by concurrent requests).
+1. B-02 to B-08, I-01, I-02 — the ones that weigh most: B-05 (CSP and HSTS; the CSP must allow `maps.googleapis.com`, `maps.gstatic.com`, `servicodados.ibge.gov.br` and the OpenStreetMap tiles), I-02 (TOTP secret encrypted at rest), B-03 (e-mail normalization). B-01 (Basic plan limit raced by concurrent requests) is done: the count runs under an advisory lock in the write transaction (`ms-identity/src/repositories/plan-limit.ts`).
 2. Sign-up e-mail confirmation and real password reset (M-02): server side done in Sprint 10 (MS1 tokens + MS5 sending, ADR-007) behind `EMAIL_VERIFICATION_ENABLED`/`EMAIL_ENABLED`, both off until there is an e-mail account; the PWA screens are Dev 2's.
-3. MS2/MS3 have no composite tenant FKs (they validate references in the service before writing).
-4. PWA leftovers (João, non-blocking): API cache keyed per user (today it is cleared on login/logout/refresh failure); when an exam screen exists, re-fetch the exam before opening `resultFileUrl` (signed links expire in 15 min).
+3. PWA leftovers (João, non-blocking): API cache keyed per user (today it is cleared on login/logout/refresh failure); when an exam screen exists, re-fetch the exam before opening `resultFileUrl` (signed links expire in 15 min).
 
 Product gaps found alongside: clinic sign-up screen (the API exists), password change (Sprint 13 of M3).
 
