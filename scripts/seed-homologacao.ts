@@ -86,8 +86,8 @@ async function reset(): Promise<void> {
   };
 
   await wipe(notification, ['audit_log', 'delivery_attempts', 'notifications', 'notification_preferences', 'push_subscriptions']);
-  await wipe(scheduling, ['audit_log', 'property_last_visits', 'schedule_events']);
-  await wipe(reporting, ['audit_log', 'financial_records']);
+  await wipe(scheduling, ['audit_log', 'geofence_hits', 'geofence_settings', 'property_last_visits', 'schedule_events']);
+  await wipe(reporting, ['audit_log', 'expenses', 'financial_records']);
   await wipe(clinical, [
     'audit_log',
     'outbox_events',
@@ -103,7 +103,7 @@ async function reset(): Promise<void> {
     'appointment_animals',
     'appointments',
   ]);
-  await wipe(inventory, ['stock_movements', 'alert_configs', 'products']);
+  await wipe(inventory, ['stock_movements', 'alert_configs', 'products', 'inventory_settings']);
   await wipe(identity, [
     'audit_log',
     'animal_transfers',
@@ -910,9 +910,12 @@ const finishedAppointments: Array<{
  * Agenda de demonstração: o dia de hoje cheio (dashboard, RN-011), a semana
  * e o mês (RF-AGD-001), um retorno de atendimento (RF-ATD-010), um evento
  * cancelado e uma visita concluída. A última visita sai dos atendimentos e
- * vacinações do próprio seed — a mais antiga fica em torno de 30 dias: para
- * demonstrar o "sem visita há mais de X dias" do geofence (Sprint 11), basta
- * configurar X abaixo disso.
+ * vacinações do próprio seed.
+ *
+ * Geofence (Sprint 11): o retorno é amanhã, dentro da janela de 2 dias, então
+ * a propriedade dele já é alvo. A visita mais antiga fica em torno de 30
+ * dias: para demonstrar o "sem visita há mais de X dias", basta configurar X
+ * abaixo disso (o padrão é 90).
  */
 async function seedSchedule(h: Herd): Promise<{ events: number; today: number; visits: number }> {
   const { boaVista, santaLuzia, recanto, saoBento } = h.properties;
@@ -953,14 +956,14 @@ async function seedSchedule(h: Herd): Promise<{ events: number; today: number; v
     { type: 'visit', at: on(-3, 9), property: recanto, vet: ricardo, status: 'done' },
   ];
 
-  // Retorno do primeiro atendimento finalizado, uma semana depois de hoje.
+  // Retorno do primeiro atendimento finalizado, amanhã (alvo do geofence).
   const returned = finishedAppointments[0];
   if (returned) {
     const property = Object.values(h.properties).find((p) => p.id === returned.propertyId);
     if (property) {
       seeds.push({
         type: 'visit',
-        at: on(7, 9),
+        at: on(1, 11),
         property,
         vet: Object.values(h.vets).find((v) => v.userId === returned.vetUserId) ?? helena,
         notes: 'Retorno do atendimento',
