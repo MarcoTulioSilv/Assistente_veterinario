@@ -594,18 +594,16 @@ async function seedAppointments(h: Herd, p: Record<string, StockItem>): Promise<
         displacementRateCents,
         totalCents,
         finishedAt: s.finished ? performedAt : null,
-        items: { create: items.map((i) => ({ ...i, tenantId: CLINICA })) },
+        items: { create: items },
         animals: {
           create: s.animals.map((name) => {
             const c = s.clinical?.[name];
             return {
-              tenantId: CLINICA,
               animalId: h.animals[name]!.id,
               ...(c?.record
                 ? {
                     medicalRecord: {
                       create: {
-                        tenantId: CLINICA,
                         anamnesis: c.record.anamnesis,
                         diagnosis: c.record.diagnosis ?? null,
                         treatment: c.record.treatment ?? null,
@@ -619,7 +617,6 @@ async function seedAppointments(h: Herd, p: Record<string, StockItem>): Promise<
                 ? {
                     prescriptions: {
                       create: c.prescriptions.map((r) => ({
-                        tenantId: CLINICA,
                         productId: r.product?.id ?? null,
                         medicationName: r.medicationName,
                         dose: r.dose,
@@ -773,8 +770,8 @@ async function seedExams(h: Herd, p: Record<string, StockItem>): Promise<number>
         totalCents,
         chargedAt,
         createdAt,
-        animals: { create: s.animals.map((name) => ({ tenantId: CLINICA, animalId: h.animals[name]!.id })) },
-        items: { create: tubes.map((t) => ({ ...t, tenantId: CLINICA })) },
+        animals: { create: s.animals.map((name) => ({ animalId: h.animals[name]!.id })) },
+        items: { create: tubes },
       },
     });
 
@@ -869,7 +866,7 @@ async function seedVaccinations(h: Herd, p: Record<string, StockItem>): Promise<
         displacementKm: isClinic ? (s.km ?? 0) : 0,
         displacementRateCents: isClinic ? 250 : 0,
         totalCents,
-        animals: { create: s.animals.map((name) => ({ tenantId: CLINICA, animalId: h.animals[name]!.id })) },
+        animals: { create: s.animals.map((name) => ({ animalId: h.animals[name]!.id })) },
       },
     });
 
@@ -1095,9 +1092,8 @@ async function seedNeighbor(): Promise<void> {
       type: 'clinico_geral', status: 'draft', performedAt: on(-2), totalCents: 0,
       animals: {
         create: {
-          tenantId: VIZINHA,
           animalId: animal.id,
-          medicalRecord: { create: { tenantId: VIZINHA, anamnesis: 'Este atendimento NÃO pode aparecer para a Clínica Equina Modelo.' } },
+          medicalRecord: { create: { anamnesis: 'Este atendimento NÃO pode aparecer para a Clínica Equina Modelo.' } },
         },
       },
     },

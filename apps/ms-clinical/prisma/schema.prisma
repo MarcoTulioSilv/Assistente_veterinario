@@ -109,6 +109,9 @@ model Appointment {
   @@index([tenantId, performedAt(sort: Desc)])
   @@index([ownerId])
   @@index([status])
+  /// Alvo das FKs compostas (tenant_id, x_id): o Postgres confere FK sem
+  /// RLS, então só a chave com tenant garante "mesmo tenant" (auditoria, item 3).
+  @@unique([tenantId, id])
   @@map("appointments")
 }
 
@@ -123,11 +126,13 @@ model AppointmentAnimal {
   /// Animal no MS1 — sem FK.
   animalId String @map("animal_id") @db.Uuid
 
-  appointment   Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  appointment   Appointment    @relation(fields: [tenantId, appointmentId], references: [tenantId, id], onDelete: Cascade)
   medicalRecord MedicalRecord?
   prescriptions Prescription[]
 
   @@unique([appointmentId, animalId])
+  /// Alvo da FK composta de ficha e receita (auditoria, item 3).
+  @@unique([tenantId, appointmentId, animalId])
   @@index([tenantId])
   @@index([animalId])
   @@map("appointment_animals")
@@ -161,9 +166,10 @@ model MedicalRecord {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  appointmentAnimal AppointmentAnimal @relation(fields: [appointmentId, animalId], references: [appointmentId, animalId], onDelete: Cascade)
+  appointmentAnimal AppointmentAnimal @relation(fields: [tenantId, appointmentId, animalId], references: [tenantId, appointmentId, animalId], onDelete: Cascade)
 
   @@unique([appointmentId, animalId])
+  @@unique([tenantId, appointmentId, animalId])
   @@index([tenantId])
   @@map("medical_records")
 }
@@ -188,7 +194,7 @@ model AppointmentItem {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  appointment Appointment @relation(fields: [tenantId, appointmentId], references: [tenantId, id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([appointmentId])
@@ -237,6 +243,7 @@ model ExamType {
   requests ExamRequest[]
 
   @@index([tenantId])
+  @@unique([tenantId, id])
   @@map("exam_types")
 }
 
@@ -299,7 +306,7 @@ model ExamRequest {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz
 
-  examType ExamType            @relation(fields: [examTypeId], references: [id], onDelete: Restrict)
+  examType ExamType            @relation(fields: [tenantId, examTypeId], references: [tenantId, id], onDelete: Restrict)
   animals  ExamRequestAnimal[]
   items    ExamRequestItem[]
 
@@ -309,6 +316,7 @@ model ExamRequest {
   @@index([ownerId])
   @@index([status])
   @@index([expectedResultAt])
+  @@unique([tenantId, id])
   @@map("exam_requests")
 }
 
@@ -321,7 +329,7 @@ model ExamRequestAnimal {
   /// Animal no MS1 — sem FK.
   animalId String @map("animal_id") @db.Uuid
 
-  examRequest ExamRequest @relation(fields: [examRequestId], references: [id], onDelete: Cascade)
+  examRequest ExamRequest @relation(fields: [tenantId, examRequestId], references: [tenantId, id], onDelete: Cascade)
 
   @@unique([examRequestId, animalId])
   @@index([tenantId])
@@ -344,7 +352,7 @@ model ExamRequestItem {
   unitPriceCents Int     @map("unit_price_cents")
   totalCents     Int     @map("total_cents")
 
-  examRequest ExamRequest @relation(fields: [examRequestId], references: [id], onDelete: Cascade)
+  examRequest ExamRequest @relation(fields: [tenantId, examRequestId], references: [tenantId, id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([examRequestId])
@@ -417,6 +425,7 @@ model Vaccination {
   @@index([ownerId])
   @@index([productId])
   @@index([nextDoseAt])
+  @@unique([tenantId, id])
   @@map("vaccinations")
 }
 
@@ -429,7 +438,7 @@ model VaccinationAnimal {
   /// Animal no MS1 — sem FK.
   animalId String @map("animal_id") @db.Uuid
 
-  vaccination Vaccination @relation(fields: [vaccinationId], references: [id], onDelete: Cascade)
+  vaccination Vaccination @relation(fields: [tenantId, vaccinationId], references: [tenantId, id], onDelete: Cascade)
 
   @@unique([vaccinationId, animalId])
   @@index([tenantId])
@@ -496,7 +505,7 @@ model Prescription {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  appointmentAnimal AppointmentAnimal @relation(fields: [appointmentId, animalId], references: [appointmentId, animalId], onDelete: Cascade)
+  appointmentAnimal AppointmentAnimal @relation(fields: [tenantId, appointmentId, animalId], references: [tenantId, appointmentId, animalId], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([appointmentId, animalId])

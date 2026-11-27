@@ -151,7 +151,7 @@ export class VaccinationRepository {
         data: {
           ...fields,
           tenantId: ctx.tenantId,
-          animals: { create: animalIds.map((animalId) => ({ tenantId: ctx.tenantId, animalId })) },
+          animals: { create: animalIds.map((animalId) => ({ animalId })) },
         },
         include: INCLUDE,
       });
