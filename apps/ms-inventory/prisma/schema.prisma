@@ -94,6 +94,9 @@ model Product {
   movements StockMovement[]
   alerts    AlertConfig[]
 
+  // Alvo das FKs compostas (auditoria 06/11/2026, item 3): o filho só
+  // aponta para produto da mesma clínica.
+  @@unique([tenantId, id])
   @@index([tenantId])
   @@index([name])
   @@index([expiryDate])
@@ -118,7 +121,7 @@ model StockMovement {
   createdBy String?  @map("created_by") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([productId])
@@ -140,7 +143,7 @@ model AlertConfig {
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  product Product? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [tenantId, productId], references: [tenantId, id], onDelete: Cascade)
 
   @@unique([productId, alertType])
   @@index([tenantId])
