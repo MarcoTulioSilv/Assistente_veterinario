@@ -11,6 +11,8 @@ export async function purgeTenants(...tenantIds: string[]): Promise<void> {
   const where = { tenantId: { in: tenantIds } };
   await admin.$transaction([
     admin.auditLog.deleteMany({ where }),
+    admin.geofenceHit.deleteMany({ where }),
+    admin.geofenceSettings.deleteMany({ where }),
     admin.propertyLastVisit.deleteMany({ where }),
     admin.scheduleEvent.deleteMany({ where }),
   ]);

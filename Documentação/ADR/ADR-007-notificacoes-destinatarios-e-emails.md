@@ -34,7 +34,7 @@ Os eventos não trazem o usuário a avisar em todos os casos: os do MS3 trazem o
 
 O contrato é a `IRecipientDirectory` (`shared-types`); o MS1 implementa no `RecipientService`, e o controller é do Dev 2. A rota fica **fora do BFF** (que só encaminha `/api/v1/...`) e exige o cabeçalho `x-service-token` com o `INTERNAL_SERVICE_TOKEN` (`requireServiceToken`, comparação em tempo constante, falha fechada sem a variável). O tenant vem do envelope do evento; a leitura no MS1 passa por `withTenant`, com RLS, como qualquer outra. Só usuários ativos e não excluídos.
 
-O lembrete da agenda já traz `recipientUserId` e não consulta o MS1 para a caixa de entrada nem para o push. O diretório só é chamado para mapear veterinário → usuário, listar os administradores e, nos canais WhatsApp e e-mail, buscar telefone e e-mail.
+O lembrete da agenda e o aviso do geofence já trazem `recipientUserId` e não consultam o MS1 para a caixa de entrada nem para o push. O diretório só é chamado para mapear veterinário → usuário, listar os administradores e, nos canais WhatsApp e e-mail, buscar telefone e e-mail.
 
 **Por que não replicar os usuários no MS5 por evento**: o MS1 não publicava eventos, e manter uma cópia exigiria eventos de criação, alteração e desativação de usuário, mais a reconciliação. A consulta síncrona é simples e o volume é baixo (alguns avisos por dia por clínica). Se o MS1 estiver fora, o job falha e o BullMQ tenta de novo.
 
@@ -59,7 +59,7 @@ A caixa de entrada e o push levam `type` + `data` (`NotificationData`, união po
 ### 4. Regras de entrega
 
 - Um item por (usuário, evento de origem): a UNIQUE torna o consumo idempotente, e só item **novo** é entregue (redelivery não repete push).
-- **Aviso vencido** vai só para a caixa de entrada, sem push, WhatsApp nem e-mail. Conta como vencido o lembrete da agenda cujo evento já começou, o exame ou a re-vacinação cujo dia já passou em São Paulo, e o alerta de estoque com mais de 24 h. É o que protege o primeiro deploy, que consome a fila acumulada desde o M2.
+- **Aviso vencido** vai só para a caixa de entrada, sem push, WhatsApp nem e-mail. Conta como vencido o lembrete da agenda cujo evento já começou, o exame ou a re-vacinação cujo dia já passou em São Paulo, o alerta de estoque com mais de 24 h e o aviso do geofence com mais de 1 h (o veterinário provavelmente já saiu da propriedade). É o que protege o primeiro deploy, que consome a fila acumulada desde o M2.
 - Uma entrega por canal numa fila própria (`notification-deliveries`): a falha de um canal repete só aquele canal.
 - Canal ligado = adapter presente + chave ligada (push exige o par VAPID). Preferência do usuário por tipo e canal (RF-NOT-003): sem linha, está ligado.
 - `payment.registered` é consumido e descartado (nada vai ao proprietário, e quem registra o pagamento é o próprio veterinário).
@@ -81,3 +81,4 @@ A caixa de entrada e o push levam `type` + `data` (`NotificationData`, união po
 | Versão | Data | Descrição |
 |---|---|---|
 | 1.0 | Nov/2026 | Criação, na Sprint 10 do M3. |
+| 1.1 | Nov/2026 | Sprint 11 do M3: aviso do geofence, só para quem estava com o aparelho; vencido depois de 1 h. |

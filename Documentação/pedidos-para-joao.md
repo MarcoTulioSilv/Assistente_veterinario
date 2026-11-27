@@ -144,6 +144,45 @@ Declare `unread-count`, `read-all`, `preferences` e `push/...` antes de `/:id`. 
 
 ---
 
+## Sprint 11 do M3: geofence (MS4)
+
+O servidor está na branch `feature/MS4-003-geofence`. É recurso do **Plano Plus**: o service já devolve 403 no Básico, mas use `requirePlus` nas rotas.
+
+**Regras (decisões de 12/11 e 27/11)**
+- Pendência de uma propriedade: **retorno** agendado e não concluído, vencido, de hoje ou dos próximos 2 dias; **ou** última visita há mais de X dias (X da clínica, padrão 90).
+- Propriedade nunca visitada **não** conta.
+- Raio padrão: 2 km (2000 m; decisão de 27/11).
+- O aviso sai no máximo **uma vez por propriedade por dia**, só para quem estava com o aparelho.
+- A **posição nunca vai para o servidor**: a PWA compara no aparelho.
+
+**1. Rotas do MS4**: `new GeofenceService(new GeofenceRepository(), publishDomainEvent)`. No BFF: `/api/v1/geofence` → `MS_SCHEDULING_URL`.
+
+| Rota | Service | Zod |
+|---|---|---|
+| `GET /geofence/settings` | `getSettings` | — |
+| `PUT /geofence/settings` | `updateSettings` | `radiusMeters` inteiro de 50 a 5000 e `noVisitDays` inteiro de 1 a 3650, ambos opcionais (`GEOFENCE_LIMITS` em `shared-types`) |
+| `GET /geofence/targets` | `targets` | — |
+| `POST /geofence/hits` | `hit(ctx, propertyId)` | `{ propertyId: uuid }` |
+
+- `targets` devolve `{ radiusMeters, noVisitDays, targets: [{ propertyId, reasons, returnEventIds, lastVisitAt }] }`.
+- `hit` devolve `{ triggered, reasons }`. Com `triggered: false` (sem pendência ou já avisou hoje), não faça nada.
+- O `PUT` de configuração segue a mesma regra de papel da tela de Configurações.
+
+**2. PWA: o geofence com o app aberto**
+- **Só no Plus**, e só depois de o usuário aceitar a localização. Peça a permissão com uma explicação antes ("avisar quando você passar perto de uma propriedade com pendência").
+- Ao abrir o app, e a cada ~15 min, busque `GET /geofence/targets`. As coordenadas vêm do MS1 (`GET /properties`: `latitude`/`longitude`). Propriedade sem coordenada fica de fora.
+- Use `navigator.geolocation.watchPosition` e calcule a distância no aparelho (haversine). Ao ficar a menos de `radiusMeters`, chame `POST /geofence/hits` com o `propertyId`.
+- Guarde localmente as propriedades já enviadas no dia, para não repetir a chamada. O servidor também barra a repetição.
+- **Não mande a posição** em nenhuma chamada nem log, e não guarde o histórico de posições.
+
+**3. Aviso**: chega pelo MS5 como tipo `geofence`, com `data: { propertyId, reasons }` e alvo `{ kind: 'property', id }`. O texto é seu (caixa de entrada e service worker). Por exemplo: "Você está perto de uma propriedade com retorno pendente" ou "...sem visita há mais de 90 dias". O nome da propriedade sai do cache da PWA, porque o aviso não leva nome. O toque abre a propriedade.
+
+**4. Configurações**: campos "Raio do geofence (m)" e "Avisar propriedade sem visita há (dias)", com os limites acima. No Básico, aviso de upgrade.
+
+**5. Segundo plano**: só no app nativo do lançamento (decisão de 12/11). Na PWA, o geofence funciona com o app aberto.
+
+---
+
 ## Sprint 11 do M3 (adiantada): relatórios, limites de estoque e plano Básico
 
 O lado do servidor está na branch `feature/MS6-002-relatorios-sprint11`, que sai da `develop` e não depende dos PRs 58 e 59. O geofence fica para depois do merge do MS4. Os services já recusam no Plano Básico (403) o que é só do Plus. Mesmo assim, use `requirePlus` nas rotas marcadas: falha cedo e documenta a regra.

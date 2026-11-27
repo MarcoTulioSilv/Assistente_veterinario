@@ -42,6 +42,12 @@ export const alertTriggeredSchema = z.object({
   quantityInStock: z.number().optional(),
 });
 
+export const geofenceTriggeredSchema = z.object({
+  propertyId: z.string().uuid(),
+  reasons: z.array(z.enum(['return_pending', 'no_recent_visit'])).min(1).max(2),
+  recipientUserId: z.string().uuid(),
+});
+
 export const accountEmailSchema = z.object({
   userId: z.string().uuid(),
   email: z.string().email().max(255),

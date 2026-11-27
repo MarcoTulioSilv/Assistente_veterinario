@@ -109,6 +109,37 @@ model PropertyLastVisit {
   @@map("property_last_visits")
 }
 
+/// RF-CFG-005: raio e "dias sem visita" do geofence, uma linha por clínica.
+/// Sem linha, vale GEOFENCE_DEFAULTS (shared-types). Limites em CHECK.
+model GeofenceSettings {
+  id           String @id @default(uuid()) @db.Uuid
+  tenantId     String @unique @map("tenant_id") @db.Uuid
+  radiusMeters Int    @map("radius_meters")
+  noVisitDays  Int    @map("no_visit_days")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("geofence_settings")
+}
+
+/// Aviso do geofence já dado: no máximo um por propriedade por dia (São
+/// Paulo). Só id e data — a posição do aparelho nunca chega ao servidor.
+model GeofenceHit {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  day        DateTime @db.Date
+  /// Quem estava com o aparelho (recebe o aviso).
+  userId     String   @map("user_id") @db.Uuid
+  reasons    String[]
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([tenantId, propertyId, day])
+  @@map("geofence_hits")
+}
+
 /// Trilha de auditoria (LGPD art. 37) — mesmo formato de MS1, MS3 e MS6.
 model AuditLog {
   id        String   @id @default(uuid()) @db.Uuid

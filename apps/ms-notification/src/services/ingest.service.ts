@@ -17,6 +17,7 @@ import {
   examResultDueSchema,
   vaccinationDueSchema,
   alertTriggeredSchema,
+  geofenceTriggeredSchema,
 } from '../schemas/event-payloads';
 import { NOTIFICATION_CHANNELS } from './notification.service';
 
@@ -24,6 +25,12 @@ const log = createServiceLogger('ingest-service');
 
 /** Alerta de estoque mais velho que isto, ao chegar, só vai para a caixa de entrada. */
 export const ALERT_FRESH_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Aviso do geofence mais velho que isto (fila parada, retry longo): o
+ * veterinário provavelmente já saiu da propriedade — só caixa de entrada.
+ */
+export const GEOFENCE_FRESH_MS = 60 * 60 * 1000;
 
 /** Quem recebe o aviso. */
 type Audience = { userId: UUID } | { veterinarianId: UUID } | { tenantAdmins: true };
@@ -96,6 +103,16 @@ export function planFor(event: DomainEvent<unknown>, now: Date): Plan | null {
         data,
         target: { kind: 'product', id: p.productId },
         stale: now.getTime() - new Date(event.occurredAt).getTime() > ALERT_FRESH_MS,
+      };
+    }
+    case EVENTS.GEOFENCE_TRIGGERED: {
+      const p = geofenceTriggeredSchema.parse(event.payload);
+      return {
+        // Só quem estava com o aparelho (Sprint 11, RN-008).
+        audience: { userId: p.recipientUserId },
+        data: { type: 'geofence', propertyId: p.propertyId, reasons: p.reasons },
+        target: { kind: 'property', id: p.propertyId },
+        stale: now.getTime() - new Date(event.occurredAt).getTime() > GEOFENCE_FRESH_MS,
       };
     }
     default:
