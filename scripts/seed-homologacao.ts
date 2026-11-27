@@ -177,19 +177,20 @@ async function seedIdentity(): Promise<Herd> {
   const helena = await vet(helenaUser, 'GO-08812', '900.000.000-01');
   const ricardo = await vet(ricardoUser, 'GO-09134', '900.000.000-02');
 
-  const owner = async (fullName: string, cpf: string | null, city: string, phone: string): Promise<string> =>
+  // CPF/CNPJ fictícios, mas com dígito verificador válido: a tela de edição
+  // reenvia o documento e o OwnerService recusaria um inválido (422).
+  const owner = async (fullName: string, cpfCnpj: string, city: string, phone: string): Promise<string> =>
     (
       await identity.owner.create({
-        data: { tenantId: CLINICA, fullName, cpf, phone, city, state: 'GO', status: 'active' },
+        data: { tenantId: CLINICA, fullName, cpfCnpj, phone, city, state: 'GO', status: 'active' },
       })
     ).id;
   const owners = {
-    jose: await owner('José Carlos Ribeiro', '111.222.333-44', 'Jataí', '(64) 98888-1111'),
-    marina: await owner('Marina Alves Pereira', '222.333.444-55', 'Rio Verde', '(64) 98888-2222'),
-    antonio: await owner('Antônio Ferreira Neto', '333.444.555-66', 'Mineiros', '(64) 98888-3333'),
-    // Sem documento: o campo é CPF (14 caracteres) e não comporta CNPJ — lacuna
-    // do cadastro de proprietário pessoa jurídica, registrada na Sprint 8.
-    harasSaoBento: await owner('Haras São Bento Ltda.', null, 'Jataí', '(64) 3631-4444'),
+    jose: await owner('José Carlos Ribeiro', '111.222.333-96', 'Jataí', '(64) 98888-1111'),
+    marina: await owner('Marina Alves Pereira', '222.333.444-05', 'Rio Verde', '(64) 98888-2222'),
+    antonio: await owner('Antônio Ferreira Neto', '333.444.555-08', 'Mineiros', '(64) 98888-3333'),
+    // Pessoa jurídica: CNPJ.
+    harasSaoBento: await owner('Haras São Bento Ltda.', '36.451.288/0001-68', 'Jataí', '(64) 3631-4444'),
   };
 
   const property = async (
