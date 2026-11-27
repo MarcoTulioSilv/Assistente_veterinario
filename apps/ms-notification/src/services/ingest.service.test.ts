@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { DomainEvent, NotificationRecipient } from '@quironequine/shared-types';
 import type { Channels, PushSender, EmailSender } from '../channels/channels';
-import { IngestService, planFor, ALERT_FRESH_MS } from './ingest.service';
+import { IngestService, planFor, ALERT_FRESH_MS, GEOFENCE_FRESH_MS } from './ingest.service';
 
 const TENANT = '11111111-1111-1111-1111-111111111111';
 const USER = '22222222-2222-2222-2222-222222222222';
@@ -89,6 +89,29 @@ describe('planFor', () => {
       NOW,
     )!;
     expect(low).toMatchObject({ data: { type: 'stock_low', quantityInStock: 2 }, stale: true });
+  });
+
+  it('geofence vai só para quem estava com o aparelho e abre a propriedade; mais de 1 h depois é vencido', () => {
+    const payload = {
+      propertyId: ID,
+      reasons: ['return_pending', 'no_recent_visit'],
+      returnEventIds: [KEY],
+      lastVisitAt: null,
+      recipientUserId: USER,
+    };
+    expect(planFor(event('geofence.triggered', payload), NOW)).toEqual({
+      audience: { userId: USER },
+      data: { type: 'geofence', propertyId: ID, reasons: ['return_pending', 'no_recent_visit'] },
+      target: { kind: 'property', id: ID },
+      stale: false,
+    });
+
+    const late = planFor(
+      event('geofence.triggered', payload, new Date(NOW.getTime() - GEOFENCE_FRESH_MS - 1).toISOString()),
+      NOW,
+    )!;
+    expect(late.stale).toBe(true);
+    expect(() => planFor(event('geofence.triggered', { ...payload, reasons: [] }), NOW)).toThrow();
   });
 
   it('payment.registered não vira aviso (nada vai ao proprietário)', () => {
