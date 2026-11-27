@@ -1176,6 +1176,71 @@ export interface IScheduleService {
   remove(ctx: RequestContext, id: UUID): Promise<void>;
 }
 
+// ─── Geofence (MS4, Sprint 11 do M3) ──────────────────────────────
+// RF-AGD-005 / RF-NOT-004 / RN-008, Plano Plus. A PWA compara a posição com
+// os alvos no próprio aparelho (a posição nunca vai para o servidor) e só
+// avisa o MS4 ao entrar no raio de uma propriedade. As coordenadas vêm do
+// MS1 (`GET /properties`): o MS4 só conhece o id da propriedade.
+
+/** Por que a propriedade é alvo (decisões de 12/11 e 27/11/2026). */
+export type GeofenceReason =
+  /** Retorno agendado e não concluído, vencido ou para os próximos 2 dias. */
+  | 'return_pending'
+  /** Última visita há mais de `noVisitDays`. Propriedade nunca visitada não conta. */
+  | 'no_recent_visit';
+
+/** RF-CFG-005. Sem configuração, vale `GEOFENCE_DEFAULTS`. */
+export interface GeofenceSettings {
+  /** Raio em metros (`GEOFENCE_LIMITS`). */
+  radiusMeters: number;
+  /** "Sem visita há mais de X dias" (`GEOFENCE_LIMITS`). */
+  noVisitDays: number;
+}
+
+export const GEOFENCE_DEFAULTS: GeofenceSettings = { radiusMeters: 500, noVisitDays: 90 };
+
+/** Limites que o service garante (a validação da tela/Zod deve espelhar). */
+export const GEOFENCE_LIMITS = {
+  minRadiusMeters: 50,
+  maxRadiusMeters: 5000,
+  minNoVisitDays: 1,
+  maxNoVisitDays: 3650,
+  /** Retorno conta como pendência se vencido, de hoje ou dos próximos N dias (São Paulo). */
+  returnLookaheadDays: 2,
+} as const;
+
+export interface GeofenceTarget {
+  propertyId: UUID;
+  reasons: GeofenceReason[];
+  /** Retornos que contam como pendência, em ordem de data. */
+  returnEventIds: UUID[];
+  lastVisitAt: ISODateString | null;
+}
+
+export interface GeofenceTargets extends GeofenceSettings {
+  targets: GeofenceTarget[];
+}
+
+export interface GeofenceHitResult {
+  /** `true` = o aviso foi publicado agora. `false` = sem pendência, ou a propriedade já avisou hoje. */
+  triggered: boolean;
+  reasons: GeofenceReason[];
+}
+
+export interface IGeofenceService {
+  getSettings(ctx: RequestContext): Promise<GeofenceSettings>;
+  /** Campo ausente mantém o valor atual. VALIDATION_ERROR fora dos limites. */
+  updateSettings(ctx: RequestContext, data: Partial<GeofenceSettings>): Promise<GeofenceSettings>;
+  /** Propriedades com pendência agora, mais o raio e o X da clínica. */
+  targets(ctx: RequestContext): Promise<GeofenceTargets>;
+  /**
+   * O aparelho entrou no raio da propriedade. O servidor confere a pendência
+   * de novo e publica `geofence.triggered` no máximo uma vez por propriedade
+   * por dia (São Paulo), para quem estava com o aparelho.
+   */
+  hit(ctx: RequestContext, propertyId: UUID): Promise<GeofenceHitResult>;
+}
+
 // ═══ MS5 — Notification (M3, Sprint 10) ═══════════════════════════
 // Decisões (12/11/2026, ADR-007): todas as notificações vão para o
 // veterinário (nenhuma para o proprietário); WhatsApp e e-mail ficam
@@ -1225,8 +1290,8 @@ export type NotificationData =
     }
   | { type: 'stock_expiry'; productName: string; expiryDate: ISODateString | null }
   | { type: 'stock_low'; productName: string; quantityInStock: number | null }
-  /** RASCUNHO — fechado na Sprint 11 (geofence). */
-  | { type: 'geofence'; propertyId: UUID; reasons: Array<'return_pending' | 'no_recent_visit'> };
+  /** Chegou perto de uma propriedade com pendência (Sprint 11). */
+  | { type: 'geofence'; propertyId: UUID; reasons: GeofenceReason[] };
 
 /** Item da caixa de entrada (in-app). */
 export interface Notification {
@@ -1743,13 +1808,14 @@ export interface ScheduleReminderDuePayload {
 }
 
 /**
- * RF-AGD-005 / RF-NOT-004 / RN-008 (Plano Plus) — RASCUNHO, fechado na
- * Sprint 11. O aparelho entrou no raio de uma propriedade com pendência:
- * retorno agendado e não concluído, ou sem visita há mais de X dias.
+ * RF-AGD-005 / RF-NOT-004 / RN-008 (Plano Plus). O aparelho entrou no raio
+ * de uma propriedade com pendência (ver `GeofenceReason`). Publicado pelo
+ * MS4 no máximo uma vez por propriedade por dia; vai só para quem estava com
+ * o aparelho.
  */
 export interface GeofenceTriggeredPayload {
   propertyId: UUID;
-  reasons: Array<'return_pending' | 'no_recent_visit'>;
+  reasons: GeofenceReason[];
   returnEventIds: UUID[];
   lastVisitAt: ISODateString | null;
   recipientUserId: UUID;
