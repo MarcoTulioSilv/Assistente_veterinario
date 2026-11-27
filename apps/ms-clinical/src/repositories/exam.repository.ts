@@ -171,7 +171,7 @@ export class ExamRepository {
           lotSize: data.lotSize,
           unitPriceCents: data.unitPriceCents,
           paidDirectlyByClient: data.paidDirectlyByClient,
-          animals: { create: data.animalIds.map((animalId) => ({ tenantId: ctx.tenantId, animalId })) },
+          animals: { create: data.animalIds.map((animalId) => ({ animalId })) },
         },
         include: INCLUDE,
       });
@@ -212,7 +212,7 @@ export class ExamRepository {
           ...(data.unitPriceCents !== undefined ? { unitPriceCents: data.unitPriceCents } : {}),
           ...(data.paidDirectlyByClient !== undefined ? { paidDirectlyByClient: data.paidDirectlyByClient } : {}),
           ...(data.animalIds
-            ? { animals: { create: data.animalIds.map((animalId) => ({ tenantId: ctx.tenantId, animalId })) } }
+            ? { animals: { create: data.animalIds.map((animalId) => ({ animalId })) } }
             : {}),
         },
         include: INCLUDE,

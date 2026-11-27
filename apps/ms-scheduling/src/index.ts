@@ -27,7 +27,7 @@ const domainEventsWorker = startDomainEventsWorker((job) =>
 const reminderService = new ReminderService(new ScheduleEventRepository(), publishDomainEvent);
 const stopReminders = startReminderScan(() => reminderService.run()).catch((err: unknown) => {
   log.error({ err }, 'Não foi possível registrar a varredura de lembretes');
-  return async () => {};
+  return async (): Promise<void> => {};
 });
 
 async function shutdown(signal: string): Promise<void> {

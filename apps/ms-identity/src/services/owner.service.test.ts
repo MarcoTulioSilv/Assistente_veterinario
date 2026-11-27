@@ -15,7 +15,8 @@ const ctx = (plan: 'basic' | 'plus' = 'basic'): RequestContext => ({
 const owner: Owner = {
   id: '33333333-3333-3333-3333-333333333333',
   fullName: 'Proprietário Teste',
-  cpf: '123.456.789-00',
+  cpfCnpj: '529.982.247-25',
+  cpf: '529.982.247-25',
   email: 'owner@example.com',
   phone: '(64) 99999-0000',
   phone2: null,
@@ -110,6 +111,56 @@ describe('OwnerService.update', () => {
 
     expect(update).toHaveBeenCalledWith(ctx(), owner.id, { fullName: 'Nome Atualizado' });
     expect(result.fullName).toBe('Nome Atualizado');
+  });
+});
+
+describe('OwnerService: CPF ou CNPJ', () => {
+  it('grava o CNPJ alfanumérico no formato canônico', async () => {
+    const create = vi.fn().mockResolvedValue(owner);
+    const service = new OwnerService(fakeRepo({ create }), fakePlans());
+
+    await service.create(ctx(), { fullName: 'Haras', cpfCnpj: '12abc34501de35' });
+
+    expect(create).toHaveBeenCalledWith(ctx(), { fullName: 'Haras', cpfCnpj: '12.ABC.345/01DE-35' }, expect.any(Function));
+  });
+
+  it('aceita o campo cpf antigo durante a transição e grava como cpfCnpj', async () => {
+    const create = vi.fn().mockResolvedValue(owner);
+    const service = new OwnerService(fakeRepo({ create }), fakePlans());
+
+    await service.create(ctx(), { fullName: 'Maria', cpf: '52998224725' });
+
+    expect(create).toHaveBeenCalledWith(ctx(), { fullName: 'Maria', cpfCnpj: '529.982.247-25' }, expect.any(Function));
+  });
+
+  it('se vierem os dois, vale cpfCnpj', async () => {
+    const create = vi.fn().mockResolvedValue(owner);
+    const service = new OwnerService(fakeRepo({ create }), fakePlans());
+
+    await service.create(ctx(), { fullName: 'Haras', cpf: '529.982.247-25', cpfCnpj: '11.222.333/0001-81' });
+
+    expect(create).toHaveBeenCalledWith(ctx(), { fullName: 'Haras', cpfCnpj: '11.222.333/0001-81' }, expect.any(Function));
+  });
+
+  it('documento inválido é 422 em cpfCnpj, sem gravar', async () => {
+    const create = vi.fn();
+    const service = new OwnerService(fakeRepo({ create }), fakePlans());
+
+    await expect(service.create(ctx(), { fullName: 'X', cpfCnpj: '123.456.789-00' })).rejects.toMatchObject({
+      statusCode: 422,
+      details: [expect.objectContaining({ field: 'cpfCnpj' })],
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('update também valida e normaliza', async () => {
+    const update = vi.fn().mockResolvedValue(owner);
+    const service = new OwnerService(fakeRepo({ update }), fakePlans());
+
+    await service.update(ctx(), owner.id, { cpf: '11222333000181' });
+    expect(update).toHaveBeenCalledWith(ctx(), owner.id, { cpfCnpj: '11.222.333/0001-81' });
+
+    await expect(service.update(ctx(), owner.id, { cpfCnpj: '11.222.333/0001-82' })).rejects.toMatchObject({ statusCode: 422 });
   });
 });
 

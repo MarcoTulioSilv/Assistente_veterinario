@@ -132,7 +132,7 @@ export class IngestService {
   private readonly now: () => Date;
 
   constructor(private readonly deps: IngestDeps) {
-    this.now = deps.now ?? (() => new Date());
+    this.now = deps.now ?? ((): Date => new Date());
   }
 
   async handle(jobName: string, event: DomainEvent<unknown>): Promise<void> {

@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     data: {
       tenantId: tenant.id,
       fullName: 'José Carlos Ribeiro',
-      cpf: '111.222.333-44',
+      cpfCnpj: '111.222.333-96',
       email: 'jose@exemplo.com.br',
       phone: '(64) 98888-1111',
       city: 'Jataí',

@@ -87,7 +87,7 @@ Como ficou, em `apps/ms-clinical`:
 
 O `ms-inventory` **não** ganhou outbox, de propósito: o único evento que ele publica (`alert.triggered`) nasce de uma varredura de leitura, não de uma escrita transacional — não há commit com o qual ser atômico.
 
-**2. `EVENTS.STOCK_DEDUCTED` não consta da tabela do §5.3** e não tem publisher nem consumidor. Está em `shared-types` desde a Sprint 3, sem uso. Mapeado com lista de assinantes vazia. Ou ganha um consumidor documentado, ou deve ser removido — decidir quando o MS6 (Reporting) for desenhado.
+**2. ~~`EVENTS.STOCK_DEDUCTED` não consta da tabela do §5.3.~~ Removido** (revisão 1.8). Estava em `shared-types` desde a Sprint 3, sem publisher nem consumidor. A decisão de 12/11/2026 tirou o motivo de existir: compra de estoque não entra sozinha no caixa do MS6 — é lançada à mão, por rota própria (Sprint 11). A baixa de estoque continua sendo efeito dos eventos de atendimento, exame e vacinação, não um evento à parte.
 
 **3. Fila de serviço inexistente cresce sem limite.** `removeOnComplete`/`removeOnFail` só podam jobs já processados; job em espera fica. `alert.triggered` vai acumular em `domain-events-notification` até o MS5 existir (Dez/2026). O volume é baixo (alerta diário por tenant), então é aceitável — mas se o MS5 atrasar muito ou o volume crescer, podar a fila ou suspender o publish.
 
@@ -179,3 +179,4 @@ Os dois eventos `auth.*` são os primeiros publicados pelo MS1. Publicação dir
 | 1.5 | Nov/2026 | Reunião de 03/11/2026: medicamento e vacina cobrados e baixados por **ml**. O payload do `vaccination.applied` troca `totalDoses` por `totalMl`; a conversão de ml em frascos passa para o `StockService.deduct` (vale também para itens de atendimento e insumos de exame). |
 | 1.6 | Nov/2026 | Sprint 9 do M3: o MS4 assina `appointment.done` e `vaccination.applied` (que ganham `propertyId`) para registrar a última visita por propriedade, e publica `schedule.reminder_due` a cada 5 min para o MS5. |
 | 1.7 | Nov/2026 | Sprint 10 do M3: o MS5 consome a fila de notificações (ADR-007); eventos `auth.email_verification_requested` e `auth.password_reset_requested`, os primeiros do MS1; `payment.registered` passa a ser descartado; fila `notification-deliveries`, uma entrega por canal. |
+| 1.8 | Nov/2026 | Removido o evento sem uso `stock.deducted` (ponta solta nº 2): compra de estoque entra no caixa à mão, por decisão de 12/11/2026. |

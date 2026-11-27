@@ -148,6 +148,9 @@ export interface IRouteService {
 export interface Owner {
   id: UUID;
   fullName: string;
+  /** CPF ou CNPJ (inclusive o alfanumérico), no formato canônico. */
+  cpfCnpj: string | null;
+  /** @deprecated Mesmo valor de `cpfCnpj`; sai quando a PWA passar a usar `cpfCnpj`. */
   cpf: string | null;
   email: string | null;
   phone: string;
@@ -264,6 +267,9 @@ export interface IAnimalService {
 // ─── DTOs ─────────────────────────────────────────────────────────
 export interface CreateOwnerDto {
   fullName: string;
+  /** CPF ou CNPJ, com ou sem máscara: o servidor valida e grava no formato canônico. */
+  cpfCnpj?: string;
+  /** @deprecated Use `cpfCnpj`. Aceito durante a transição; se vierem os dois, vale `cpfCnpj`. */
   cpf?: string;
   email?: string;
   phone?: string;
@@ -1534,7 +1540,6 @@ export const EVENTS = {
   VACCINATION_APPLIED: 'vaccination.applied',
   VACCINATION_DELETED: 'vaccination.deleted',
   VACCINATION_DUE: 'vaccination.due',
-  STOCK_DEDUCTED: 'stock.deducted',
   ALERT_TRIGGERED: 'alert.triggered',
   PAYMENT_REGISTERED: 'payment.registered',
   SCHEDULE_REMINDER_DUE: 'schedule.reminder_due',
@@ -1593,9 +1598,6 @@ export const EVENT_SUBSCRIBERS: Record<EventName, readonly string[]> = {
   [EVENTS.AUTH_PASSWORD_RESET_REQUESTED]: ['notification'],
   [EVENTS.SCHEDULE_REMINDER_DUE]: ['notification'],
   [EVENTS.GEOFENCE_TRIGGERED]: ['notification'],
-  // Não consta da tabela do ADR-001 §5.3 e não tem consumidor definido —
-  // ver ADR-002 §"Pontas soltas". Publicar hoje seria jogar fora.
-  [EVENTS.STOCK_DEDUCTED]: [],
 };
 
 export interface DomainEvent<T = unknown> {

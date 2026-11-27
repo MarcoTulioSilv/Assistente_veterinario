@@ -48,7 +48,7 @@ describe('OwnerRepository', () => {
   });
 
   it('create() com cpf e phone preenchidos fica com status active', async () => {
-    const created = await repo.create(ctx, { fullName: 'Completo', cpf: '111.222.333-44', phone: '(64) 90000-0000' });
+    const created = await repo.create(ctx, { fullName: 'Completo', cpfCnpj: '111.222.333-44', phone: '(64) 90000-0000' });
     expect(created.status).toBe('active');
   });
 
@@ -58,7 +58,7 @@ describe('OwnerRepository', () => {
   });
 
   it('findById() só encontra dentro do próprio tenant (RLS)', async () => {
-    const created = await repo.create(ctx, { fullName: 'Isolado', cpf: '222.333.444-55', phone: '(64) 91111-1111' });
+    const created = await repo.create(ctx, { fullName: 'Isolado', cpfCnpj: '222.333.444-55', phone: '(64) 91111-1111' });
 
     const found = await repo.findById(ctx, created.id);
     expect(found?.id).toBe(created.id);
@@ -68,8 +68,8 @@ describe('OwnerRepository', () => {
   });
 
   it('countActive() conta só registros não deletados', async () => {
-    await repo.create(ctx, { fullName: 'Um', cpf: '333.444.555-66', phone: '(64) 92222-2222' });
-    const dois = await repo.create(ctx, { fullName: 'Dois', cpf: '444.555.666-77', phone: '(64) 93333-3333' });
+    await repo.create(ctx, { fullName: 'Um', cpfCnpj: '333.444.555-66', phone: '(64) 92222-2222' });
+    const dois = await repo.create(ctx, { fullName: 'Dois', cpfCnpj: '444.555.666-77', phone: '(64) 93333-3333' });
 
     expect(await repo.countActive(ctx)).toBe(2);
 
@@ -78,13 +78,13 @@ describe('OwnerRepository', () => {
   });
 
   it('update() altera os campos informados', async () => {
-    const created = await repo.create(ctx, { fullName: 'Original', cpf: '555.666.777-88', phone: '(64) 94444-4444' });
+    const created = await repo.create(ctx, { fullName: 'Original', cpfCnpj: '555.666.777-88', phone: '(64) 94444-4444' });
     const updated = await repo.update(ctx, created.id, { fullName: 'Alterado' });
     expect(updated.fullName).toBe('Alterado');
   });
 
   it('softDelete() marca deletedAt e some das buscas, sem apagar fisicamente (LGPD)', async () => {
-    const created = await repo.create(ctx, { fullName: 'Pra Deletar', cpf: '666.777.888-99', phone: '(64) 95555-5555' });
+    const created = await repo.create(ctx, { fullName: 'Pra Deletar', cpfCnpj: '666.777.888-99', phone: '(64) 95555-5555' });
 
     await repo.softDelete(ctx, created.id);
 
@@ -95,8 +95,8 @@ describe('OwnerRepository', () => {
   });
 
   it('list() pagina, filtra por status e busca por nome', async () => {
-    await repo.create(ctx, { fullName: 'Ana Silva', cpf: '777.888.999-00', phone: '(64) 96666-6666' });
-    await repo.create(ctx, { fullName: 'Bruno Souza', cpf: '888.999.000-11', phone: '(64) 97777-7777' });
+    await repo.create(ctx, { fullName: 'Ana Silva', cpfCnpj: '777.888.999-00', phone: '(64) 96666-6666' });
+    await repo.create(ctx, { fullName: 'Bruno Souza', cpfCnpj: '888.999.000-11', phone: '(64) 97777-7777' });
     await repo.create(ctx, { fullName: 'Ana Pereira' }); // pending, sem cpf/phone
 
     const ativos = await repo.list(ctx, { page: 1, limit: 20, status: 'active' });

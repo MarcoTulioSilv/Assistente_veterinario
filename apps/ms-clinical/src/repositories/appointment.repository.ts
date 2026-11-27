@@ -211,18 +211,17 @@ export class AppointmentRepository {
           displacementKm: data.displacementKm,
           displacementRateCents: data.displacementRateCents,
           totalCents: data.totalCents,
-          items: { create: data.items.map((item) => ({ ...item, tenantId: ctx.tenantId })) },
+          items: { create: data.items },
           animals: {
             create: data.animalIds.map((animalId) => {
               const clinical = clinicalByAnimal.get(animalId);
               return {
-                tenantId: ctx.tenantId,
                 animalId,
                 ...(clinical?.medicalRecord
-                  ? { medicalRecord: { create: toMedicalRecordData(ctx.tenantId, clinical.medicalRecord) } }
+                  ? { medicalRecord: { create: toMedicalRecordData(clinical.medicalRecord) } }
                   : {}),
                 ...(clinical?.prescriptions?.length
-                  ? { prescriptions: { create: clinical.prescriptions.map((p) => ({ ...p, tenantId: ctx.tenantId })) } }
+                  ? { prescriptions: { create: clinical.prescriptions } }
                   : {}),
               };
             }),
@@ -271,10 +270,10 @@ export class AppointmentRepository {
       for (const clinical of data.clinical ?? []) {
         const key = { appointmentId: id, animalId: clinical.animalId };
         if (clinical.medicalRecord) {
-          const record = toMedicalRecordData(ctx.tenantId, clinical.medicalRecord);
+          const record = toMedicalRecordData(clinical.medicalRecord);
           await tx.medicalRecord.upsert({
             where: { appointmentId_animalId: key },
-            create: { ...record, ...key },
+            create: { ...record, ...key, tenantId: ctx.tenantId },
             update: record,
           });
         }
@@ -305,7 +304,7 @@ export class AppointmentRepository {
             : {}),
           ...(data.totalCents !== undefined ? { totalCents: data.totalCents } : {}),
           ...(data.items
-            ? { items: { create: data.items.map((item) => ({ ...item, tenantId: ctx.tenantId })) } }
+            ? { items: { create: data.items } }
             : {}),
         },
         include: INCLUDE,
@@ -388,7 +387,6 @@ export class AppointmentRepository {
  * o que também evita sobrescrever exame já gravado num update parcial.
  */
 interface MedicalRecordWriteData {
-  tenantId: string;
   anamnesis: string | null;
   diagnosis: string | null;
   treatment: string | null;
@@ -398,9 +396,8 @@ interface MedicalRecordWriteData {
   specialExams?: Prisma.InputJsonValue;
 }
 
-function toMedicalRecordData(tenantId: string, record: MedicalRecordInput): MedicalRecordWriteData {
+function toMedicalRecordData(record: MedicalRecordInput): MedicalRecordWriteData {
   return {
-    tenantId,
     anamnesis: record.anamnesis ?? null,
     diagnosis: record.diagnosis ?? null,
     treatment: record.treatment ?? null,
