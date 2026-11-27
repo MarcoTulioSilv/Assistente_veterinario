@@ -1197,7 +1197,7 @@ export interface GeofenceSettings {
   noVisitDays: number;
 }
 
-export const GEOFENCE_DEFAULTS: GeofenceSettings = { radiusMeters: 500, noVisitDays: 90 };
+export const GEOFENCE_DEFAULTS: GeofenceSettings = { radiusMeters: 2000, noVisitDays: 90 };
 
 /** Limites que o service garante (a validação da tela/Zod deve espelhar). */
 export const GEOFENCE_LIMITS = {

@@ -2,7 +2,7 @@
 -- MS4 — Geofence (Sprint 11 do M3; RF-AGD-005, RF-NOT-004, RN-008, RF-CFG-005)
 --
 -- geofence_settings: raio e "dias sem visita" de cada clínica. Sem linha,
---   vale o padrão do sistema (GEOFENCE_DEFAULTS: 500 m e 90 dias).
+--   vale o padrão do sistema (GEOFENCE_DEFAULTS: 2 km e 90 dias).
 -- geofence_hits: um aviso por propriedade por dia (São Paulo). Guarda só o
 --   id da propriedade, o dia, quem recebeu e o motivo: a posição do aparelho
 --   nunca chega ao servidor.

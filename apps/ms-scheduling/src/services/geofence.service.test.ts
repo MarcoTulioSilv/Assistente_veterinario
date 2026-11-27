@@ -89,7 +89,7 @@ describe('GeofenceService.targets', () => {
 
     expect(repo.listLastVisits).toHaveBeenCalledWith(ctx(), [PROPERTY_A]);
     expect(result).toEqual({
-      radiusMeters: 500,
+      radiusMeters: 2000,
       noVisitDays: 90,
       targets: [
         { propertyId: PROPERTY_A, reasons: ['return_pending'], returnEventIds: [RETURN_1], lastVisitAt: '2026-11-20T12:00:00.000Z' },

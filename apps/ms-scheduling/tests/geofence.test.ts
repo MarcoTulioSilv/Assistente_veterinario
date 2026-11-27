@@ -107,7 +107,7 @@ describe('alvos do geofence (RN-008)', () => {
 
     const { targets, noVisitDays, radiusMeters } = await serviceWith().targets(ctxA);
 
-    expect({ noVisitDays, radiusMeters }).toEqual({ noVisitDays: 90, radiusMeters: 500 });
+    expect({ noVisitDays, radiusMeters }).toEqual({ noVisitDays: 90, radiusMeters: 2000 });
     expect(targets.map((t) => [t.propertyId, t.reasons])).toEqual([[old, ['no_recent_visit']]]);
 
     // X da clínica: com 30 dias, a de 57 dias também entra.
@@ -157,7 +157,7 @@ describe('banco: RLS e CHECKs', () => {
     await serviceWith().updateSettings(ctxA, { radiusMeters: 300 });
 
     await expect(serviceWith().getSettings(ctxA)).resolves.toEqual({ radiusMeters: 300, noVisitDays: 90 });
-    await expect(serviceWith().getSettings(ctxB)).resolves.toEqual({ radiusMeters: 500, noVisitDays: 90 });
+    await expect(serviceWith().getSettings(ctxB)).resolves.toEqual({ radiusMeters: 2000, noVisitDays: 90 });
   });
 
   it('o CHECK recusa raio fora do limite mesmo sem passar pelo service', async () => {

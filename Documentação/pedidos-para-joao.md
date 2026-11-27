@@ -151,7 +151,7 @@ O servidor está na branch `feature/MS4-003-geofence`. É recurso do **Plano Plu
 **Regras (decisões de 12/11 e 27/11)**
 - Pendência de uma propriedade: **retorno** agendado e não concluído, vencido, de hoje ou dos próximos 2 dias; **ou** última visita há mais de X dias (X da clínica, padrão 90).
 - Propriedade nunca visitada **não** conta.
-- Raio padrão: 500 m.
+- Raio padrão: 2 km (2000 m; decisão de 27/11).
 - O aviso sai no máximo **uma vez por propriedade por dia**, só para quem estava com o aparelho.
 - A **posição nunca vai para o servidor**: a PWA compara no aparelho.
 
