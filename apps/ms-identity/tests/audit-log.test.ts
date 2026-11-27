@@ -45,7 +45,7 @@ describe('M-06 — audit_log gravado e DELETE revogado', () => {
   });
 
   it('criar, editar e excluir proprietário deixam um registro cada, só com os nomes dos campos', async () => {
-    const created = await owners.create(ctx, { fullName: 'Maria Titular', cpf: '123.456.789-09', phone: '31999990000' });
+    const created = await owners.create(ctx, { fullName: 'Maria Titular', cpfCnpj: '123.456.789-09', phone: '31999990000' });
     await owners.update(ctx, created.id, { phone: '31988887777' });
     await owners.softDelete(ctx, created.id);
 
@@ -58,7 +58,7 @@ describe('M-06 — audit_log gravado e DELETE revogado', () => {
       ['update', 'owners', USER_ID],
       ['delete', 'owners', USER_ID],
     ]);
-    expect(rows[0]!.newValues).toEqual({ fields: ['cpf', 'fullName', 'phone'] });
+    expect(rows[0]!.newValues).toEqual({ fields: ['cpfCnpj', 'fullName', 'phone'] });
     expect(rows[1]!.newValues).toEqual({ fields: ['phone'] });
 
     // Nenhum valor pessoal foi copiado para a trilha.
@@ -71,7 +71,7 @@ describe('M-06 — audit_log gravado e DELETE revogado', () => {
   it('a escrita desfeita leva o registro de auditoria junto (mesma transação)', async () => {
     const before = await admin.auditLog.count({ where: { tenantId: TENANT_ID } });
     // CPF repetido no mesmo tenant: a UNIQUE recusa e a transação inteira volta.
-    await expect(owners.create(ctx, { fullName: 'Outra', cpf: '123.456.789-09' })).rejects.toThrow();
+    await expect(owners.create(ctx, { fullName: 'Outra', cpfCnpj: '123.456.789-09' })).rejects.toThrow();
     expect(await admin.auditLog.count({ where: { tenantId: TENANT_ID } })).toBe(before);
   });
 

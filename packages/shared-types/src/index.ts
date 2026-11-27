@@ -148,6 +148,9 @@ export interface IRouteService {
 export interface Owner {
   id: UUID;
   fullName: string;
+  /** CPF ou CNPJ (inclusive o alfanumérico), no formato canônico. */
+  cpfCnpj: string | null;
+  /** @deprecated Mesmo valor de `cpfCnpj`; sai quando a PWA passar a usar `cpfCnpj`. */
   cpf: string | null;
   email: string | null;
   phone: string;
@@ -264,6 +267,9 @@ export interface IAnimalService {
 // ─── DTOs ─────────────────────────────────────────────────────────
 export interface CreateOwnerDto {
   fullName: string;
+  /** CPF ou CNPJ, com ou sem máscara: o servidor valida e grava no formato canônico. */
+  cpfCnpj?: string;
+  /** @deprecated Use `cpfCnpj`. Aceito durante a transição; se vierem os dois, vale `cpfCnpj`. */
   cpf?: string;
   email?: string;
   phone?: string;

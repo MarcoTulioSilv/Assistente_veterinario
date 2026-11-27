@@ -1,9 +1,16 @@
-import type { Owner as PrismaOwner } from '@prisma/client';
+import { Prisma, type Owner as PrismaOwner } from '@prisma/client';
 import type { RequestContext, UUID, Paginated, Owner } from '@quironequine/shared-types';
 import { withTenant } from '../prisma';
-import { changedFields, writeAudit } from '@quironequine/shared-middlewares';
-import type { CreateOwnerInput, UpdateOwnerInput, ListOwnersInput } from '../schemas/owner.schema';
+import { AppError, changedFields, writeAudit } from '@quironequine/shared-middlewares';
+import type { CreateOwnerInput, ListOwnersInput } from '../schemas/owner.schema';
 import { lockPlanLimit, type LimitGuard } from './plan-limit';
+
+/**
+ * O que o repositório grava: o documento já validado e canônico, no campo
+ * novo. A tradução do `cpf` antigo fica no OwnerService.
+ */
+export type CreateOwnerData = Omit<CreateOwnerInput, 'cpf'> & { cpfCnpj?: string };
+export type UpdateOwnerData = Partial<CreateOwnerData>;
 
 /**
  * Camada de acesso a dados — Dev 1 é o dono.
@@ -49,7 +56,7 @@ export class OwnerRepository {
    * `withinLimit`: checagem do limite do plano, feita sob a trava e na mesma
    * transação da gravação (auditoria B-01) — ver plan-limit.ts.
    */
-  async create(ctx: RequestContext, data: CreateOwnerInput, withinLimit?: LimitGuard): Promise<Owner> {
+  async create(ctx: RequestContext, data: CreateOwnerData, withinLimit?: LimitGuard): Promise<Owner> {
     return withTenant(ctx.tenantId, async (tx) => {
       if (withinLimit) {
         await lockPlanLimit(tx, ctx.tenantId, 'owners');
@@ -59,7 +66,7 @@ export class OwnerRepository {
         data: {
           tenantId: ctx.tenantId,
           fullName: data.fullName,
-          cpf: data.cpf ?? null,
+          cpfCnpj: data.cpfCnpj ?? null,
           email: data.email ?? null,
           phone: data.phone ?? null,
           phone2: data.phone2 ?? null,
@@ -67,17 +74,17 @@ export class OwnerRepository {
           city: data.city ?? null,
           state: data.state ?? null,
           // RN-006: cadastro parcial fica 'pending'
-          status: data.cpf && data.phone ? 'active' : 'pending',
+          status: data.cpfCnpj && data.phone ? 'active' : 'pending',
         },
-      });
+      }).catch(rethrowDuplicate);
       await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'create', table: 'owners', recordId: row.id, fields: changedFields(data) });
       return toDomain(row);
     });
   }
 
-  async update(ctx: RequestContext, id: UUID, data: UpdateOwnerInput): Promise<Owner> {
+  async update(ctx: RequestContext, id: UUID, data: UpdateOwnerData): Promise<Owner> {
     return withTenant(ctx.tenantId, async (tx) => {
-      const row = await tx.owner.update({ where: { id }, data });
+      const row = await tx.owner.update({ where: { id }, data }).catch(rethrowDuplicate);
       await writeAudit(tx, { tenantId: ctx.tenantId, userId: ctx.userId }, { action: 'update', table: 'owners', recordId: id, fields: changedFields(data) });
       return toDomain(row);
     });
@@ -92,11 +99,21 @@ export class OwnerRepository {
   }
 }
 
+/** O único UNIQUE de owners além da chave é (tenant_id, cpf_cnpj). */
+function rethrowDuplicate(err: unknown): never {
+  if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+    throw AppError.conflict('Já existe proprietário com este CPF/CNPJ nesta clínica');
+  }
+  throw err;
+}
+
 function toDomain(row: PrismaOwner): Owner {
   return {
     id: row.id,
     fullName: row.fullName,
-    cpf: row.cpf,
+    cpfCnpj: row.cpfCnpj,
+    cpf: row.cpfCnpj, // transição: some quando a PWA usar cpfCnpj
+
     email: row.email,
     phone: row.phone ?? '',
     phone2: row.phone2,

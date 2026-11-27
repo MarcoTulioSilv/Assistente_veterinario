@@ -197,7 +197,9 @@ model Owner {
   id            String       @id @default(uuid()) @db.Uuid
   tenantId      String       @map("tenant_id") @db.Uuid
   fullName      String       @map("full_name") @db.VarChar(255)
-  cpf           String?      @db.VarChar(14)
+  // CPF (000.000.000-00) ou CNPJ, inclusive o alfanumérico (XX.XXX.XXX/XXXX-00),
+  // sempre no formato canônico de src/lib/document.ts.
+  cpfCnpj       String?      @map("cpf_cnpj") @db.VarChar(18)
   email         String?      @db.VarChar(255)
   phone         String?      @db.VarChar(20)
   phone2        String?      @db.VarChar(20)
@@ -215,7 +217,7 @@ model Owner {
   properties PropertyOwner[]
   animals    Animal[]
 
-  @@unique([tenantId, cpf])
+  @@unique([tenantId, cpfCnpj])
   // Alvo das FKs compostas (tenant_id, x_id): o Postgres confere FK sem RLS,
   // então só a chave com tenant garante "mesmo tenant" (auditoria M-01).
   @@unique([tenantId, id])

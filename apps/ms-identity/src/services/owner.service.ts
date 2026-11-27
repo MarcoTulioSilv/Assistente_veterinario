@@ -9,6 +9,16 @@ import { AppError } from '@quironequine/shared-middlewares';
 import type { OwnerRepository } from '../repositories/owner.repository';
 import type { PlanService } from './plan.service';
 import type { CreateOwnerInput, UpdateOwnerInput, ListOwnersInput } from '../schemas/owner.schema';
+import { parseCpfCnpj } from '../lib/document';
+
+/**
+ * Transição do documento: o campo novo é `cpfCnpj`; o `cpf` antigo continua
+ * aceito até a PWA migrar (pedidos-para-joao.md). Se vierem os dois, vale o
+ * novo.
+ */
+type WithDocument<T> = Omit<T, 'cpf'> & { cpf?: string; cpfCnpj?: string };
+export type CreateOwnerRequest = WithDocument<CreateOwnerInput>;
+export type UpdateOwnerRequest = WithDocument<UpdateOwnerInput>;
 
 /**
  * Lógica de negócio — Dev 1 é o dono.
@@ -29,16 +39,17 @@ export class OwnerService implements IOwnerService {
     return this.repo.findById(ctx, id);
   }
 
-  async create(ctx: RequestContext, data: CreateOwnerInput): Promise<Owner> {
+  async create(ctx: RequestContext, data: CreateOwnerRequest): Promise<Owner> {
     // Plano Básico: limite de 30 proprietários (ERS §2.6). A contagem acontece
     // sob a trava, na transação da gravação (auditoria B-01).
-    return this.repo.create(ctx, data, (current) => this.plans.assertOwnerLimit(ctx, current));
+    return this.repo.create(ctx, withCanonicalDocument(data), (current) => this.plans.assertOwnerLimit(ctx, current));
   }
 
-  async update(ctx: RequestContext, id: UUID, data: UpdateOwnerInput): Promise<Owner> {
+  async update(ctx: RequestContext, id: UUID, data: UpdateOwnerRequest): Promise<Owner> {
+    const document = withCanonicalDocument(data); // 422 antes de procurar o registro
     const existing = await this.repo.findById(ctx, id);
     if (!existing) throw AppError.notFound('Proprietário não encontrado');
-    return this.repo.update(ctx, id, data);
+    return this.repo.update(ctx, id, document);
   }
 
   async softDelete(ctx: RequestContext, id: UUID): Promise<void> {
@@ -46,4 +57,24 @@ export class OwnerService implements IOwnerService {
     if (!existing) throw AppError.notFound('Proprietário não encontrado');
     await this.repo.softDelete(ctx, id);
   }
+}
+
+/**
+ * Troca `cpf`/`cpfCnpj` pelo documento validado, no formato canônico — é o
+ * que faz o UNIQUE da clínica pegar o mesmo documento escrito de outro jeito.
+ */
+function withCanonicalDocument<T extends { cpf?: string; cpfCnpj?: string }>(
+  data: T,
+): Omit<T, 'cpf' | 'cpfCnpj'> & { cpfCnpj?: string } {
+  const { cpf, cpfCnpj, ...rest } = data;
+  const informed = cpfCnpj ?? cpf;
+  if (informed === undefined) return rest;
+
+  const parsed = parseCpfCnpj(informed);
+  if (!parsed) {
+    throw AppError.validation('CPF ou CNPJ inválido', [
+      { field: 'cpfCnpj', message: 'Informe um CPF ou CNPJ válido (o CNPJ pode ter letras)' },
+    ]);
+  }
+  return { ...rest, cpfCnpj: parsed.formatted };
 }
